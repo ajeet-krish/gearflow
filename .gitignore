@@ -6,8 +6,8 @@ Thumbs.db
 node_modules/
 
 # Env
-.env
-.env.local
+.env.*
+!.env.example
 
 # Build
 /dist/

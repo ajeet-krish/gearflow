@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gearflow.local/schemas/demopack.schema.json",
+  "title": "DemoPack",
+  "type": "object",
+  "required": ["name", "version", "geometry", "grid", "provenance", "meta", "files"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1 },
+    "geometry": { "$ref": "geometry.schema.json" },
+    "grid": { "$ref": "grid.schema.json" },
+    "provenance": { "$ref": "provenance.schema.json" },
+    "meta": {
+      "type": "object",
+      "required": ["spark", "sam", "image"],
+      "properties": {
+        "spark": { "type": "object", "required": ["prompt", "summary", "model"] },
+        "sam": { "type": "object", "required": ["prompt", "summary", "model"] },
+        "image": { "type": "object", "required": ["prompt", "summary", "model"] }
+      }
+    },
+    "files": {
+      "type": "object",
+      "required": ["geometry", "flow"],
+      "properties": {
+        "geometry": { "type": "string" },
+        "flow": { "type": "string" }
+      }
+    }
+  }
+}

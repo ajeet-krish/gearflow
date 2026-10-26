@@ -1,0 +1,55 @@
+{
+  "name": "naca2412-a6",
+  "version": 1,
+  "geometry": {
+    "kind": "naca4",
+    "naca": {
+      "code": "2412",
+      "m": 0.02,
+      "p": 0.4,
+      "t": 0.12
+    },
+    "chord": 1,
+    "alphaDeg": 6,
+    "nPoints": 120
+  },
+  "grid": {
+    "nx": 128,
+    "ny": 128,
+    "domain": {
+      "xMin": -0.5,
+      "xMax": 2,
+      "yMin": -1,
+      "yMax": 1
+    }
+  },
+  "provenance": {
+    "source": "fake-fixture",
+    "label": "Fake fixture, not physics",
+    "generatedAt": "2026-10-26T17:41:08.086Z",
+    "gridLabel": "128 x 128, x [-0.5, 2.0] y [-1.0, 1.0]",
+    "geometryLabel": "NACA 2412, chord 1, alpha 6 deg",
+    "note": "Deterministic fixture generator. No solver ran. Replace with surrogate or LBM in Phase 2."
+  },
+  "meta": {
+    "spark": {
+      "prompt": "Rank fixture plausibility",
+      "summary": "Placeholder, cached fixture note",
+      "model": "spark-placeholder"
+    },
+    "sam": {
+      "prompt": "Segment airfoil mask",
+      "summary": "Placeholder, obstacle channel is mask",
+      "model": "sam-placeholder"
+    },
+    "image": {
+      "prompt": "Thumbnail of wake",
+      "summary": "Placeholder, canvas screenshot in Phase 5",
+      "model": "image-placeholder"
+    }
+  },
+  "files": {
+    "geometry": "geometry/naca2412-a6.json",
+    "flow": "flow/naca2412-a6-128x128.json"
+  }
+}

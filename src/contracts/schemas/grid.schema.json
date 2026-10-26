@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gearflow.local/schemas/grid.schema.json",
+  "title": "GridSpec",
+  "type": "object",
+  "required": ["nx", "ny", "domain"],
+  "properties": {
+    "nx": { "type": "integer", "minimum": 4 },
+    "ny": { "type": "integer", "minimum": 4 },
+    "domain": {
+      "type": "object",
+      "required": ["xMin", "xMax", "yMin", "yMax"],
+      "properties": {
+        "xMin": { "type": "number" },
+        "xMax": { "type": "number" },
+        "yMin": { "type": "number" },
+        "yMax": { "type": "number" }
+      }
+    }
+  }
+}

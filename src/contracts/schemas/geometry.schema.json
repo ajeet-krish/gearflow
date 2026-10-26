@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gearflow.local/schemas/geometry.schema.json",
+  "title": "GeometrySpec",
+  "type": "object",
+  "required": ["kind", "chord", "alphaDeg", "nPoints"],
+  "properties": {
+    "kind": { "enum": ["naca4", "cylinder", "block", "duct"] },
+    "naca": {
+      "type": "object",
+      "required": ["code", "m", "p", "t"],
+      "properties": {
+        "code": { "type": "string", "minLength": 4, "maxLength": 4 },
+        "m": { "type": "number" },
+        "p": { "type": "number" },
+        "t": { "type": "number" }
+      }
+    },
+    "chord": { "type": "number" },
+    "alphaDeg": { "type": "number" },
+    "nPoints": { "type": "integer", "minimum": 4 },
+    "radius": { "type": "number" },
+    "center": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+    },
+    "width": { "type": "number" },
+    "height": { "type": "number" }
+  }
+}

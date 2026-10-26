@@ -1,0 +1,16 @@
+{
+  "name": "block-w050-h020",
+  "geometry": {
+    "kind": "block",
+    "chord": 1,
+    "alphaDeg": 0,
+    "nPoints": 64,
+    "width": 0.5,
+    "height": 0.2,
+    "center": {
+      "x": 0.5,
+      "y": 0
+    }
+  },
+  "points": []
+}

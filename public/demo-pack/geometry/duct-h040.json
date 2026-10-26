@@ -1,0 +1,16 @@
+{
+  "name": "duct-h040",
+  "geometry": {
+    "kind": "duct",
+    "chord": 1,
+    "alphaDeg": 0,
+    "nPoints": 64,
+    "width": 1,
+    "height": 0.4,
+    "center": {
+      "x": 0.5,
+      "y": 0
+    }
+  },
+  "points": []
+}

@@ -1,0 +1,15 @@
+{
+  "name": "cylinder-r025",
+  "geometry": {
+    "kind": "cylinder",
+    "chord": 1,
+    "alphaDeg": 0,
+    "nPoints": 64,
+    "radius": 0.25,
+    "center": {
+      "x": 0.5,
+      "y": 0
+    }
+  },
+  "points": []
+}

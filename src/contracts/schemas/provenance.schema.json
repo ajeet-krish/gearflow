@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gearflow.local/schemas/provenance.schema.json",
+  "title": "Provenance",
+  "type": "object",
+  "required": ["source", "label", "generatedAt", "gridLabel", "geometryLabel"],
+  "properties": {
+    "source": { "const": "fake-fixture" },
+    "label": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "gridLabel": { "type": "string" },
+    "geometryLabel": { "type": "string" },
+    "note": { "type": "string" }
+  }
+}

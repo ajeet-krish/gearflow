@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gearflow.local/schemas/flowfield.schema.json",
+  "title": "FlowField",
+  "description": "Row-major channels, idx = j * nx + i, j = 0 is bottom row.",
+  "type": "object",
+  "required": ["nx", "ny", "domain", "u", "v", "p", "omega", "obstacle"],
+  "properties": {
+    "nx": { "type": "integer", "minimum": 4 },
+    "ny": { "type": "integer", "minimum": 4 },
+    "domain": { "$ref": "grid.schema.json#/properties/domain" },
+    "u": { "type": "array", "items": { "type": "number" } },
+    "v": { "type": "array", "items": { "type": "number" } },
+    "p": { "type": "array", "items": { "type": "number" } },
+    "omega": { "type": "array", "items": { "type": "number" } },
+    "obstacle": { "type": "array", "items": { "type": "number" } }
+  }
+}
