@@ -1,0 +1,23 @@
+{
+  "version": "1",
+  "nx": 128,
+  "ny": 128,
+  "inCh": 3,
+  "outCh": 3,
+  "base": 32,
+  "norm": {
+    "sdfMean": 0.572763979434967,
+    "sdfStd": 0.36044901609420776,
+    "alphaScale": 12.0,
+    "uMean": 0.9218724370002747,
+    "uStd": 0.3121844530105591,
+    "vMean": -0.010826734825968742,
+    "vStd": 0.13050171732902527,
+    "cpMean": -0.019362326711416245,
+    "cpStd": 0.5250352621078491,
+    "nFit": 3584
+  },
+  "weightsFile": "weights.bin",
+  "weightsSha256": "0c0a8d25f1ed1f4192de865489e64d0c7dc4a35575f4dc13092ece2a436682de",
+  "paramCount": 1946947
+}
