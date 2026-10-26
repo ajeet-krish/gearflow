@@ -97,7 +97,10 @@ class SurrogateDataset(Dataset):
         if shard.with_suffix(".npz").exists():
             shard = shard.with_suffix(".npz")
         with np.load(shard) as z:
-            key = f"{entry['id']}.npy"
+            key = entry["id"]
+            if key not in z.files:
+                # Backward compat: some generators stored with .npy suffix
+                key = f"{entry['id']}.npy"
             if key not in z.files:
                 raise ValueError(f"sample {entry['id']} missing in {shard}")
             s = z[key]
