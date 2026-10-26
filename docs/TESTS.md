@@ -80,3 +80,141 @@ Phase tests integrate with prior phase tests (all 121 pre-existing tests still p
 | Test | Root Cause | Suggested Fix |
 |------|-----------|---------------|
 | (none) | All 18 new tests passed on the first run, full suite green | No fix needed |
+
+## 2026-10-26 - Phase 3: Test Report (validation parsers, metrics, tiers, datasets, surrogate TS U-Net, ValidationPanel, App wiring)
+
+### Test Results
+npm test: 18 files, 205 tests, all passed. Baseline before hardening was 17 files, 177 tests, all passed.
+npm run build: tsc --noEmit plus vite build succeeded. dist/index.html 0.55 kB, CSS 7.76 kB, JS 713.49 kB (three.js plus surrogate path, chunk size warning only, pre-existing pattern).
+
+New coverage added in src/phase3.hardening.test.ts (28 tests):
+happy path parsers on real fixtures with baked JSON parity plus CSV versus TXT tolerance plus TMR zone counts plus Gregory flat records,
+happy path metrics on known values (2 pi slope, alpha0, cylinder stagnation and shoulder, uniform circulation zero, band CpMin) plus tier boundary pins,
+edge Fortran D exponents (upper and lower D plus E forms plus McCroskey slope 0.1075 anchor),
+edge Lednicer 66 plus 66 versus Selig 18 plus 18 TE to TE split,
+edge header not on line 11 (shifted CSV metadata, TXT dashes skip, auto routing),
+edge bubble corrupted Re 100k WARN (Re 100k versus 500k differ at 6 deg, WARN never passes and never blocks with 0.20 review band),
+error NaN polar data (CSV NaN and TXT Infinity rejected, metrics and clAtAlpha throw),
+error oversize fixtures (schema grid and nPoints caps, surrogate shape and manifest guards, TMR variables guard),
+error corrupt weights fallback (bad paramCount and grid mismatch refuse activation, analytic fallback stays finite),
+error non-finite surrogate output (Inf head bias, NaN decode, NaN alpha encoding),
+wiring ValidationPanel anchors (clAtAlpha at 4, 6, 8 in all four polars, coarse 32x32 analytic finite, PASS plus WARN plus INFO contract) plus App backends (injected weights serve surrogate, offline fetch holds fallback, bad Re throws).
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| phase3.hardening.test.ts (28) | PASS | Happy path, D exponents, Lednicer vs Selig, shifted header, Re 100k WARN, NaN, oversize, corrupt weights, non-finite output, panel anchors, App backends |
+| parsePolars.test.ts (pre-existing) | PASS | Real fixture CSV, TXT, TMR, coords coverage unchanged |
+| metrics.test.ts (pre-existing) | PASS | Known value metric coverage unchanged |
+| tiers.test.ts (pre-existing) | PASS | Tier boundary coverage unchanged |
+| surrogate.test.ts (pre-existing) | PASS | Tiny weights forward plus fallback coverage unchanged |
+| all other Phase 1 and 2 suites (177) | PASS | No regressions, 205 total |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+
+### Coverage Summary
+Happy path covered (parsers on all four real polars with JSON parity, metrics on 2 pi slope and oracle Cp, tier PASS plus WARN plus INFO evaluation).
+Edge cases covered (Fortran upper and lower D exponents with McCroskey slope anchor, Lednicer 66 plus 66 vs Selig 18 plus 18, shifted header not on line 11 with dashes skip and auto routing, Re 100k bubble rows WARN only with wider 0.20 review band that never blocks).
+Error conditions covered (NaN and Infinity polar cells rejected, schema oversize caps before allocation, corrupt manifest and grid mismatch fall back to finite analytic, Inf head bias and NaN decode rejected, bad Re throws).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 177 pre-existing tests still pass, 205 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| phase3 CSV NaN reject (initial run) | Replacement token minus 0.5002 belongs to the Re 100k polar, absent from the Re 500k fixture, so no NaN was injected and no throw occurred | Replace minus 1.0298, the actual first Re 500k Cl value; fixed, now passes |
+
+## 2026-10-26 - Phase 3 Full Suite: Test Report (232 Node plus 11 Python, review fixes included)
+
+### Test Results
+npm test: 19 files, 232 tests, all passed. Prior Phase 3 entry was 18 files, 205 tests. Delta is phase3.review fixes (21 tests) plus schema growth to 22 plus parsePolars growth to 14 plus surrogate growth to 14 plus metrics trim to 9.
+npm run build: tsc plus vite build succeeded. dist index.html 0.55 kB, CSS 7.76 kB, JS 725.95 kB (three.js plus surrogate path, chunk size warning only, pre existing pattern).
+Python training suite: 11 collected, 9 passed, 2 skipped (missing local data shards, expected without dataset generation). Root pytest has no runner, training project runner is canonical.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| schema.test.ts (22) | PASS | Contracts plus caps plus finiteness, growth from 18, still green |
+| parsePolars.test.ts (14) | PASS | Real fixture CSV plus TXT plus TMR plus coords, still green |
+| potential.test.ts (13) | PASS | Cylinder oracle plus far field plus RMS plus caps |
+| surrogate.test.ts (14) | PASS | Tiny weights forward plus fallback, growth with export contract |
+| phase3.review-fixes.test.ts (21) | PASS | Review follow ups, all green on first full run |
+| phase3.hardening.test.ts (28) | PASS | D exponents, Lednicer vs Selig, shifted header, Re 100k WARN, NaN, oversize, corrupt weights, non finite output, panel anchors, App backends |
+| parametric.test.ts (11) | PASS | Thickness peak plus camber plus closed TE, unchanged |
+| metrics.test.ts (9) | PASS | Known value slopes plus stagnation plus CpMin, still green |
+| sdf.test.ts (9) | PASS | Sign plus circle plus duct union plus caps |
+| fieldTexture.test.ts (4) | PASS | Packing plus extremes plus caps plus non finite reject |
+| fixtures.parity.test.ts (8) | PASS | Manifest plus 5 flows within 1e-4 plus 2 geometries exact |
+| particles.test.ts (4) | PASS | Edge sampling plus determinism plus anti tunneling |
+| tiers.test.ts (7) | PASS | Tier boundary pins, still green |
+| frameSource.test.ts (11) | PASS | Cache plus alpha and Re semantics plus envelope guard |
+| phase1.hardening.test.ts (25) | PASS | Phase 1 regression still green, mocked offline pack only stderr noise |
+| wake.test.ts (2) | PASS | Grid guards plus upstream untouched |
+| fakeFlow.test.ts (4) | PASS | Finite plus deterministic plus wake deflection |
+| phase2.hardening.test.ts (18) | PASS | Cl oracle 0.974988 plus CpMin minus 2.487990 plus cache plus sliders plus boundary |
+| analyticFlow.test.ts (8) | PASS | Analytic oracle coverage still green |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+| training test_export.py (2) | PASS | Flat params roundtrip plus safe load with weights only |
+| training test_model.py (4) | PASS | Forward shapes plus param count TS contract plus base arg build plus reject out of range |
+| training test_reserved.py (3) | PASS | Reserved kinds and alphas plus anchor combo plus non anchor combos |
+| training test_dataset.py (1) | SKIP | Shards missing locally, needs generated dataset, expected skip |
+| training test_leakage.py (1) | SKIP | Splits disjoint needs data dir, expected skip without dataset |
+
+### Coverage Summary
+Happy path covered (parsers on all four real polars with JSON parity, metrics on 2 pi slope and oracle Cp, tier PASS plus WARN plus INFO, surrogate forward shapes with TS param count match, export roundtrip).
+Edge cases covered (Fortran upper and lower D exponents, Lednicer vs Selig TE split, shifted header not on line 11, Re 100k bubble WARN only with 0.20 review band, reserved anchors pinned).
+Error conditions covered (NaN and Infinity polar cells rejected, schema oversize caps before allocation, corrupt manifest and grid mismatch fall back to finite analytic, Inf head bias and NaN decode rejected, bad Re throws, base arg out of range rejected).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 205 prior tests still pass, 232 total Node plus 9 passed Python with 2 expected skips).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full suite green on this run, 232 Node passed plus 9 Python passed with 2 expected skips | No fix needed, generate dataset to clear skips if full data coverage desired |
+
+## 2026-10-26 - Phase 3 Final Verification: Test Report (232 Node plus 11 Python, security Lows resolved)
+
+### Test Results
+npm test: 19 files, 232 tests, all passed. Matches expected Phase 3 full suite count.
+npm run build: tsc noEmit plus vite build succeeded. dist index.html 0.55 kB, CSS 7.76 kB, JS 726.51 kB (three.js plus surrogate path, chunk size warning only, pre existing pattern).
+Python training suite via training project runner: 11 collected, 9 passed, 2 skipped (missing local data shards, expected without dataset generation). Root pytest has no runner, training project runner is canonical.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| schema.test.ts (22) | PASS | Contracts plus caps plus finiteness |
+| parsePolars.test.ts (14) | PASS | Real fixture CSV plus TXT plus TMR plus coords |
+| potential.test.ts (13) | PASS | Cylinder oracle plus far field plus RMS plus caps |
+| surrogate.test.ts (14) | PASS | Tiny weights forward plus fallback plus export contract |
+| phase3.review-fixes.test.ts (21) | PASS | Review follow ups, all green |
+| phase3.hardening.test.ts (28) | PASS | D exponents, Lednicer vs Selig, shifted header, Re 100k WARN, NaN, oversize, corrupt weights, non finite output, panel anchors, App backends |
+| validation metrics.test.ts (9) | PASS | Known value slopes plus stagnation plus CpMin |
+| geometry parametric.test.ts (11) | PASS | Thickness peak plus camber plus closed TE |
+| flow sdf.test.ts (9) | PASS | Sign plus circle plus duct union plus caps |
+| render particles.test.ts (4) | PASS | Edge sampling plus determinism plus anti tunneling |
+| fixtures.parity.test.ts (8) | PASS | Manifest plus 5 flows within 1e-4 plus 2 geometries exact |
+| render fieldTexture.test.ts (4) | PASS | Packing plus extremes plus caps plus non finite reject |
+| validation tiers.test.ts (7) | PASS | Tier boundary pins |
+| flow frameSource.test.ts (11) | PASS | Cache plus alpha and Re semantics plus envelope guard |
+| phase1.hardening.test.ts (25) | PASS | Phase 1 regression green, mocked offline pack stderr noise only |
+| flow wake.test.ts (2) | PASS | Grid guards plus upstream untouched |
+| flow fakeFlow.test.ts (4) | PASS | Finite plus deterministic plus wake deflection |
+| phase2.hardening.test.ts (18) | PASS | Cl oracle 0.974988 plus CpMin minus 2.487990 plus cache plus sliders plus boundary |
+| flow analyticFlow.test.ts (8) | PASS | Analytic oracle coverage |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+| training test_export.py (2) | PASS | Flat params roundtrip plus safe load with weights only |
+| training test_model.py (4) | PASS | Forward shapes plus param count TS contract plus base arg build plus reject out of range |
+| training test_reserved.py (3) | PASS | Reserved kinds and alphas plus anchor combo plus non anchor combos |
+| training test_dataset.py (1) | SKIP | Shards missing locally, needs generated dataset, expected skip |
+| training test_leakage.py (1) | SKIP | Splits disjoint needs data dir, expected skip without dataset |
+
+### Coverage Summary
+Happy path covered (parsers on all four real polars with JSON parity, metrics on 2 pi slope and oracle Cp, tier PASS plus WARN plus INFO, surrogate forward shapes with TS param count match, export roundtrip).
+Edge cases covered (Fortran upper and lower D exponents, Lednicer vs Selig TE split, shifted header, Re 100k bubble WARN only with 0.20 review band, reserved anchors pinned).
+Error conditions covered (NaN and Infinity polar cells rejected, schema oversize caps before allocation, corrupt manifest and grid mismatch fall back to finite analytic, Inf head bias and NaN decode rejected, bad Re throws, base arg out of range rejected).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all prior suites still pass, 232 total Node plus 9 passed Python with 2 expected skips).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full suite green on this run, 232 Node passed plus 9 Python passed with 2 expected skips | No fix needed, generate dataset to clear skips if full data coverage desired |

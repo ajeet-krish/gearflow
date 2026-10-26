@@ -60,6 +60,51 @@ export interface FlowField {
 
 export type ProvenanceSource = "fake-fixture" | "analytic-potential" | "lbm-binary" | "surrogate" | "meta-sam" | "meta-spark" | "meta-image";
 
+/** Phase 3 validation tiers. PASS blocks the demo, WARN needs a note, INFO is display only. */
+export type ValidationTier = "PASS" | "WARN" | "INFO";
+
+/** Per row outcome. WARN tier rows never report pass, they report warn inside the review band. */
+export type ValidationStatus = "pass" | "warn" | "fail" | "info";
+
+/** One row of an AirfoilTools style polar (CSV primary, TXT fallback). */
+export interface PolarRecord {
+    alpha: number;
+    cl: number;
+    cd: number;
+    cdp: number;
+    cm: number;
+    topXtr: number;
+    botXtr: number;
+}
+
+/** One Cp sample from a Tecplot style Cp DAT zone (Gregory data, upper surface only). */
+export interface CpRecord {
+    alpha: number;
+    x: number;
+    cp: number;
+}
+
+/** One rendered validation panel row: expected vs got with tolerance and provenance. */
+export interface ValidationRow {
+    id: string;
+    label: string;
+    tier: ValidationTier;
+    status: ValidationStatus;
+    expected: string;
+    got: string;
+    tolerance: string;
+    source: string;
+    note?: string;
+}
+
+/** Per frame surrogate backend report attached to provenance. */
+export interface SurrogateMeta {
+    backend: string;
+    latencyMs: number;
+    cached: boolean;
+    weightsVersion: string;
+}
+
 export interface Provenance {
   source: ProvenanceSource;
   /** Human readable label, e.g. "Fake fixture, not physics" */

@@ -1,0 +1,16 @@
+[project]
+name = "meta-global-2026"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+# Installs are lock-only: run `uv sync --locked` so local training uses the
+# exact versions pinned in uv.lock. Modal workers pin exact versions
+# separately in training/modal_train.py (torch==2.4.1, numpy==1.26.4).
+dependencies = [
+    "matplotlib>=3.11.2",
+    "modal>=1.6.2",
+    "numpy>=2.5.4",
+    "pandas>=3.1.0",
+    "scipy>=1.18.1",
+]

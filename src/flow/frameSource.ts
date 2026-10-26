@@ -25,7 +25,7 @@ export class FixtureFlowProvider implements FrameSource {
 }
 
 /** Deep clone a GeometrySpec including nested naca and center objects. */
-function cloneGeometry(geom: GeometrySpec): GeometrySpec {
+export function cloneGeometry(geom: GeometrySpec): GeometrySpec {
   return {
     ...geom,
     naca: geom.naca ? { ...geom.naca } : undefined,

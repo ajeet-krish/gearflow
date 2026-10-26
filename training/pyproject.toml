@@ -1,0 +1,17 @@
+[project]
+name = "gearflow-training"
+version = "0.1.0"
+description = "GearFlow Phase 3 surrogate training. Managed with uv, run by the user, never by agents."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4",
+    "numpy>=1.26",
+    "onnx>=1.18",
+    "onnxruntime>=1.20",
+    "pytest>=8.0",
+    "modal>=1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

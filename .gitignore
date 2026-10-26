@@ -14,3 +14,13 @@ node_modules/
 /build/
 /out/
 *.log
+
+# Phase 3 generated artifacts (never commit weights or raw downloads)
+data/
+public/surrogate/*.bin
+public/surrogate/*.onnx
+public/surrogate/*.wasm
+training/checkpoints/
+training/.venv/
+__pycache__/
+*.pyc

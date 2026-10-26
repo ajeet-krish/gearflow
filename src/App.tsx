@@ -4,6 +4,8 @@ import FlowControls, { type FlowMode } from "@/ui/FlowControls";
 import ErrorBoundary from "@/ui/ErrorBoundary";
 import { buildPolygons } from "@/geometry/parametric";
 import { AnalyticFlowProvider } from "@/flow/frameSource";
+import { SurrogateFlowProvider } from "@/flow/surrogate";
+import ValidationPanel from "@/ui/ValidationPanel";
 import { loadDemoPack, type LoadedPack } from "@/meta/fixtures";
 import { DEFAULT_GRID, type FlowField, type GeometrySpec, type Provenance } from "@/contracts/types";
 import type { Point } from "@/geometry/parametric";
@@ -104,6 +106,12 @@ export default function App() {
   // Reynolds number changes reuse cached panels and rebuild the wake only.
   const providerRef = useRef<AnalyticFlowProvider | null>(null);
 
+  // Surrogate provider, created lazily on first opt-in. Weights load once
+  // from public/surrogate; any failure keeps the analytic fallback path.
+  const surrogateRef = useRef<SurrogateFlowProvider | null>(null);
+  const [surrogateReady, setSurrogateReady] = useState(false);
+  const [surrogateNote, setSurrogateNote] = useState<string | null>(null);
+
   useEffect(() => {
     const id = window.setTimeout(() => {
       setDebouncedSpec(spec);
@@ -128,12 +136,62 @@ export default function App() {
       .finally(() => setPackLoading(false));
   }, [mode, pack, packLoading]);
 
+  // Lazy surrogate load, only when the user opts into that backend.
+  useEffect(() => {
+    if (mode !== "surrogate" || surrogateRef.current !== null) return;
+    let cancelled = false;
+    const provider = new SurrogateFlowProvider({ grid: DEFAULT_GRID, geom: debouncedSpec, Re: debouncedRe });
+    setSurrogateNote("loading surrogate weights");
+    provider
+      .ensureLoaded()
+      .then((ok) => {
+        if (cancelled) return;
+        surrogateRef.current = provider;
+        setSurrogateReady(true);
+        setSurrogateNote(ok ? null : "surrogate weights missing, analytic fallback active");
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        console.error("Surrogate load failure:", e instanceof Error ? e.message : String(e));
+        surrogateRef.current = provider;
+        setSurrogateReady(true);
+        setSurrogateNote("surrogate load failed, analytic fallback active");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, debouncedSpec, debouncedRe]);
   // Last good analytic frame. On a failed solve the UI keeps rendering
   // this frame and reports the error inline instead of throwing.
   const lastGoodRef = useRef<SolvedFrame | null>(null);
 
   const solved = useMemo<{ frame: SolvedFrame; error: string | null }>(() => {
     try {
+      if (mode === "surrogate" && surrogateRef.current !== null) {
+        const sp = surrogateRef.current;
+        sp.setGeometry(debouncedSpec);
+        sp.setRe(debouncedRe);
+        const flow = sp.getFrame();
+        const { cl, cpMin, solveMs } = sp.getResult();
+        if (!isUsableField(flow, cl, cpMin)) {
+          throw new Error("surrogate solve produced a non-finite field, holding last good frame");
+        }
+        const polygons = buildPolygons(debouncedSpec);
+        const isFallback = sp.meta.backend !== "surrogate";
+        const provenance: Provenance = {
+          source: isFallback ? "analytic-potential" : "surrogate",
+          label: isFallback
+            ? "surrogate unavailable, analytic fallback"
+            : `surrogate ${sp.meta.weightsVersion}, ${sp.meta.latencyMs.toFixed(1)} ms${sp.meta.cached ? ", cached" : ""}`,
+          generatedAt: new Date().toISOString(),
+          gridLabel: `${DEFAULT_GRID.nx}x${DEFAULT_GRID.ny}`,
+          geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
+          note: isFallback ? "Surrogate weights missing or failed, analytic fallback active." : "Learned U-Net backend, offline weights.",
+        };
+        const frame: SolvedFrame = { flow, polygons, cl, cpMin, solveMs, provenance };
+        lastGoodRef.current = frame;
+        return { frame, error: null };
+      }
       let provider = providerRef.current;
       if (provider === null) {
         provider = new AnalyticFlowProvider(DEFAULT_GRID, debouncedSpec, { Re: debouncedRe });
@@ -165,18 +223,36 @@ export default function App() {
       const fallback = lastGoodRef.current ?? emptyFrame();
       return { frame: fallback, error: message };
     }
-  }, [debouncedSpec, debouncedRe]);
+  }, [debouncedSpec, debouncedRe, mode, surrogateReady]);
 
   const isFixture = mode === "fixture" && pack !== null;
   const frame = solved.frame;
-  const solveError = mode === "analytic" ? solved.error : null;
+  const solveError = isFixture ? null : solved.error;
+  const isSurrogatePending = mode === "surrogate" && !surrogateReady;
+  const sourceIsSurrogate = frame.provenance.source === "surrogate";
+  const isSurrogateFallback = mode === "surrogate" && surrogateReady && !sourceIsSurrogate;
+  const isSurrogateActive = mode === "surrogate" && surrogateReady && sourceIsSurrogate;
   const flow = isFixture && pack ? pack.flow : frame.flow;
   const airfoil = isFixture && pack ? [pack.airfoilPoints] : frame.polygons;
   const provenanceLabel = isFixture && pack
     ? pack.provenance.label
     : solveError !== null
-      ? `analytic error, showing last good (${frame.provenance.geometryLabel}, ${frame.provenance.gridLabel})`
+      ? `solve error, showing last good (${frame.provenance.geometryLabel}, ${frame.provenance.gridLabel})`
       : frame.provenance.label;
+  const dotClass =
+    solveError !== null ? "failed"
+    : isSurrogatePending ? "pending"
+    : isSurrogateActive ? "surrogate"
+    : isSurrogateFallback ? "fallback"
+    : isFixture ? "fixture"
+    : "analytic";
+  const backendName =
+    isFixture ? "fixture preview"
+    : solveError !== null ? `${sourceIsSurrogate ? "surrogate" : "analytic"} held`
+    : isSurrogatePending ? "surrogate loading"
+    : isSurrogateFallback ? "analytic fallback"
+    : isSurrogateActive ? "surrogate live"
+    : "analytic live";
   const regime = regimeLabel(debouncedRe);
   const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${mode}`;
 
@@ -185,16 +261,17 @@ export default function App() {
       <a className="skip" href="#flow">Skip to flow canvas</a>
       <header className="masthead">
         <div>
-          <p className="eyebrow">GearFlow: Phase 2, live analytic loop</p>
+          <p className="eyebrow">GearFlow: Phase 3, validated loop</p>
           <h1 className="display">Wind over a wing, live in the browser</h1>
           <p className="lede">
             Shape the body and the Reynolds number, the field recomputes locally
             in milliseconds. The badge below always says what the pixels are.
           </p>
         </div>
-        <div className="provenance" role="status" aria-label="Data provenance">
-          <span className={`dot${mode === "analytic" && solveError === null ? " analytic" : ""}`} aria-hidden="true" />
-          <span>{packLoading && mode === "fixture" ? "Loading fixture" : provenanceLabel}</span>
+        <div className="provenance" role="status" aria-label={`Data provenance, ${backendName}`}>
+          <span className={`dot ${dotClass}`} aria-hidden="true" />
+          <span className="provText">{packLoading && mode === "fixture" ? "Loading fixture" : provenanceLabel}</span>
+          <span className="provMode mono" aria-hidden="true">{backendName}</span>
         </div>
       </header>
 
@@ -202,9 +279,18 @@ export default function App() {
         <section className="canvasCard" aria-label={isFixture ? "Fixture flow" : "Live analytic flow"}>
           {packError && mode === "fixture" && <p className="error">{packError}</p>}
           {packLoading && mode === "fixture" && !pack && <p className="loading">Loading fixture pack</p>}
+          {isSurrogatePending && (
+            <p className="loading" role="status">Loading surrogate weights, showing analytic meanwhile. No action needed.</p>
+          )}
+          {isSurrogateFallback && (
+            <p className="fallbackNote" role="status">{frame.provenance.note ?? "Surrogate unavailable, analytic fallback active."}</p>
+          )}
+          {mode === "surrogate" && surrogateNote !== null && surrogateReady && isSurrogateFallback && (
+            <p className="reNote">{surrogateNote}</p>
+          )}
           {solveError !== null && !isFixture && (
             <p className="error solveError" role="alert">
-              Analytic solve failed ({solveError}), showing last good field. Adjust the shape controls to recover.
+              {sourceIsSurrogate ? "Surrogate" : "Analytic"} solve failed ({solveError}), showing last good field. Adjust the shape controls to recover.
             </p>
           )}
           <ErrorBoundary resetKey={boundaryKey} label="flow canvas">
@@ -246,6 +332,13 @@ export default function App() {
             />
           </section>
 
+          <section className="card validationCard" aria-label="Validation panel">
+            <h2>Validation ledger</h2>
+            <ErrorBoundary resetKey="validation" label="validation panel">
+              <ValidationPanel />
+            </ErrorBoundary>
+          </section>
+
           <section className="card meta" aria-label="Meta orchestration placeholders">
             <h2>Meta orchestration</h2>
             <ul>
@@ -259,7 +352,7 @@ export default function App() {
       </main>
 
       <footer className="foot">
-        <span className="mono">GearFlow 0.2.0, Phase 2 wiring. Commas and colons only.</span>
+        <span className="mono">GearFlow 0.3.0, Phase 3 validation. Commas and colons only.</span>
       </footer>
     </div>
   );

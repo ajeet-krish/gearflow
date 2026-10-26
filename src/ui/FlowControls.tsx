@@ -3,7 +3,7 @@
 
 import type { GeometryKind, GeometrySpec } from "@/contracts/types";
 
-export type FlowMode = "analytic" | "fixture";
+export type FlowMode = "analytic" | "surrogate" | "fixture";
 
 export interface FlowControlsProps {
   spec: GeometrySpec;
@@ -177,14 +177,26 @@ export default function FlowControls({
         <p className="hint">Log scale. Re shades the wake deficit only, the potential core stays inviscid.</p>
       </div>
 
-      <div className="field toggleRow">
-        <input
-          id="fixtureToggle"
-          type="checkbox"
-          checked={mode === "fixture"}
-          onChange={(e) => onModeChange(e.target.checked ? "fixture" : "analytic")}
-        />
-        <label htmlFor="fixtureToggle">Fixture fallback (fake fixture, not physics)</label>
+      <div className="field">
+        <label htmlFor="backend">Flow backend</label>
+        <select
+          id="backend"
+          value={mode}
+          onChange={(e) => onModeChange(e.target.value as FlowMode)}
+          aria-label="Flow backend: analytic, surrogate, or fixture fallback"
+          aria-describedby="backendHint"
+        >
+          <option value="analytic">Analytic potential (local, deterministic)</option>
+          <option value="surrogate">Surrogate U-Net (falls back to analytic)</option>
+          <option value="fixture">Fixture fallback (fake fixture, not physics)</option>
+        </select>
+        <p className="hint" id="backendHint">
+          {mode === "surrogate"
+            ? "Learned weights load once, then run offline. Any load failure falls back to analytic."
+            : mode === "fixture"
+              ? "Static fixture preview. Not physics, for pipeline checks only."
+              : "Default physics path. Local solve, no fetch, fully offline."}
+        </p>
       </div>
     </div>
   );

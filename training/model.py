@@ -1,0 +1,104 @@
+"""Compact U-Net for the GearFlow Phase 3 surrogate.
+
+Maps 3 input channels (normalized SDF, solid mask, tiled alpha encoding) to
+3 output channels (u, v, Cp) on the fixed 128 by 128 grid.
+
+The layer order is the contract with the TypeScript forward pass in
+src/flow/surrogate.ts: convs live in a ModuleList in exact inference order
+(conv weights then bias per layer, row-major [out, in, ky, kx] flatten).
+No normalization layers: the TS path implements conv plus ReLU only, so
+parity stays exact. Kaiming init keeps the unnormalized stack trainable.
+"""
+
+import torch
+from torch import nn
+
+IN_CH = 3
+OUT_CH = 3
+BASE = 32
+LEVELS = 3
+
+# (name, in_ch, out_ch, kernel) in TS forward order, built from base.
+def layer_order(base: int) -> list[tuple[str, int, int, int]]:
+    if not isinstance(base, int) or base < 1 or base > 64:
+        raise ValueError(f"base must be an integer in [1, 64], got {base}")
+    b = base
+    return [
+        ("enc1_1", 3, b, 3),
+        ("enc1_2", b, b, 3),
+        ("enc2_1", b, 2 * b, 3),
+        ("enc2_2", 2 * b, 2 * b, 3),
+        ("enc3_1", 2 * b, 4 * b, 3),
+        ("enc3_2", 4 * b, 4 * b, 3),
+        ("bot_1", 4 * b, 8 * b, 3),
+        ("bot_2", 8 * b, 8 * b, 3),
+        ("dec3_1", 12 * b, 4 * b, 3),
+        ("dec3_2", 4 * b, 4 * b, 3),
+        ("dec2_1", 6 * b, 2 * b, 3),
+        ("dec2_2", 2 * b, 2 * b, 3),
+        ("dec1_1", 3 * b, b, 3),
+        ("dec1_2", b, b, 3),
+        ("head", b, OUT_CH, 1),
+    ]
+
+
+# Canonical order at the default width. Kept for import compatibility;
+# UNet and param_count always build from the requested base instead.
+LAYER_ORDER = layer_order(BASE)
+
+
+class UNet(nn.Module):
+    def __init__(self, in_ch: int = IN_CH, out_ch: int = OUT_CH, base: int = BASE):
+        super().__init__()
+        if in_ch != IN_CH or out_ch != OUT_CH:
+            raise ValueError(f"UNet contract is {IN_CH}->{OUT_CH}, got {in_ch}->{out_ch}")
+        if not isinstance(base, int) or base < 1 or base > 64:
+            raise ValueError(f"base must be an integer in [1, 64], got {base}")
+        self.base = base
+        self.in_ch = in_ch
+        self.out_ch = out_ch
+        self.levels = LEVELS
+        self.convs = nn.ModuleList()
+        self.names: list[str] = []
+        for name, ci, co, k in layer_order(base):
+            conv = nn.Conv2d(ci, co, kernel_size=k, padding=k // 2, bias=True)
+            nn.init.kaiming_normal_(conv.weight, nonlinearity="relu" if name != "head" else "linear")
+            nn.init.zeros_(conv.bias)
+            self.convs.append(conv)
+            self.names.append(name)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        skips = []
+        h = x
+        # Encoder: conv, relu, conv, relu, pool per level.
+        for level in range(LEVELS):
+            h = torch.relu(self.convs[level * 2](h))
+            h = torch.relu(self.convs[level * 2 + 1](h))
+            skips.append(h)
+            h = nn.functional.max_pool2d(h, 2)
+        # Bottleneck.
+        h = torch.relu(self.convs[6](h))
+        h = torch.relu(self.convs[7](h))
+        # Decoder: upsample, concat, conv, relu, conv, relu per level.
+        for level in range(LEVELS):
+            h = nn.functional.interpolate(h, scale_factor=2, mode="nearest")
+            skip = skips[LEVELS - 1 - level]
+            h = torch.cat([h, skip], dim=1)
+            h = torch.relu(self.convs[8 + level * 2](h))
+            h = torch.relu(self.convs[8 + level * 2 + 1](h))
+        return self.convs[14](h)
+
+    def flat_params(self) -> torch.Tensor:
+        """All params in TS forward order: weight flattened then bias, per conv."""
+        parts = []
+        for conv in self.convs:
+            parts.append(conv.weight.detach().reshape(-1))
+            parts.append(conv.bias.detach().reshape(-1))
+        return torch.cat(parts)
+
+
+def param_count(base: int = BASE) -> int:
+    total = 0
+    for _, ci, co, k in layer_order(base):
+        total += co * ci * k * k + co
+    return total
