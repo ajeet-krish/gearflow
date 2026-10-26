@@ -327,7 +327,7 @@ export function buildPolygons(spec: GeometrySpec): Point[][] {
     if (typeof spec !== "object" || spec === null) {
         throw new Error("buildPolygons: spec must be an object");
     }
-    const kinds = ["naca4", "cylinder", "block", "duct"];
+    const kinds = ["naca4", "cylinder", "block", "duct", "custom"];
     if (!kinds.includes(spec.kind)) {
         throw new Error(`buildPolygons: kind must be one of ${kinds.join(", ")}, got ${String(spec.kind)}`);
     }
@@ -355,6 +355,16 @@ export function buildPolygons(spec: GeometrySpec): Point[][] {
         const height = spec.height ?? 0.5;
         const raw = blockPolygon(0, 0, width, height, spec.nPoints);
         polys = [transformPoints(raw, center.x, center.y, 1, spec.alphaDeg)];
+    } else if (spec.kind === "custom") {
+        if (!Array.isArray(spec.polygon) || spec.polygon.length < 3) {
+            throw new Error("buildPolygons: polygon with at least 3 points is required for kind custom");
+        }
+        const raw = spec.polygon.map((pt) => {
+            assertFiniteNumber("buildPolygons: polygon.x", pt.x);
+            assertFiniteNumber("buildPolygons: polygon.y", pt.y);
+            return { x: pt.x, y: pt.y };
+        });
+        polys = [transformPoints(raw, 0, 0, spec.chord, spec.alphaDeg)];
     } else {
         const width = spec.width ?? 1.0;
         const height = spec.height ?? 0.4;

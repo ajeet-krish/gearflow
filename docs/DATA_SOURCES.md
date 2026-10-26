@@ -1,5 +1,5 @@
 # Data Sources and Provenance
-Last updated: 2026-10-26. Retrieval date for all entries below: 2026-10-26. Phase 3 final with 2412 pair and 9 row tiers.
+Last updated: 2026-10-26. Retrieval date for all validation entries below: 2026-10-26. Phase 3 final with 2412 pair and 9 row tiers. Phase 4 adds Meta API reference only, no new validation anchors.
 
 ## Purpose
 Phase 3 validation anchors for GearFlow. All numbers are vendored as committed JSON under fixtures/validation. No runtime fetch. This file records where each number came from, its license, corrected Reynolds numbers, parser specs, and how leakage is controlled.
@@ -71,3 +71,9 @@ Validation fixtures are held out from surrogate training targets. The surrogate 
 3. Record cylinder band values (St 0.164 to 0.167, Cd 1.32 to 1.38, Cl amplitude 0.32 to 0.35, all INFO rows) plus citations in fixtures/validation/cylinder_re100.json.
 4. Record Di Ilio Cd values as background reference in fixtures/validation/lbm_anchor.json. AK Vortex runs are NOT exit criteria.
 5. Confirm no fetch calls remain in src/flow or validation panel code paths. Confirm no Gregory file is labeled 6M.
+
+## Meta API Reference (Phase 4, not a validation anchor)
+* Purpose: documents the Meta model endpoints used by Phase 4 orchestration. These shape prompts, pricing, rate limits, and caching. They never supply Cl, Cp, alpha0, St, or Cd numbers. Validation numbers stay vendored per sections 1 to 4.
+* Endpoints and docs source: dev.meta.ai docs fetched 2026-10-26 (overview, authentication, pricing and rate limits, structured output, reasoning, prompt caching, responses protocols, image generation, SAM overview, SAM reading segmentation). Full method reference lives in docs/META_API.md.
+* Values used in code: base URL https://api.meta.ai/v1 via proxy /api/meta, Spark muse-spark-1.3 Standard, SAM sam-3.1, Image muse-image-1.0. Pricing and limits copied into docs/META_API.md with retrieval date.
+* Leakage note: Meta generated text, masks, and images are display only. They are excluded from validation fixtures and from surrogate training targets. No change to the leakage statement above.

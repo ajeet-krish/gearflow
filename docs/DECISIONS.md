@@ -139,3 +139,38 @@ Append only. Add new entries at bottom with date. Never rewrite history.
 * Decision: Closed all 4 now. Surrogate weights fetch pre-checks Content-Length against MAX_WEIGHTS_BYTES before arrayBuffer (post-download cap kept as fallback, FetchFn type exposes optional headers). WeightsOverride norm gets the same std positivity check as validateManifest. asTmr and asCoords throw datasets errors on null or non-object zone and point elements. assert_no_leakage keeps the disjoint-ID check for both splits but scopes the reserved-anchor check to train only (val holds reserved anchors by construction). pyproject.toml documents lock-only installs via uv sync --locked with Modal exact pins noted.
 * Rationale: All closable without architecture change, keeps the review record clean heading into Phase 4 Meta orchestration.
 * Impact (judging link): Technical Depth (no open review items, honest provenance).
+
+### 2026-10-26 Proxy key handling for Meta calls
+* Date: 2026-10-26
+* Context: Browser calls to Meta API must not ship MODEL_API_KEY in the bundle. Key format is LLM id secret, per app keys, env only.
+* Options considered: Direct browser calls with env injected at build time versus thin server proxy that injects the key per request.
+* Decision: Thin server proxy at POST /api/meta with key from env, per session rate limit, key stripped from client. Browser MetaClient sends model plus payload only. Sample env documents the variable, repo holds no real key.
+* Impact (judging link): Technical Depth (key safety) and Demo (live calls work without leaking secrets).
+
+### 2026-10-26 SAM custom polygon path with physics mask authoritative
+* Date: 2026-10-26
+* Context: SAM masks are visual quality, but the flow mask must stay exact for Cp and Cl. Need a blend that keeps physics exact while showing SAM value.
+* Options considered: SAM mask as flow mask versus SAM box plus parametric polygon clamp intersected with SDF mask.
+* Decision: Keep SDF plus polygon mask authoritative for physics. SAM output becomes a visual overlay plus label layer. Custom path clamps SAM box to the parametric polygon then intersects with SDF. Fallback chain is SAM mask to polygon heuristic to full frame box, never blocking render.
+* Impact (judging link): Technical Depth (no physics drift) and Demo (visible SAM wow with safe fallback).
+
+### 2026-10-26 Cache TTLs plus serve stale plus EvalLog
+* Date: 2026-10-26
+* Context: Live demo must survive network loss and stay cheap on 150 USD credits. Need TTLs that match content volatility plus transparent cost logging.
+* Options considered: No client cache with live only versus single TTL for all models versus tiered TTL with serve stale and per call eval log.
+* Decision: Tiered HashCache keyed by sha256 of model plus prompt plus params. Spark text 24h, SAM masks 7d, Image assets 7d. Serve stale on failure with cached badge. EvalLog ring buffer cap 200 records model, latency, tokens, cost, cached flag, fallback reason. Panel footer shows session cost and hit rate.
+* Impact (judging link): Demo (offline safe) and Technical Depth (measured cost and latency).
+
+### 2026-10-26 Offline pack as one click judging fallback
+* Date: 2026-10-26
+* Context: Judging network can fail. The full Meta script must run with zero network on one toggle.
+* Options considered: Live only with apologies versus prefetched heroes only versus full OfflinePack with manifest plus cached Spark answers for presets plus SAM rasters for 5 fixtures plus images plus validation JSON.
+* Decision: Build full OfflinePack with manifest. MetaPanel offline toggle short circuits Spark, SAM, and Image to pack entries. EvalLog marks entries cached. Prefetch 2 to 3 Image heroes to /public at build time, live generation only on explicit action.
+* Impact (judging link): Demo (stage safe) and Meta Tooling (orchestration still visible while offline).
+
+### 2026-10-26 Phase 4 review fixes, proxy hardening plus cache and schema caps
+* Date: 2026-10-26
+* Context: Phase 4 code and security reviews returned FAIL with 5 Majors, 1 High, 4 Mediums, 5 Lows across the proxy, eval log, SAM path, solver Kutta, offline pack, cache, poster URL, and schema caps.
+* Options considered: Defer to Phase 5 versus fix all High and Major items plus Mediums and Lows in one pass with regression tests.
+* Decision: Fixed all 13 items. Proxy allowlists 3 POST paths with same origin check, per IP rate limit, 10 MiB body cap with 413, upstream timeout, response cap, generic errors. EvalLog stores payload hash verbatim and the cache layer reports cached hits. SAM hashes full bytes via SHA-256, never caches fallbacks, validates fallback polygons, caps sketches at 5 MiB PNG/JPEG, validates dims and bbox, finite checks iou and confidence, maps AbortError to timeout. Custom closed airfoils get Kutta. Offline pack ships public/offline-pack/index.json with 2 baked cases and wires into App offline state. HashCache is LRU capped at 100 with expiry purge and persist cap plus namespaced clear. Poster URLs allowlist https and sized png base64. Schema enforces chord 1, magnitude bounds, SAM y bounds, Spark nPoints 160, and provider string caps. Monaco preset corrected to m 0.06, FlowControls derives display code, extractContent threads feature, masthead reads Phase 4.
+* Impact (judging link): Technical Depth (closed review gate, 308 tests green) and Demo (offline safe, honest ledger).

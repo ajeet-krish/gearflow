@@ -1,7 +1,7 @@
 // GearFlow Phase 1 contracts. Single source of truth for geometry, grid, flow, provenance.
 // Conventions: chord 1, LE at (0,0), TE at (1,0). World is y-up. Grid row-major idx = j * nx + i, j = 0 is bottom.
 
-export type GeometryKind = "naca4" | "cylinder" | "block" | "duct";
+export type GeometryKind = "naca4" | "cylinder" | "block" | "duct" | "custom";
 
 export interface Naca4Params {
   /** 4 digit code, e.g. "2412" */
@@ -31,6 +31,8 @@ export interface GeometrySpec {
   /** Block or duct extents */
   width?: number;
   height?: number;
+  /** Custom polygon points in chord normalized coords, LE at (0,0), chord 1 (kind === custom) */
+  polygon?: Array<{ x: number; y: number }>;
 }
 
 export interface Domain {
@@ -132,6 +134,66 @@ export interface DemoPack {
     geometry: string;
     flow: string;
   };
+}
+
+/** Phase 4 Meta orchestration contracts. Spark, SAM, and image poster types. */
+
+/** Spark spec proposal: geometry plus flow condition plus model rationale. */
+export interface ParametricSpec {
+  geometry: GeometrySpec;
+  reynolds: number;
+  rationale: string;
+}
+
+/** One actionable geometry tweak proposed by the race engineer. */
+export interface SuggestedChange {
+  field: string;
+  from: number;
+  to: number;
+  rationale: string;
+  predictedEffect: string;
+}
+
+/** Race engineer explanation for a completed run. */
+export interface RaceEngineerResult {
+  headline: string;
+  explanation: string;
+  suggestedChange: SuggestedChange;
+  caveats: string;
+}
+
+/** One Meta API call record for the eval log panel. */
+export interface EvalLogEntry {
+  id: string;
+  at: string;
+  feature: string;
+  model: string;
+  latencyMs: number;
+  costUsd: number;
+  costEstimated: boolean;
+  cached: boolean;
+  ok: boolean;
+  fallback: string | null;
+  hash: string;
+}
+
+/** SAM segmentation outcome: chord normalized polygon plus quality flags. */
+export interface SamResult {
+  polygon: Array<{ x: number; y: number }>;
+  maskIou: number;
+  usedFallback: boolean;
+  confidence: number;
+}
+
+/** One baked offline demo case. No network needed to serve these. */
+export interface OfflineCase {
+  id: string;
+  label: string;
+  spec: ParametricSpec;
+  sparkPrompt: string;
+  engineer: RaceEngineerResult;
+  samPolygon: Array<{ x: number; y: number }>;
+  poster: string;
 }
 
 /** Default Phase 1 domain shared by grid and fixtures. */

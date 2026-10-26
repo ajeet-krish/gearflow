@@ -1,79 +1,106 @@
 # Architecture
-Last updated: 2026-10-26. Phase 3 final, refined anchors with 2412 pair and 9 row list. Solo owner, demo must run offline.
+Last updated: 2026-10-26. Phase 4 Meta orchestration design. Phases 1 to 3 complete, Phase 4 in build, Phase 5 pending. Solo owner, demo must run offline.
 
 ## System Overview
-GearFlow is a browser airfoil flow lab. Vite plus TypeScript, no backend, no network at demo time.
-Phase 1 gives SDF geometry fixtures on a 128 by 128 grid. Phase 2 gives analytic potential flow (Hess Smith panels for airfoils, analytic doublet plus vortex for cylinder, Poiseuille baseline for duct). Phase 3 adds a learned surrogate provider behind the same frame interface plus a validation panel fed by vendored real datasets.
-Text diagram: UI Controls to Frame Source (Analytic or Surrogate) to Render (Canvas plus Particles) to Validation Panel. Meta Orchestrator (Spark, SAM, Image, Glimmer) sits beside the loop for explanation, segmentation, and demo assets. Cache plus Eval Log sits under all calls.
+GearFlow is a browser airfoil flow lab. Vite plus TypeScript, no backend at demo time except a thin Meta proxy for key safety.
+Phase 1 gives SDF geometry fixtures on a 128 by 128 grid. Phase 2 gives analytic potential flow (Hess Smith panels for airfoils, analytic doublet plus vortex for cylinder, Poiseuille baseline for duct). Phase 3 adds a learned surrogate provider behind the same frame interface plus a validation panel fed by vendored datasets.
+Phase 4 adds Meta orchestration beside the loop for explanation, segmentation, and demo assets. Text path: UI Controls to Frame Source (Analytic or Surrogate) to Render (Canvas plus Particles) to Validation Panel. Meta path: MetaPanel to Proxy to MetaClient (Spark, SAM, Image) with HashCache plus EvalLog under all calls, OfflinePack as fallback.
+Core loop never blocks on Meta. Every Meta call has a cached or template fallback and a visible status badge.
 
-## Components
+## Components (core loop, unchanged)
 * Geometry (src/geometry/parametric.ts): NACA 4 digit generator, cosine spacing, polygon plus SDF sign. Canonical TS source, plain node bake script mirrors it with parity test.
-* Potential flow (src/flow/potential.ts, analyticFlow.ts, sdf.ts, wake.ts): Hess Smith constant source plus vortex, N 100 to 160 panels. Influence matrix factored once per geometry, backsolve per alpha. Cylinder uses analytic oracle. Wake stays cosmetic, scaled by Cl, never fed back into Cp or Cl.
+* Potential flow (src/flow/potential.ts, analyticFlow.ts, sdf.ts, wake.ts): Hess Smith constant source plus vortex, N 100 to 160 panels. Matrix factored once per geometry, backsolve per alpha. Cylinder uses analytic oracle. Wake stays cosmetic, scaled by Cl, never fed back into Cp or Cl.
 * Frame source (src/flow/frameSource.ts): single interface over analytic and surrogate backends. UI and render never call providers directly. Deterministic seed phase (seed mod 7) shared across backends.
-* Surrogate provider (Phase 3): compact U Net that maps SDF plus mask plus inflow plus alpha encoding to u, v, Cp on 128 by 128. Runs in browser via preprocessed weights or a small TS inference path. Falls back to analytic on load failure. Provider reports backend name, latency, and cached flag per frame.
-* Validation panel (Phase 3): compares Cl, Cp stagnation, Cp shoulder, alpha0, and cylinder St against vendored JSON fixtures in fixtures/validation. Shows PASS, WARN, or INFO with tolerance and provenance per metric. No network calls.
+* Surrogate provider (src/flow/surrogate.ts): compact U Net behind the same frame signature. Sync gate allows small shapes only, production 128 by 128 with base 32 serves analytic fallback with honest provenance. Async ONNX path is Phase 4 work.
+* Validation panel (src/ui/ValidationPanel.tsx plus src/validation): compares Cl, Cp stagnation, Cp shoulder, alpha0, cylinder St against vendored JSON in fixtures/validation. Shows PASS, WARN, or INFO with tolerance and provenance per metric. No network calls.
 * Render (src/render/FlowCanvas.tsx, fieldTexture.ts, particles.ts, colormap.ts): canvas field texture plus advected particles. Reads frames only, never physics.
 * Contracts (src/contracts): DemoPack, FlowField, Grid, Geometry, Provenance schemas. DemoPack pins version, meta, files, and pack to flow consistency.
-* Meta orchestration (src/meta/fixtures.ts): Spark for plan plus explanation, SAM for geometry masks, Image for demo visuals, Glimmer for fast status copy. Standard mode by default, hash input cache with TTL, cached demo pack for offline judging.
 
-## Data Flow
-1. User picks fixture (0012, 2412, cylinder, duct, block) plus alpha and thickness in UI.
-2. Frame source selects backend (analytic default, surrogate when enabled and loaded).
-3. Backend evaluates u, v, Cp on 128 by 128, masks inside solid via SDF, attaches provenance.
-4. Render draws field plus particles. Validation panel integrates Cl from panel Cp and checks named metrics.
-5. Meta calls (explanation, labels, assets) check cache first, then live API, then template or cached fallback. Eval log records model, latency, cost, cached flag.
+## Phase 4 Meta Orchestration (new)
+Design goal: visible multi model value (Spark reasoning, SAM segmentation, Image visuals) with Standard mode default, cache first, offline pack fallback, and keys never in the browser bundle.
 
-## Surrogate Design (Phase 3)
+### MetaClient (src/meta/metaClient.ts, new)
+* Single fetch wrapper for all Meta calls. Base URL https://api.meta.ai/v1. Timeout 20s, one retry on 429 or 5xx with backoff, typed errors (Auth, RateLimit, SafetyBlock, Network).
+* Takes proxy path only (default /api/meta). Never reads MODEL_API_KEY directly in browser code. Sends model plus payload plus cache key hint, receives JSON plus usage (input, output, cached tokens).
+* Records every call into EvalLog before returning. Returns tagged union (ok with data plus usage, fallback with reason) so UI never throws on Meta failure.
+* Uses OpenAI compatible shape: base URL override plus Bearer token injected server side by the proxy.
+
+### HashCache (src/meta/hashCache.ts, new)
+* Key is sha256 of canonical JSON (model plus endpoint plus prompt plus params). Value holds response JSON plus saved at plus TTL plus cost plus model.
+* Two layers: in memory Map for session speed plus localStorage for reload persistence. Namespaced keys (gearflow:spark, gearflow:sam, gearflow:image).
+* TTL: Spark text 24h, SAM masks 7d, Image assets 7d. Serve stale on failure: if live call fails and any cached entry exists, return stale with cached flag true and a status note.
+* Keyed helpers: getOrFetch for Spark, getImageOrFetch for Image with blob URL cache, getMaskOrFetch for SAM with raster cache.
+
+### EvalLog (src/meta/evalLog.ts, new)
+* Ring buffer (cap 200 entries) in memory plus localStorage persistence. Per call: timestamp, model, endpoint, latency ms, input plus output tokens, cost USD, cached flag, fallback reason or empty.
+* Cost math: Spark Standard input 1.25 per M (cached 0.15 per M) plus output 4.25 per M. SAM image 0.0025 each, video frames 0.0002 each with 50 frame minimum. Image 0.01 each, failures and safety blocks free.
+* Exported with OfflinePack manifest and shown in MetaPanel footer (total cost this session, cache hit rate). Used for judging transparency.
+
+### SparkSpec plus SparkEngineer (src/meta/spark.ts, new)
+* Model muse-spark-1.3 Standard. Temperature 0, reasoning effort low, structured output via json schema (Responses text format or Chat Completions response format, strict false, additionalProperties false, all keys in required list).
+* SparkSpec: natural language to geometry spec. Input example (NACA 2412 at 6 deg, thicken a touch). Output validated against Geometry schema before it touches frame source. Invalid spec returns template default (0012 at 0) with a notice.
+* SparkEngineer: coach explanation. Stable system prompt first, volatile frame numbers last, prompt cache key gearflow-coach with 24h retention. Cites live Cl, Cp min, alpha0 from validation metrics. Short copy for stage (2 sentences) plus expandable detail.
+* Presets (src/meta/presets.ts): curated prompts (explain stall onset, compare 0012 versus 2412 at 6 deg, classroom one liner for lift). Presets are the prefetch list for OfflinePack.
+
+### SamSegment (src/meta/sam.ts, new)
+* Model sam-3.1 via POST /v1/responses. Image input plus noun phrase (naca airfoil, wind tunnel model). Video path reserved, not in demo scope.
+* Parse with streaming accumulate then parser plus raster decode to Uint8Array (H times W, row major). Confidence kept only when include confidence is true.
+* Custom polygon path: component takes airfoil polygon from parametric generator as prior, converts SAM box to polygon clamp, intersects with SDF mask for crisp wall. This keeps physics mask authoritative and SAM as the visual label layer.
+* Fallback chain: SAM mask to bounding box heuristic from SDF polygon to full frame box. Never blocks render. Badge shows (SAM live, SAM cached, heuristic).
+
+### Poster Image (src/meta/poster.ts, new)
+* Model muse-image-1.0. One shot generate plus edit for hero and thumbnail, conversational responses chaining for iterations (previous response id, store true default). Only image generation tool allowed on that path.
+* Prefetch 2 to 3 heroes at build time into /public with fixed style prompt. Live generation only on explicit user action (button), never on slider move. RPM 150 respected with button disable plus queue note.
+* Cost flat 0.01 per image. Failures and safety blocks free. Poster shows cached asset instantly while live generates in background.
+
+### OfflinePack plus Proxy (src/meta/offlinePack.ts, server/proxy.ts, new)
+* OfflinePack: manifest plus cached Spark answers for all presets plus SAM rasters for 5 fixtures plus prefetched images plus fixtures/validation JSON. One click toggle in MetaPanel runs the full script with zero network.
+* Proxy: minimal server route POST /api/meta/* that injects MODEL_API_KEY from env (format LLM id secret), enforces per app keys, rate limits per session, strips key from client. Browser bundle contains no secret. Sample env file documents the variable, repo contains no real key.
+* Standard mode for all judging runs. Contributor models are excluded unless explicit consent plus labeling is added, because that mode trains on content.
+
+### MetaPanel (src/ui/MetaPanel.tsx, new)
+* Single UI surface for all Meta state. Shows per call status (live, cached with age, fallback with reason), latency, cost, model name.
+* Controls: preset picker, Spark explain button, SAM overlay toggle, Poster regenerate button, offline toggle, low bandwidth toggle.
+* Trust copy: labels what Meta did (spec from text, mask from SAM, art from Image) and what is analytic (Cl, Cp from Hess Smith or surrogate). Consent line for Standard mode.
+
+## Data Flow (Phase 4)
+1. User picks fixture plus alpha and thickness, or types a preset prompt in MetaPanel.
+2. SparkSpec path (optional): text to spec JSON, schema validated, applied to frame source on accept. Template fallback on invalid output.
+3. Frame source selects backend (analytic default, surrogate when enabled and allowed by sync gate). Evaluates u, v, Cp on 128 by 128, masks inside solid via SDF, attaches provenance.
+4. Render draws field plus particles. Validation panel integrates Cl from panel Cp and checks named metrics locally.
+5. Meta explain path: SparkEngineer reads frame metrics plus validation tiers, checks HashCache first, then live via Proxy, then template copy. EvalLog records each step.
+6. SAM overlay path: SamSegment checks mask cache, then live, then polygon heuristic. Image path serves /public asset first, live generates only on demand.
+7. Offline toggle short circuits steps 5 and 6 to OfflinePack with zero fetch. EvalLog marks all entries cached.
+
+## Surrogate Design (Phase 3 carried forward)
 * Input channels: normalized SDF over chord, solid mask, freestream u and v, alpha encoding tiled over grid. Grid fixed at x in [minus 0.5, 2.0], y in [minus 1.0, 1.0], chord 1, LE at (0,0).
 * Output channels: u, v, Cp per cell. Cl derived by panel Cp integration for comparability with analytic path.
-* Training data: analytic sweeps (alpha minus 4 to 12 deg, thickness 0.06 to 0.18) plus vendored validation anchors as held out checks, never as train targets for the reported metric. Leakage statement lives in docs/DATA_SOURCES.md.
-* Inference budget: single frame under 100 ms on laptop CPU after warmup, Float32 path, frame cache by (fixture, alpha, backend).
-* Sync path limitation (Phase 3 review): the exact TS forward pass in
-  src/flow/surrogate.ts runs synchronously on the UI thread, so the
-  production 128 by 128 shape can exceed one frame and freeze interaction.
-  Mitigations in place: frame cache (repeat getFrame calls are free),
-  analytic fallback on any inference throw, latency surfaced per frame in
-  SurrogateMeta. A latency gate test pins sub 100 ms inference at the 8 by 8
-  base-2 test shape only. The real fix is the async ONNX path in Phase 4
-  (pinned onnxruntime-web runs model.onnx off the frame loop).
-* Interface: predictSDF(input) to Frame, mirrored on analytic signature so A/B comparison and fallback stay trivial.
-* Scope guard: inviscid training means Cd stays 0 by construction. Cd is displayed as not validated, never tuned to match viscous data.
-* Sync TS conv limitation: unetForward is a synchronous triple loop, so a
-  full 128 by 128 production frame can block the UI thread. The 100 ms
-  budget is currently gated only at the 8 by 8 base-2 test shape
-  (src/phase3.review-fixes.test.ts). Frame cache plus debounce plus the
-  analytic fallback keep the demo interactive; the async ONNX provider is
-  the Phase 4 fix.
+* Training data: analytic sweeps (alpha minus 4 to 12 deg, thickness 0.06 to 0.18) plus vendored anchors as held out checks only. Leakage statement lives in docs/DATA_SOURCES.md.
+* Sync gate: surrogate runs sync forward only when cells times base fits budget 65536, else analytic fallback with meta backend flag. Latency gate test pins small shape timing. Async ONNX is the Phase 4 fix.
+* Scope guard: inviscid training means Cd stays 0 by construction. Cd displayed as not validated.
 
-## Validation Design (Phase 3, final)
-* Vendored fixtures only: 13 files under fixtures/validation, committed to repo. CSV is primary ingest, TXT is fallback, TMR DAT uses Fortran D exponents, Selig DAT gives coordinates. Manual download checklist, no fetch at runtime. Raw files kept as is, JSON is what the panel reads.
-* Validation case list is 9 rows. List below. 2412 pair added to prior 7. Re 100k rows stay WARN only (bubble kink near 1 to 2 deg). Cylinder St, Cd, and Cl amplitude are INFO rows. Cd is NOT validated for any airfoil (inviscid gives 0 by construction). AK Vortex removed from exit criteria.
-* Row 1: 0012 Re 500k absolute Cl at 4, 6, 8 deg, PASS within 0.05. Row 2: 0012 Re 100k Cl, WARN only. Row 3: 2412 Re 500k absolute Cl at 4, 6, 8 deg, PASS within 0.05. Row 4: 2412 Re 100k Cl, WARN only. Row 5: 2412 alpha0 theory minus 2.07, PASS within 0.25 deg. Row 6: 2412 alpha0 experimental minus 2.29 from 500k fit, INFO reference. Row 7: cylinder St 0.164 to 0.167, INFO. Row 8: cylinder mean Cd 1.32 to 1.38, INFO. Row 9: cylinder Cl amplitude 0.32 to 0.35, INFO.
-* Clean airfoil anchors: XFOIL NACA 0012 Re 500k Ncrit 9 plus XFOIL NACA 2412 Re 500k Ncrit 9. Re 100k for both airfoils is WARN display with bubble note. Absolute Cl check uses 4, 6, 8 deg within 0.05. Slope check uses 4 to 8 deg segment to avoid the kink. 2412 uses absolute Cl PASS, not slope percent (viscous slope sits about 18 percent below inviscid, so percent check fails honestly).
-* High Re anchors: NASA TMR 2DN00 Ladson tripped force data at Re 6M M 0.15, Gregory Cp at Re 2.88M (upper surface only, not 6M), McCroskey best fit slope 0.1075 per deg at Re 6M M 0.15.
-* Cylinder anchor: analytic oracle Cp equals 1 minus 4 sin squared theta is PASS (stagnation 1.0 within 0.05, shoulder minus 3.0 within 0.05). Free Re 100 literature band St 0.164 to 0.167, mean Cd 1.32 to 1.38, Cl peak amplitude 0.32 to 0.35 are INFO rows (no unsteady solver in scope). DFG channel benchmark excluded (confined channel, blockage, parabolic inflow, different physics).
-* Alpha0: NACA 0012 expects 0. NACA 2412 has two rows: theory minus 2.07 (PASS target within 0.25 deg) plus experimental fit from 500k polar minus 2.29 (INFO reference, zero crossing between minus 2.5 and minus 2.25). Intercept from linear fit on minus 2 to 6 deg. Re 100k 2412 intercept near minus 1.30 is distorted, WARN only.
-* Tier logic: PASS means within tolerance and demo ready. WARN means outside PASS but within review band, still demoable with a note. INFO means display only, never fails.
-* PASS thresholds: Cl absolute within 0.05 versus XFOIL Re 500k at 4, 6, 8 deg for both 0012 and 2412. Cl slope within 5 percent of 2 pi (0.1097 per deg) below 8 deg on 0012 high Re bridge only. McCroskey slope 0.1075 per deg within 5 percent. Cp stagnation 1.0 within 0.05. Cylinder shoulder minus 3.0 within 0.05. Alpha0 within 0.25 deg (0012 at 0, 2412 theory at minus 2.07).
-* WARN items: XFOIL Re 100k rows for 0012 and 2412 (bubble kink near 1 to 2 deg, never PASS). Review band at about twice PASS tolerance, still demoable with a note.
-* INFO items: viscous suction peaks (Gregory minus 5.2 at 10 deg, minus 10.2 at 15 deg, inviscid overshoots so lower bound only), Cd values for all airfoils (never PASS), transition locations Top_Xtr and Bot_Xtr, cylinder St band plus Cd mean plus Cl amplitude, 2412 experimental alpha0 minus 2.29 reference.
-* Ingest parsers (final): AirfoilTools CSV is primary (10 line metadata, header Alpha,Cl,Cd,Cdp,Cm,Top_Xtr,Bot_Xtr on line 11, comma rows). TXT is fallback (12 line header, whitespace rows of 7 floats). TMR DAT files are Tecplot style with comment lines, variables line, zone headers, then float rows, Fortran D exponents converted to E before parse. Selig coordinate DAT files are plain text (optional header plus x y pairs, TE to TE loop).
-* Exit criteria: AK Vortex removed from exit criteria. Di Ilio hybrid LBM values stay as background reference only. Panel display shows expected, got, tolerance, source file, tier for the 9 listed rows.
+## Validation Design (9 rows, unchanged)
+* Vendored fixtures only: 13 files under fixtures/validation, committed to repo. CSV primary ingest, TXT fallback, TMR DAT with Fortran D exponents, Selig DAT coordinates. No fetch at runtime.
+* Rows: 0012 Re 500k Cl PASS at 4, 6, 8 deg within 0.05. 0012 Re 100k WARN only. 2412 Re 500k Cl PASS at 4, 6, 8 deg within 0.05. 2412 Re 100k WARN only. 2412 theory alpha0 minus 2.07 PASS within 0.25 deg. 2412 experimental minus 2.29 INFO. Cylinder St 0.164 to 0.167 INFO. Cylinder mean Cd 1.32 to 1.38 INFO. Cylinder Cl amplitude 0.32 to 0.35 INFO.
+* Anchors: XFOIL 0012 plus 2412 Re 500k Ncrit 9 clean PASS. Ladson Re 6M tripped force plus McCroskey slope 0.1075 per deg within 5 percent. Gregory Re 2.88M upper surface only, suction peaks INFO lower bounds. Cylinder analytic oracle Cp equals 1 minus 4 sin squared theta PASS at stagnation 1.0 and shoulder minus 3.0.
+* Tiers: PASS demo ready, WARN review band near twice PASS, INFO display only never fails. Cd never validated. AK Vortex removed from exit criteria.
+* Parsers locked: TXT 12 line header whitespace rows, CSV 10 line metadata with header on line 11 comma rows, TMR Tecplot zones with D to E conversion, Selig x y pairs. Panel reads JSON only.
 
 ## Technology Decisions
 * Client: Vite plus TypeScript plus Canvas. Reason: solo scope, zero backend, fast demo.
 * Flow core: TS Hess Smith plus analytic cylinder. Reason: deterministic, testable, under 100 ms.
-* Surrogate: compact U Net behind frame interface. Reason: same UI path, A/B ready, offline weights.
+* Surrogate: compact U Net behind frame interface with sync gate. Reason: same UI path, A/B ready, honest fallback.
 * Validation: vendored JSON, no runtime fetch. Reason: offline judging, leakage control.
-* Meta AI: Standard mode, cache then fallback. Reason: privacy default, survives network loss.
+* Meta AI: Standard mode via proxy, cache then fallback. Reason: privacy default, survives network loss, key safety.
+* Meta UI: one MetaPanel for status plus controls. Reason: judging transparency, single presenter clarity.
 
 ## API Strategy
-* Base URL: https://api.meta.ai/v1
-* Standard mode by default. Contributor mode only with explicit consent and labeling.
-* Caching: hash inputs, set TTL, serve stale on failure. Preload cached responses for live demo.
-* Offline fallback: cached demo pack runs full script with zero network. One click toggle.
-* Fallback chain: SAM to box heuristic, Spark to template, Image to cached asset, surrogate to analytic.
-* Keys in env only, sample env file, no secrets in repo.
+* Base URL: https://api.meta.ai/v1 via proxy path /api/meta. Keys in env only, sample env file, no secrets in repo.
+* Standard mode by default. Contributor mode excluded without explicit consent and labeling.
+* Models: muse-spark-1.3 for text, sam-3.1 for masks, muse-image-1.0 for visuals. Pinned names in MetaClient.
+* Caching: hash inputs with sha256, TTL 24h Spark text and 7d SAM plus Image, serve stale on failure. Preload cached responses for live demo.
+* Offline fallback: OfflinePack runs full script with zero network. One click toggle in MetaPanel.
+* Fallback chain: SAM to polygon heuristic to full frame, Spark to template copy, Image to cached asset, surrogate to analytic.
 
 ## Geography and Offline Fallback
 * Handle ET plus UTC times, locale aware copy.

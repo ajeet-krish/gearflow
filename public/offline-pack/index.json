@@ -1,0 +1,79 @@
+{
+  "bakedAt": "2026-10-26T00:00:00.000Z",
+  "cases": [
+    {
+      "id": "monaco-style",
+      "label": "Monaco style proxy",
+      "spec": {
+        "geometry": {
+          "kind": "naca4",
+          "naca": { "code": "6415", "m": 0.06, "p": 0.4, "t": 0.15 },
+          "chord": 1,
+          "alphaDeg": 10,
+          "nPoints": 120
+        },
+        "reynolds": 200000,
+        "rationale": "High downforce style proxy with strong camber for slow corner study."
+      },
+      "sparkPrompt": "High downforce style proxy, strong camber, alpha near 10, Re near 200k.",
+      "engineer": {
+        "headline": "Camber carries the slow corner",
+        "explanation": "What changed: alpha held at 10. Why: camber adds circulation at low speed. What to try next: thin the section for the straight.",
+        "suggestedChange": {
+          "field": "alphaDeg",
+          "from": 10,
+          "to": 11,
+          "rationale": "Cheap lift check.",
+          "predictedEffect": "Cl rises slightly."
+        },
+        "caveats": "2D potential flow only, not wind tunnel data."
+      },
+      "samPolygon": [
+        { "x": 0, "y": 0 },
+        { "x": 0.25, "y": 0.05 },
+        { "x": 0.75, "y": 0.03 },
+        { "x": 1, "y": 0 },
+        { "x": 0.75, "y": -0.03 },
+        { "x": 0.25, "y": -0.05 }
+      ],
+      "poster": "/offline-pack/poster-monaco-style.svg"
+    },
+    {
+      "id": "monza-style",
+      "label": "Monza style proxy",
+      "spec": {
+        "geometry": {
+          "kind": "naca4",
+          "naca": { "code": "1408", "m": 0.01, "p": 0.4, "t": 0.08 },
+          "chord": 1,
+          "alphaDeg": 3,
+          "nPoints": 120
+        },
+        "reynolds": 500000,
+        "rationale": "Low drag style proxy with a thin section for straight line study."
+      },
+      "sparkPrompt": "Low drag style proxy, thin section, alpha near 3, Re near 500k.",
+      "engineer": {
+        "headline": "Thin section keeps drag low",
+        "explanation": "What changed: alpha held at 3. Why: thin section trims pressure drag. What to try next: add a touch of camber for the corner.",
+        "suggestedChange": {
+          "field": "alphaDeg",
+          "from": 3,
+          "to": 4,
+          "rationale": "Cheap lift check.",
+          "predictedEffect": "Cl rises slightly."
+        },
+        "caveats": "2D potential flow only, not wind tunnel data."
+      },
+      "samPolygon": [
+        { "x": 0, "y": 0 },
+        { "x": 0.25, "y": 0.03 },
+        { "x": 0.75, "y": 0.02 },
+        { "x": 1, "y": 0 },
+        { "x": 0.75, "y": -0.02 },
+        { "x": 0.25, "y": -0.03 }
+      ],
+      "poster": "/offline-pack/poster-monza-style.svg"
+    }
+  ]
+}

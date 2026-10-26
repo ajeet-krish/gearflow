@@ -2,7 +2,7 @@
 // Mirrors src/contracts/schemas/*.json (geometry, grid, flowfield, provenance,
 // demopack). Keep both in sync when either changes.
 
-import type { DemoPack, FlowField, GeometrySpec, GridSpec } from "./types";
+import type { DemoPack, FlowField, GeometrySpec, GridSpec, ParametricSpec, RaceEngineerResult } from "./types";
 
 function isFiniteNumber(x: unknown): x is number {
     return typeof x === "number" && Number.isFinite(x);
@@ -12,12 +12,35 @@ function isNonEmptyString(x: unknown): x is string {
     return typeof x === "string" && x.length > 0;
 }
 
+function checkStringLength(value: string, field: string, max: number): void {
+    if (value.length > max) {
+        throw new Error(`${field} must be <= ${max} chars, got ${value.length}`);
+    }
+}
+
 /** Allocation caps: crafted manifests must not force huge typed arrays or textures. */
 export const MAX_NX = 512;
 export const MAX_NY = 512;
 export const MAX_CELLS = 262144;
 export const MAX_NPOINTS = 4096;
 export const MAX_AIRFOIL_POINTS = 8192;
+
+/** Chord normalized envelope: chord is always 1, magnitudes stay bounded. */
+export const CHORD_VALUE = 1;
+export const RADIUS_MAX = 1;
+export const EXTENT_MAX = 3;
+export const CENTER_X_MIN = -1;
+export const CENTER_X_MAX = 3;
+export const CENTER_Y_MIN = -2;
+export const CENTER_Y_MAX = 2;
+
+/** Spark spec string and point caps. */
+export const SPARK_NPOINTS_MAX = 160;
+export const RATIONALE_MAX = 500;
+export const HEADLINE_MAX = 500;
+export const EXPLANATION_MAX = 2000;
+export const CAVEATS_MAX = 2000;
+export const CHANGE_FIELD_MAX = 500;
 
 /**
  * Validated UI envelope (matches the FlowControls sliders). The solver is
@@ -49,10 +72,13 @@ export function validatePackFilePath(p: unknown): asserts p is string {
 export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
     if (typeof g !== "object" || g === null) throw new Error("GeometrySpec must be an object");
     const spec = g as Record<string, unknown>;
-    const kinds = ["naca4", "cylinder", "block", "duct"];
+    const kinds = ["naca4", "cylinder", "block", "duct", "custom"];
     if (!kinds.includes(spec.kind as string)) throw new Error(`GeometrySpec.kind must be one of ${kinds.join(", ")}`);
     if (!isFiniteNumber(spec.chord) || (spec.chord as number) <= 0) {
         throw new Error("GeometrySpec.chord must be a positive finite number");
+    }
+    if (Math.abs((spec.chord as number) - CHORD_VALUE) > 1e-9) {
+        throw new Error(`GeometrySpec.chord must be ${CHORD_VALUE} (chord normalized), got ${spec.chord as number}`);
     }
     if (!isFiniteNumber(spec.alphaDeg)) throw new Error("GeometrySpec.alphaDeg must be finite");
     if ((spec.alphaDeg as number) < ALPHA_MIN || (spec.alphaDeg as number) > ALPHA_MAX) {
@@ -85,18 +111,33 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
         if (!isFiniteNumber(spec.radius) || (spec.radius as number) <= 0) {
             throw new Error("GeometrySpec.radius must be a positive finite number for kind cylinder");
         }
+        if ((spec.radius as number) > RADIUS_MAX) {
+            throw new Error(`GeometrySpec.radius must be <= ${RADIUS_MAX}, got ${spec.radius as number}`);
+        }
     }
     if (spec.kind === "block" || spec.kind === "duct") {
         for (const k of ["width", "height"] as const) {
             if (spec[k] !== undefined && (!isFiniteNumber(spec[k]) || (spec[k] as number) <= 0)) {
                 throw new Error(`GeometrySpec.${k} must be a positive finite number for kind ${spec.kind as string}`);
             }
+            if (spec[k] !== undefined && (spec[k] as number) > EXTENT_MAX) {
+                throw new Error(`GeometrySpec.${k} must be <= ${EXTENT_MAX}, got ${spec[k] as number}`);
+            }
         }
+    }
+    if (spec.kind === "custom") {
+        validateSamPolygon(spec.polygon);
     }
     if (spec.center !== undefined) {
         const c = spec.center as Record<string, unknown>;
         if (!isFiniteNumber(c.x) || !isFiniteNumber(c.y)) {
             throw new Error("GeometrySpec.center must have finite x and y");
+        }
+        if ((c.x as number) < CENTER_X_MIN || (c.x as number) > CENTER_X_MAX) {
+            throw new Error(`GeometrySpec.center.x must be in [${CENTER_X_MIN}, ${CENTER_X_MAX}], got ${c.x as number}`);
+        }
+        if ((c.y as number) < CENTER_Y_MIN || (c.y as number) > CENTER_Y_MAX) {
+            throw new Error(`GeometrySpec.center.y must be in [${CENTER_Y_MIN}, ${CENTER_Y_MAX}], got ${c.y as number}`);
         }
     }
 }
@@ -276,8 +317,97 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 /** Assert a loaded geometry fixture file matches the validated manifest geometry. */
 export function validateLoadedGeometryMatchesPack(packGeometry: GeometrySpec, loaded: unknown): void {
-    validateGeometrySpec(loaded);
     if (!deepEqual(loaded, packGeometry)) {
         throw new Error("Geometry fixture file does not match pack.geometry");
+    }
+    validateGeometrySpec(loaded);
+}
+
+/** SAM polygon bounds shared by custom geometry specs and SAM outputs. */
+export const SAM_POLYGON_MIN_POINTS = 3;
+export const SAM_POLYGON_MAX_POINTS = 160;
+export const SAM_POLYGON_Y_MIN = -1;
+export const SAM_POLYGON_Y_MAX = 1;
+
+/**
+ * Chord normalized polygon check: 3 to 160 finite points, x in [0, 1],
+ * y within [-1, 1]. Used for custom GeometrySpec.polygon and SAM outputs.
+ */
+export function validateSamPolygon(points: unknown): asserts points is Array<{ x: number; y: number }> {
+    if (!Array.isArray(points)) throw new Error("polygon must be an array");
+    if (points.length < SAM_POLYGON_MIN_POINTS || points.length > SAM_POLYGON_MAX_POINTS) {
+        throw new Error(
+            `polygon must have ${SAM_POLYGON_MIN_POINTS} to ${SAM_POLYGON_MAX_POINTS} points, got ${points.length}`
+        );
+    }
+    let minX = Infinity;
+    let maxX = -Infinity;
+    for (let i = 0; i < points.length; i++) {
+        const pt = points[i] as Record<string, unknown>;
+        if (typeof pt !== "object" || pt === null || !isFiniteNumber(pt.x) || !isFiniteNumber(pt.y)) {
+            throw new Error(`polygon[${i}] must have finite x and y`);
+        }
+        const x = pt.x as number;
+        const y = pt.y as number;
+        if (y < SAM_POLYGON_Y_MIN || y > SAM_POLYGON_Y_MAX) {
+            throw new Error(`polygon[${i}].y ${y} is outside chord normalized bounds [${SAM_POLYGON_Y_MIN}, ${SAM_POLYGON_Y_MAX}]`);
+        }
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+    }
+    if (minX < -0.05 || maxX > 1.05) {
+        throw new Error(`polygon x range [${minX.toFixed(3)}, ${maxX.toFixed(3)}] is outside chord normalized bounds near [0, 1]`);
+    }
+    if (maxX - minX < 0.1) {
+        throw new Error("polygon x extent is too narrow for a chord normalized body");
+    }
+}
+
+/** Reynolds number envelope for Spark proposed specs. */
+export const RE_MIN = 1000;
+export const RE_MAX = 1000000;
+
+export function validateParametricSpec(p: unknown): asserts p is ParametricSpec {
+    if (typeof p !== "object" || p === null) throw new Error("ParametricSpec must be an object");
+    const spec = p as Record<string, unknown>;
+    if (typeof spec.rationale !== "string" || spec.rationale.length === 0) {
+        throw new Error("ParametricSpec.rationale must be a non-empty string");
+    }
+    checkStringLength(spec.rationale as string, "ParametricSpec.rationale", RATIONALE_MAX);
+    if (!isFiniteNumber(spec.reynolds) || (spec.reynolds as number) < RE_MIN || (spec.reynolds as number) > RE_MAX) {
+        throw new Error(`ParametricSpec.reynolds must be finite in [${RE_MIN}, ${RE_MAX}]`);
+    }
+    validateGeometrySpec(spec.geometry);
+    const geom = spec.geometry as GeometrySpec;
+    if (geom.nPoints > SPARK_NPOINTS_MAX) {
+        throw new Error(`ParametricSpec.geometry.nPoints must be <= ${SPARK_NPOINTS_MAX} for Spark specs, got ${geom.nPoints}`);
+    }
+}
+
+export function validateEngineerResult(r: unknown): asserts r is RaceEngineerResult {
+    if (typeof r !== "object" || r === null) throw new Error("RaceEngineerResult must be an object");
+    const res = r as Record<string, unknown>;
+    for (const f of ["headline", "explanation", "caveats"] as const) {
+        if (typeof res[f] !== "string" || (res[f] as string).length === 0) {
+            throw new Error(`RaceEngineerResult.${f} must be a non-empty string`);
+        }
+    }
+    checkStringLength(res.headline as string, "RaceEngineerResult.headline", HEADLINE_MAX);
+    checkStringLength(res.explanation as string, "RaceEngineerResult.explanation", EXPLANATION_MAX);
+    checkStringLength(res.caveats as string, "RaceEngineerResult.caveats", CAVEATS_MAX);
+    const change = res.suggestedChange as Record<string, unknown> | undefined;
+    if (typeof change !== "object" || change === null) throw new Error("RaceEngineerResult.suggestedChange is required");
+    if (typeof change.field !== "string" || change.field.length === 0) {
+        throw new Error("RaceEngineerResult.suggestedChange.field must be a non-empty string");
+    }
+    checkStringLength(change.field as string, "RaceEngineerResult.suggestedChange.field", CHANGE_FIELD_MAX);
+    for (const f of ["from", "to"] as const) {
+        if (!isFiniteNumber(change[f])) throw new Error(`RaceEngineerResult.suggestedChange.${f} must be finite`);
+    }
+    for (const f of ["rationale", "predictedEffect"] as const) {
+        if (typeof change[f] !== "string" || (change[f] as string).length === 0) {
+            throw new Error(`RaceEngineerResult.suggestedChange.${f} must be a non-empty string`);
+        }
+        checkStringLength(change[f] as string, `RaceEngineerResult.suggestedChange.${f}`, CHANGE_FIELD_MAX);
     }
 }

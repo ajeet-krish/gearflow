@@ -48,6 +48,19 @@ function resolveParams(params: AnalyticFlowParams = {}): { U: number; Re: number
     return { U, Re };
 }
 
+/** Closed airfoil check: at least 3 finite points with a chord-like x extent. */
+export function isClosedAirfoil(polygon: Point[]): boolean {
+    if (!Array.isArray(polygon) || polygon.length < 3) return false;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    for (const p of polygon) {
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return false;
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+    }
+    return maxX - minX >= 0.1;
+}
+
 /** Build polygons, panels with exact cylinder circles, and the panel solution. */
 export function resolveBody(geom: GeometrySpec, U: number): { body: ResolvedBody; solveMs: number } {
     validateGeometrySpec(geom);
@@ -57,7 +70,10 @@ export function resolveBody(geom: GeometrySpec, U: number): { body: ResolvedBody
     const t0 = Date.now();
     const polygons = buildPolygons(geom);
     const bodies = polygons.map((poly) => buildPanels(poly));
-    const kuttaPerBody = bodies.map(() => geom.kind === 'naca4');
+    // Kutta applies to lifting airfoil bodies: NACA 4-digit sections and
+    // closed custom airfoil polygons from SAM sketches. Blunt bodies
+    // (cylinder, block, duct walls) keep gamma 0 with no Kutta row.
+    const kuttaPerBody = bodies.map((_, i) => geom.kind === "naca4" || (geom.kind === "custom" && isClosedAirfoil(polygons[i])));
     const sol = solveBodies(bodies, U, geom.chord, kuttaPerBody);
     if (!Number.isFinite(sol.cl)) {
         throw new Error("resolveBody: non-finite cl (singular panel evaluation)");

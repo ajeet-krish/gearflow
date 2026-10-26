@@ -198,6 +198,7 @@ html, body {
 .provenance .dot.surrogate { background: #7a5c1e; box-shadow: 0 0 0 2px var(--brass); }
 .provenance .dot.pending { background: var(--brass); animation: provPulse 1.2s ease-in-out infinite; }
 .provenance .dot.fallback { background: #b3402a; }
+.provenance .dot.gated { background: #b3402a; box-shadow: 0 0 0 2px var(--brass); }
 .provenance .dot.fixture { background: var(--slate); }
 .provenance .dot.failed { background: #b3402a; box-shadow: 0 0 0 2px #b3402a; }
 .provMode {
@@ -401,4 +402,187 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .masthead { flex-direction: column; }
   .provenance { white-space: normal; max-width: 100%; }
   .provText { overflow-wrap: anywhere; }
+}
+
+/* Phase 4 Meta orchestration. Quiet logbook beside the hero canvas. No gradients. */
+.metaPanel { display: grid; gap: 0; }
+.mRow {
+  padding: 0.8em 0;
+  border-bottom: 1px dashed var(--line);
+}
+.mRow:first-child { padding-top: 0; }
+.mRow:last-of-type { border-bottom: 0; }
+.mRow h3 {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--slate);
+  margin: 0 0 0.6em;
+  font-weight: 600;
+}
+.mLabel { display: block; font-size: 0.88rem; margin-bottom: 0.4em; }
+.mSub { font-size: 0.8rem; color: var(--slate); margin: 0.5em 0 0; }
+.mText {
+  width: 100%;
+  min-height: 64px;
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  background: #fffdf8;
+  color: var(--ink);
+  font-size: 0.92rem;
+  padding: 0.55em 0.7em;
+  resize: vertical;
+  font-family: inherit;
+}
+.mFile {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  font-size: 0.85rem;
+  margin-bottom: 0.6em;
+  color: var(--ink);
+}
+.card .mBtn {
+  cursor: pointer;
+  width: 100%;
+  min-height: 44px;
+  background: var(--paper);
+}
+.card .mBtn:disabled { cursor: not-allowed; }
+.card .mBtn.mApply {
+  border-color: var(--lagoon);
+  border-width: 2px;
+  background: #eef5f2;
+}
+.mError {
+  margin: 0.6em 0 0;
+  padding: 0.6em 0.75em;
+  border: 1px solid #b3402a;
+  border-left: 4px solid #b3402a;
+  background: #faf0ea;
+  color: #6e2318;
+  font-size: 0.85rem;
+  border-radius: 6px;
+}
+.mResult {
+  margin-top: 0.6em;
+  padding: 0.7em 0.8em;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--lagoon);
+  border-radius: 6px;
+  background: #fffdf8;
+  display: grid;
+  gap: 0.45em;
+}
+.mResult p { margin: 0; }
+.mHeadline { font-weight: 650; }
+.mFoot {
+  margin: 0.8em 0 0;
+  padding-top: 0.8em;
+  border-top: 2px solid var(--ink);
+  color: var(--slate);
+}
+.mPoster { margin: 0.6em 0 0; }
+.mPoster img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+}
+.mPoster figcaption { margin-top: 0.4em; color: var(--slate); }
+
+/* Go Offline toggle row and provenance dots. */
+.mToggleRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.6em;
+  align-items: center;
+}
+.mToggleRow input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--lagoon);
+}
+.mToggleRow label { font-size: 0.92rem; font-weight: 600; }
+.mToggleRow label .mSub { display: block; font-weight: 400; }
+.mDot {
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  border: 1px solid var(--ink);
+  background: var(--brass);
+  flex: none;
+}
+.mDot.on { background: var(--lagoon); }
+.mDot.off { background: #b3402a; }
+.mDotInline { display: inline-block; margin-right: 0.4em; vertical-align: baseline; }
+
+/* Style presets. Rendered once in MetaPanel, styled for any card. */
+.presetLabel {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 0.4em;
+}
+.presetGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5em;
+}
+.card .presetBtn, .card .mBtn.presetBtn {
+  cursor: pointer;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  border-radius: 8px;
+  font-size: 0.88rem;
+}
+.card .presetBtn:disabled { cursor: not-allowed; opacity: 0.6; }
+
+/* Eval ledger. */
+.evalCard { border-top-color: var(--lagoon); }
+.evalLog { display: grid; gap: 0.6em; }
+.evalHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8em;
+  flex-wrap: wrap;
+}
+.evalCount { margin: 0; color: var(--slate); }
+.card .mBtn.evalExport { width: auto; padding: 0 1.2em; }
+.evalTable {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 520px;
+  font-size: 0.8rem;
+}
+.evalTable thead th {
+  text-align: left;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--slate);
+  padding: 0.6em 0.7em;
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+  position: sticky;
+  top: 0;
+}
+.evalTable tbody th, .evalTable tbody td {
+  padding: 0.5em 0.7em;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.evalTable tbody tr:last-child th, .evalTable tbody tr:last-child td { border-bottom: 0; }
+.evalTable tbody tr.evalFail { background: #faf0ea; }
+.evalModel { overflow-wrap: anywhere; }
+
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
 }

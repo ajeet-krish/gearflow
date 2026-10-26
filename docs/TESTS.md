@@ -218,3 +218,92 @@ Phase tests integrate with prior phase tests (all prior suites still pass, 232 t
 | Test | Root Cause | Suggested Fix |
 |------|-----------|---------------|
 | (none) | Full suite green on this run, 232 Node passed plus 9 Python passed with 2 expected skips | No fix needed, generate dataset to clear skips if full data coverage desired |
+
+## 2026-10-26 - Phase 4: Test Report (Meta orchestration, Spark spec plus SAM plus cache plus poster plus offline pack)
+
+### Test Results
+npm test: 22 files, 285 tests, all passed. Baseline before hardening was 21 files, 249 tests, all passed.
+npm run build: tsc noEmit plus vite build succeeded. dist index.html 0.55 kB, CSS 11.24 kB, JS 755.20 kB (three.js plus surrogate plus Meta panel, chunk size warning only, pre-existing pattern).
+
+New coverage added in src/phase4.hardening.test.ts (36 tests):
+happy path Spark spec parse plus validate with template envelope, SAM mask to polygon capped at 120 with chord normalized bounds, cache hit on second identical prompt with distinct prompt keys, offline pack load with per case spec and polygon validation,
+edge cache TTL expiry with stale on request plus fresh Spark TTL plus stale served on network failure plus SAM 7 day TTL, bbox fallback on missing mask plus explicit bbox plus dimension mismatch, poster single render with url reuse plus lost session refusal plus brand free prompt, presets two local entries with valid specs inside the slider envelope,
+error schema reject on bad Re and empty rationale and unknown kind plus polygon out of range plus repair once then template fallback, offline mode template spec with zero fetch plus typed offline errors on chat and segment and image plus offline engineer note, SAM empty mask to 6 point proxy plus sketch with empty mask, bad Re below 1000 and above 1000000, oversized upload with mismatched mask length and tiny dims and non Uint8 and 200 point polygon plus corrupt payload fallback plus empty IoU 1, offline pack missing index and empty cases and invalid case.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| phase4.hardening.test.ts (36) | PASS | Happy path, TTL, bbox, poster guard, presets, schema reject, offline no fetch, empty mask, bad Re, oversize, pack failures |
+| meta.test.ts (pre-existing) | PASS | Spark cache, TTL, offline gate, SAM fallback, poster guard, custom polygon unchanged |
+| samMask.test.ts (6) | PASS | Rect trace, empty fallback, dims, IoU unchanged |
+| all other Phase 1 to 3 suites (243) | PASS | No regressions, 285 total |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+
+### Coverage Summary
+Happy path covered (Spark spec parse plus validate, SAM mask to polygon, cache hit, offline pack load).
+Edge cases covered (cache TTL expiry with stale serve, bbox fallback with explicit box, poster session guard with reuse, presets apply with local only specs).
+Error conditions covered (schema reject with repair then template, offline mode with zero fetch, SAM empty mask to proxy, bad Re outside 1000 to 1000000, oversized upload with fallback).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 249 pre-existing tests still pass, 285 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| phase4 presets note (initial run) | Assertion checked the note does not contain car model, but the intended copy reads not a car model, which contains that substring | Assert the note contains not a car model instead; fixed, now passes |
+| phase4 build (initial run) | VALID_SPEC inferred geometry.kind as string, rejected by explainRun ParametricSpec parameter under tsc noEmit | Annotate VALID_SPEC as ParametricSpec; fixed, build now passes |
+
+## 2026-10-26 - Phase 4 Final Verification: Test Report (308 Node plus 11 Python, review and security fixes included)
+
+### Test Results
+npm test: 23 files, 308 tests, all passed. Prior Phase 4 entry was 22 files, 285 tests. Delta is meta/phase4.fixes.test.ts (23 tests) covering all code review and security fixes.
+npm run build: tsc noEmit plus vite build succeeded. dist index.html 0.55 kB, CSS 11.32 kB, JS 763.26 kB (three.js plus surrogate plus Meta panel, chunk size warning only, pre-existing pattern).
+Python training suite via training project runner: 11 collected, 11 passed, 0 skipped. The 2 previously skipped dataset and leakage tests now pass because data shards exist locally. Root pytest has no runner, training project runner is canonical.
+
+New coverage in src/meta/phase4.fixes.test.ts (23 tests):
+happy path proxy gate allowlist with method and dot segment and same origin checks plus rate limit, eval log verbatim hash plus cached events at the cache layer, SAM full byte hash with no fallback caching and strict payload validation, custom airfoil Kutta lift plus solved field Cl, offline pack bundled asset with allowlist and caps and fetch disabled,
+edge cache LRU cap with expiry purge plus persist cap and namespaced clear, poster URL allowlist https and sized png base64, schema magnitude and string caps for provider payloads.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| schema.test.ts (22) | PASS | Contracts plus caps plus finiteness |
+| surrogate.test.ts (14) | PASS | Tiny weights forward plus fallback plus export contract |
+| phase3.review-fixes.test.ts (21) | PASS | Review follow ups, all green |
+| phase3.hardening.test.ts (28) | PASS | D exponents, Lednicer vs Selig, shifted header, Re 100k WARN, NaN, oversize, corrupt weights, non finite output, panel anchors, App backends |
+| phase4.fixes.test.ts (23) | PASS | Proxy gate, eval log hash, SAM byte hash, custom airfoil lift, offline pack bundle, cache LRU, poster URL, schema caps |
+| parsePolars.test.ts (14) | PASS | Real fixture CSV plus TXT plus TMR plus coords |
+| meta.test.ts (11) | PASS | Spark cache, TTL, offline gate, SAM fallback, poster guard, custom polygon |
+| metrics.test.ts (9) | PASS | Known value slopes plus stagnation plus CpMin |
+| parametric.test.ts (11) | PASS | Thickness peak plus camber plus closed TE |
+| potential.test.ts (13) | PASS | Cylinder oracle plus far field plus RMS plus caps |
+| sdf.test.ts (9) | PASS | Sign plus circle plus duct union plus caps |
+| fixtures.parity.test.ts (8) | PASS | Manifest plus 5 flows within 1e-4 plus 2 geometries exact |
+| fieldTexture.test.ts (4) | PASS | Packing plus extremes plus caps plus non finite reject |
+| phase1.hardening.test.ts (25) | PASS | Phase 1 regression green, mocked offline pack stderr noise only |
+| frameSource.test.ts (11) | PASS | Cache plus alpha and Re semantics plus envelope guard |
+| particles.test.ts (4) | PASS | Edge sampling plus determinism plus anti tunneling |
+| samMask.test.ts (6) | PASS | Rect trace, empty fallback, dims, IoU |
+| tiers.test.ts (7) | PASS | Tier boundary pins |
+| wake.test.ts (2) | PASS | Grid guards plus upstream untouched |
+| fakeFlow.test.ts (4) | PASS | Finite plus deterministic plus wake deflection |
+| phase2.hardening.test.ts (18) | PASS | Cl oracle 0.974988 plus CpMin minus 2.487990 plus cache plus sliders plus boundary |
+| phase4.hardening.test.ts (36) | PASS | Happy path, TTL, bbox, poster guard, presets, schema reject, offline no fetch, empty mask, bad Re, oversize, pack failures |
+| analyticFlow.test.ts (8) | PASS | Analytic oracle coverage |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+| training test_export.py (2) | PASS | Flat params roundtrip plus safe load with weights only |
+| training test_model.py (4) | PASS | Forward shapes plus param count TS contract plus base arg build plus reject out of range |
+| training test_reserved.py (3) | PASS | Reserved kinds and alphas plus anchor combo plus non anchor combos |
+| training test_dataset.py (1) | PASS | Shards exist locally, previously skipped, now green |
+| training test_leakage.py (1) | PASS | Splits disjoint, previously skipped, now green |
+
+### Coverage Summary
+Happy path covered (Spark spec parse plus validate, SAM mask to polygon, cache hit, offline pack load, proxy gate allowlist, eval log verbatim hash, custom airfoil lift, export roundtrip).
+Edge cases covered (cache TTL expiry with stale serve plus LRU cap and purge, bbox fallback, poster session guard with URL allowlist, presets local only, Re 100k bubble WARN only).
+Error conditions covered (schema reject with repair then template, offline mode with zero fetch, SAM empty mask to proxy with strict payload validation, bad Re outside 1000 to 1000000, oversized upload with fallback, NaN and Infinity polar cells rejected).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 285 prior Node tests still pass, 308 total Node plus 11 passed Python with 0 skips).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full suite green on this run, 308 Node passed plus 11 Python passed with 0 skips | No fix needed |

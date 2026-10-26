@@ -24,13 +24,26 @@ export class FixtureFlowProvider implements FrameSource {
   }
 }
 
-/** Deep clone a GeometrySpec including nested naca and center objects. */
+/** Deep clone a GeometrySpec including nested naca, center, and polygon. */
 export function cloneGeometry(geom: GeometrySpec): GeometrySpec {
   return {
     ...geom,
     naca: geom.naca ? { ...geom.naca } : undefined,
     center: geom.center ? { ...geom.center } : undefined,
+    polygon: geom.polygon ? geom.polygon.map((pt) => ({ ...pt })) : undefined,
   };
+}
+
+/** Deep value compare for GeometrySpec so re-created but equal specs skip panel re-solves. */
+function polygonsEqual(
+  a: Array<{ x: number; y: number }> | undefined,
+  b: Array<{ x: number; y: number }> | undefined
+): boolean {
+  if (a === b) return true;
+  if ((a === undefined) !== (b === undefined)) return false;
+  if (a === undefined || b === undefined) return false;
+  if (a.length !== b.length) return false;
+  return a.every((pt, i) => pt.x === b[i].x && pt.y === b[i].y);
 }
 
 /** Deep value compare for GeometrySpec so re-created but equal specs skip panel re-solves. */
@@ -48,6 +61,7 @@ function geometriesEqual(a: GeometrySpec, b: GeometrySpec): boolean {
   const bn = b.naca;
   if ((an === undefined) !== (bn === undefined)) return false;
   if (an && bn && (an.code !== bn.code || an.m !== bn.m || an.p !== bn.p || an.t !== bn.t)) return false;
+  if (!polygonsEqual(a.polygon, b.polygon)) return false;
   return true;
 }
 
