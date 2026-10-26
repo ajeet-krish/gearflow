@@ -58,7 +58,7 @@ export interface FlowField {
   obstacle: Float32Array;
 }
 
-export type ProvenanceSource = "fake-fixture" | "lbm-binary" | "surrogate" | "meta-sam" | "meta-spark" | "meta-image";
+export type ProvenanceSource = "fake-fixture" | "analytic-potential" | "lbm-binary" | "surrogate" | "meta-sam" | "meta-spark" | "meta-image";
 
 export interface Provenance {
   source: ProvenanceSource;

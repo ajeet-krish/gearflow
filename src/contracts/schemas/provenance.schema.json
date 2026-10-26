@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["source", "label", "generatedAt", "gridLabel", "geometryLabel"],
   "properties": {
-    "source": { "const": "fake-fixture" },
+    "source": { "enum": ["fake-fixture", "analytic-potential"] },
     "label": { "type": "string" },
     "generatedAt": { "type": "string" },
     "gridLabel": { "type": "string" },

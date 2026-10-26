@@ -90,7 +90,7 @@ describe("validateDemoPack", () => {
         pack.geometry = { ...pack.geometry, chord: 0 };
         expect(() => validateDemoPack(pack)).toThrow(/chord/);
         const pack2 = goodPack();
-        pack2.geometry = { ...pack2.geometry, naca: { code: "9999", m: 0.09, p: 0.9, t: 0.99 } };
+        pack2.geometry = { ...pack2.geometry, naca: { code: "9999", m: 0.09, p: 0.4, t: 0.99 } };
         expect(() => validateDemoPack(pack2)).toThrow(/naca\.t/);
     });
 
@@ -255,5 +255,54 @@ describe("validateLoadedGeometryMatchesPack", () => {
         expect(() =>
             validateLoadedGeometryMatchesPack(pack.geometry, { ...pack.geometry, chord: 2 })
         ).toThrow(/match/);
+    });
+});
+
+describe("UI envelope (sliders)", () => {
+    const base = () => ({
+        kind: "naca4" as const,
+        naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 },
+        chord: 1,
+        alphaDeg: 6,
+        nPoints: 60,
+    });
+
+    it("accepts the slider boundary values", () => {
+        for (const alphaDeg of [-4, 12]) {
+            expect(() => validateGeometrySpec({ ...base(), alphaDeg })).not.toThrow();
+        }
+        expect(() => validateGeometrySpec({ ...base(), naca: { code: "2006", m: 0.02, p: 0.4, t: 0.06 } })).not.toThrow();
+        expect(() => validateGeometrySpec({ ...base(), naca: { code: "2918", m: 0.02, p: 0.4, t: 0.18 } })).not.toThrow();
+        expect(() => validateGeometrySpec({ ...base(), naca: { code: "2006", m: 0, p: 0.4, t: 0.06 } })).not.toThrow();
+    });
+
+    it("rejects alphaDeg outside [-4, 12]", () => {
+        for (const alphaDeg of [-4.5, -10, 12.5, 45]) {
+            expect(() => validateGeometrySpec({ ...base(), alphaDeg })).toThrow(/alphaDeg/);
+        }
+    });
+
+    it("rejects naca params outside the slider envelope", () => {
+        expect(() =>
+            validateGeometrySpec({ ...base(), naca: { code: "2419", m: 0.02, p: 0.4, t: 0.19 } })
+        ).toThrow(/naca\.t/);
+        expect(() =>
+            validateGeometrySpec({ ...base(), naca: { code: "2412", m: 0.02, p: 0.4, t: 0.05 } })
+        ).toThrow(/naca\.t/);
+        expect(() =>
+            validateGeometrySpec({ ...base(), naca: { code: "9412", m: 0.09 + 0.005, p: 0.4, t: 0.12 } })
+        ).toThrow(/naca\.m/);
+        expect(() =>
+            validateGeometrySpec({ ...base(), naca: { code: "2912", m: 0.02, p: 0.9, t: 0.12 } })
+        ).toThrow(/naca\.p/);
+        expect(() =>
+            validateGeometrySpec({ ...base(), naca: { code: "2112", m: 0.02, p: 0.1, t: 0.12 } })
+        ).toThrow(/naca\.p/);
+    });
+
+    it("rejects out-of-envelope geometry inside DemoPack manifests", () => {
+        const pack = goodPack();
+        pack.geometry = { ...pack.geometry, alphaDeg: 45 };
+        expect(() => validateDemoPack(pack)).toThrow(/alphaDeg/);
     });
 });

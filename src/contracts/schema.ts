@@ -19,6 +19,20 @@ export const MAX_CELLS = 262144;
 export const MAX_NPOINTS = 4096;
 export const MAX_AIRFOIL_POINTS = 8192;
 
+/**
+ * Validated UI envelope (matches the FlowControls sliders). The solver is
+ * only characterized inside this envelope; wider geometry still parses at
+ * the polygon level but is rejected here so providers cannot bypass it.
+ */
+export const ALPHA_MIN = -4;
+export const ALPHA_MAX = 12;
+export const NACA_M_MIN = 0;
+export const NACA_M_MAX_ENV = 0.09;
+export const NACA_T_MIN = 0.06;
+export const NACA_T_MAX_ENV = 0.18;
+export const NACA_P_MIN = 0.2;
+export const NACA_P_MAX = 0.8;
+
 /** Allowlisted fixture file paths. Rejects traversal, absolute paths, backslashes, schemes. */
 export const PACK_FILE_RE = /^(geometry|flow)\/[A-Za-z0-9._-]+\.json$/;
 
@@ -41,6 +55,9 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
         throw new Error("GeometrySpec.chord must be a positive finite number");
     }
     if (!isFiniteNumber(spec.alphaDeg)) throw new Error("GeometrySpec.alphaDeg must be finite");
+    if ((spec.alphaDeg as number) < ALPHA_MIN || (spec.alphaDeg as number) > ALPHA_MAX) {
+        throw new Error(`GeometrySpec.alphaDeg must be in [${ALPHA_MIN}, ${ALPHA_MAX}], got ${spec.alphaDeg as number}`);
+    }
     if (!Number.isInteger(spec.nPoints) || (spec.nPoints as number) < 4) {
         throw new Error("GeometrySpec.nPoints must be an integer >= 4");
     }
@@ -58,11 +75,11 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
         const m = naca.m as number;
         const p = naca.p as number;
         const t = naca.t as number;
-        if (!(m >= 0 && m <= 0.095)) throw new Error(`GeometrySpec.naca.m must be in [0, 0.095], got ${m}`);
-        if (m > 1e-10 && !(p > 0 && p < 1)) {
-            throw new Error(`GeometrySpec.naca.p must be in (0, 1) when m > 0, got ${p}`);
+        if (!(m >= NACA_M_MIN && m <= NACA_M_MAX_ENV)) throw new Error(`GeometrySpec.naca.m must be in [${NACA_M_MIN}, ${NACA_M_MAX_ENV}], got ${m}`);
+        if (m > 1e-10 && !(p >= NACA_P_MIN && p <= NACA_P_MAX)) {
+            throw new Error(`GeometrySpec.naca.p must be in [${NACA_P_MIN}, ${NACA_P_MAX}] when m > 0, got ${p}`);
         }
-        if (!(t > 0 && t <= 0.4)) throw new Error(`GeometrySpec.naca.t must be in (0, 0.4], got ${t}`);
+        if (!(t >= NACA_T_MIN && t <= NACA_T_MAX_ENV)) throw new Error(`GeometrySpec.naca.t must be in [${NACA_T_MIN}, ${NACA_T_MAX_ENV}], got ${t}`);
     }
     if (spec.kind === "cylinder") {
         if (!isFiniteNumber(spec.radius) || (spec.radius as number) <= 0) {

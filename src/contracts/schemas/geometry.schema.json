@@ -11,13 +11,13 @@
       "required": ["code", "m", "p", "t"],
       "properties": {
         "code": { "type": "string", "minLength": 4, "maxLength": 4 },
-        "m": { "type": "number" },
-        "p": { "type": "number" },
-        "t": { "type": "number" }
+        "m": { "type": "number", "minimum": 0, "maximum": 0.09 },
+        "p": { "type": "number", "minimum": 0.2, "maximum": 0.8 },
+        "t": { "type": "number", "minimum": 0.06, "maximum": 0.18 }
       }
     },
     "chord": { "type": "number" },
-    "alphaDeg": { "type": "number" },
+    "alphaDeg": { "type": "number", "minimum": -4, "maximum": 12 },
     "nPoints": { "type": "integer", "minimum": 4 },
     "radius": { "type": "number" },
     "center": {

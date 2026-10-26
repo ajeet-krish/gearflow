@@ -27,8 +27,8 @@ Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKAT
 |-------|-------------|--------|
 | Phase 0 | Infra scaffolding | Complete |
 | Phase 1 | Contracts and skeleton (Vite shell, schemas, fixtures) | Complete |
-| Phase 2 | Geometry plus analytic flow | In Progress |
-| Phase 3 | Surrogate and validation | Pending |
+| Phase 2 | Geometry plus analytic flow | Complete |
+| Phase 3 | Surrogate and validation | In Progress |
 | Phase 4 | Meta orchestration (Spark, SAM, Image) | Pending |
 | Phase 5 | Polish, export, submission | Pending |
 

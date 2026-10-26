@@ -159,9 +159,93 @@ html, body {
 .error { color: #ffb4a2; padding: 1em; }
 .loading { color: var(--paper); padding: 2em; text-align: center; }
 
+/* Inline solve failure banner: keeps the last good field visible underneath. */
+.solveError {
+  margin: 0;
+  border-bottom: 1px solid #2a343e;
+  background: #2a1512;
+  color: #ffd9cd;
+}
+
+/* ErrorBoundary fallback inside the canvas card. */
+.errorFallback {
+  padding: 2em 1.5em;
+  text-align: center;
+  color: var(--paper);
+}
+.errorFallback .errorTitle { margin: 0 0 0.4em; font-weight: 650; }
+.errorFallback .errorDetail {
+  margin: 0 0 1em;
+  color: #cfd6cd;
+  word-break: break-word;
+}
+.errorFallback .retryButton {
+  min-height: 44px;
+  min-width: 160px;
+  border: 1px solid var(--paper);
+  background: transparent;
+  color: var(--paper);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 0.5em 1.2em;
+}
+
 .foot { padding: 1rem clamp(1rem, 4vw, 3rem) 2rem; color: var(--slate); }
 
-a:focus-visible, button:focus-visible, input:focus-visible {
+.provenance .dot.analytic { background: var(--lagoon); }
+
+.metricsBar {
+  display: flex;
+  gap: 0.8em;
+  padding: 0.55em 1em;
+  border-top: 1px solid #2a343e;
+  color: #e8e2d2;
+  flex-wrap: wrap;
+}
+
+.reNote {
+  margin: 0;
+  padding: 0.55em 1em 0.8em;
+  color: #b9c4c2;
+  font-size: 0.82rem;
+}
+
+.controls { display: grid; gap: 0.2em; }
+.controls select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.95rem;
+  padding: 0.4em 0.6em;
+}
+
+/* Quiet rail right: thin track, brass thumb, no gradients. */
+.field input[type="range"] {
+  width: 100%;
+  min-height: 44px;
+  accent-color: var(--brass);
+  background: transparent;
+}
+.field output { margin-left: 0.5em; color: var(--ink); }
+.hint { font-size: 0.8rem; color: var(--slate); margin: 0.25em 0 0; }
+.toggleRow {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6em;
+  align-items: center;
+}
+.toggleRow input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--lagoon);
+}
+.toggleRow label { font-size: 0.9rem; }
+
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }

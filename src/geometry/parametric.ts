@@ -12,6 +12,8 @@
 //    positive alpha moves the TE down (for example, (1, 0) at +6 deg goes to
 //    approximately (0.9945, -0.1045)).
 
+import type { GeometrySpec } from "@/contracts/types";
+
 export interface Point {
     x: number;
     y: number;
@@ -169,4 +171,194 @@ export function sdfNormalized(px: number, py: number, poly: Point[], chord = 1):
     }
     const dist = Math.sqrt(minD2) / chord;
     return pointInPolygon(px, py, poly) ? -dist : dist;
+}
+
+/** Hard cap on points per polygon so the dense panel solve stays interactive. */
+export const MAX_POLYGON_POINTS = 160;
+
+/** Cylinder polygon, counter-clockwise, y-up. Angle 0 sits at (cx + r, cy). */
+export function cylinderPolygon(cx: number, cy: number, radius: number, nPoints = 64): Point[] {
+    assertFiniteNumber("cylinderPolygon: cx", cx);
+    assertFiniteNumber("cylinderPolygon: cy", cy);
+    if (!Number.isFinite(radius) || radius <= 0) {
+        throw new Error(`cylinderPolygon: radius must be a positive finite number, got ${String(radius)}`);
+    }
+    if (!Number.isInteger(nPoints) || nPoints < 4) {
+        throw new Error(`cylinderPolygon: nPoints must be an integer >= 4, got ${String(nPoints)}`);
+    }
+    const pts: Point[] = [];
+    for (let i = 0; i < nPoints; i++) {
+        const a = (i / nPoints) * 2 * Math.PI;
+        pts.push({ x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) });
+    }
+    return pts;
+}
+
+/** Even arclength sampler around an axis aligned rectangle, CCW from (x0, y0). */
+function sampleRectangle(x0: number, y0: number, x1: number, y1: number, nPoints: number): Point[] {
+    const corners: Point[] = [
+        { x: x0, y: y0 },
+        { x: x1, y: y0 },
+        { x: x1, y: y1 },
+        { x: x0, y: y1 },
+    ];
+    const edgeLen: number[] = [];
+    let perimeter = 0;
+    for (let e = 0; e < 4; e++) {
+        const a = corners[e];
+        const b = corners[(e + 1) % 4];
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        edgeLen.push(len);
+        perimeter += len;
+    }
+    const pts: Point[] = [];
+    for (let i = 0; i < nPoints; i++) {
+        let s = (i / nPoints) * perimeter;
+        let e = 0;
+        while (e < 3 && s > edgeLen[e]) {
+            s -= edgeLen[e];
+            e++;
+        }
+        const a = corners[e];
+        const b = corners[(e + 1) % 4];
+        const t = edgeLen[e] > 0 ? s / edgeLen[e] : 0;
+        pts.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    }
+    return pts;
+}
+
+/** Block polygon, counter-clockwise, centered at (cx, cy). */
+export function blockPolygon(cx: number, cy: number, width: number, height: number, nPoints = 64): Point[] {
+    assertFiniteNumber("blockPolygon: cx", cx);
+    assertFiniteNumber("blockPolygon: cy", cy);
+    if (!Number.isFinite(width) || width <= 0) {
+        throw new Error(`blockPolygon: width must be a positive finite number, got ${String(width)}`);
+    }
+    if (!Number.isFinite(height) || height <= 0) {
+        throw new Error(`blockPolygon: height must be a positive finite number, got ${String(height)}`);
+    }
+    if (!Number.isInteger(nPoints) || nPoints < 4) {
+        throw new Error(`blockPolygon: nPoints must be an integer >= 4, got ${String(nPoints)}`);
+    }
+    return sampleRectangle(cx - width / 2, cy - height / 2, cx + width / 2, cy + height / 2, nPoints);
+}
+
+/**
+ * Duct wall polygons: two solid plates above and below a channel of full
+ * height `height`, spanning `width` in x. Walls run from the channel edge out
+ * to wallHalf in y (default 1.5, past the domain edge, to limit bypass flow
+ * around the plate ends). Returns [upper, lower]. Alpha rotation is ignored
+ * for ducts so the walls stay aligned with the channel axis.
+ */
+export function ductPolygons(
+    cx: number,
+    cy: number,
+    width: number,
+    height: number,
+    nPoints = 64,
+    wallHalf = 1.5
+): Point[][] {
+    assertFiniteNumber("ductPolygons: cx", cx);
+    assertFiniteNumber("ductPolygons: cy", cy);
+    if (!Number.isFinite(width) || width <= 0) {
+        throw new Error(`ductPolygons: width must be a positive finite number, got ${String(width)}`);
+    }
+    if (!Number.isFinite(height) || height <= 0) {
+        throw new Error(`ductPolygons: height must be a positive finite number, got ${String(height)}`);
+    }
+    if (!Number.isInteger(nPoints) || nPoints < 4) {
+        throw new Error(`ductPolygons: nPoints must be an integer >= 4, got ${String(nPoints)}`);
+    }
+    if (!Number.isFinite(wallHalf) || wallHalf <= height / 2) {
+        throw new Error(`ductPolygons: wallHalf must be finite and exceed height / 2, got ${String(wallHalf)}`);
+    }
+    const per = Math.max(4, Math.ceil(nPoints / 2));
+    const upper = sampleRectangle(cx - width / 2, cy + height / 2, cx + width / 2, cy + wallHalf, per);
+    const lower = sampleRectangle(cx - width / 2, cy - wallHalf, cx + width / 2, cy - height / 2, per);
+    return [upper, lower];
+}
+
+/** Signed area of a closed polygon (positive for CCW). Shared with the panel solver. */
+export function polygonSignedArea(pts: Point[]): number {
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        const q = pts[(i + 1) % pts.length];
+        a += p.x * q.y - q.x * p.y;
+    }
+    return a / 2;
+}
+
+function ensureCCW(pts: Point[]): Point[] {
+    return polygonSignedArea(pts) < 0 ? [...pts].reverse() : pts;
+}
+
+/** Drop consecutive duplicates (tolerance 1e-12) and a duplicate closing point. Shared with the panel solver. */
+export function dedupClosed(pts: Point[]): Point[] {
+    const out: Point[] = [];
+    for (const p of pts) {
+        const q = out[out.length - 1];
+        if (!q || Math.hypot(p.x - q.x, p.y - q.y) > 1e-12) out.push({ x: p.x, y: p.y });
+    }
+    if (out.length > 1) {
+        const f = out[0];
+        const l = out[out.length - 1];
+        if (Math.hypot(f.x - l.x, f.y - l.y) <= 1e-12) out.pop();
+    }
+    return out;
+}
+
+/** Stride sample long polygons down to MAX_POLYGON_POINTS points. */
+function strideCap(pts: Point[]): Point[] {
+    if (pts.length <= MAX_POLYGON_POINTS) return pts;
+    const stride = Math.ceil(pts.length / MAX_POLYGON_POINTS);
+    const out: Point[] = [];
+    for (let i = 0; i < pts.length; i += stride) out.push(pts[i]);
+    return out;
+}
+
+/**
+ * Build world space polygons for a GeometrySpec. Chord is 1 with LE at (0, 0),
+ * y-up. Alpha rotates the geometry while the freestream stays fixed at (U, 0).
+ * Returns one polygon per body (ducts return two wall polygons). Output is
+ * deduplicated (closed TE point removed), stride capped, and CCW.
+ */
+export function buildPolygons(spec: GeometrySpec): Point[][] {
+    if (typeof spec !== "object" || spec === null) {
+        throw new Error("buildPolygons: spec must be an object");
+    }
+    const kinds = ["naca4", "cylinder", "block", "duct"];
+    if (!kinds.includes(spec.kind)) {
+        throw new Error(`buildPolygons: kind must be one of ${kinds.join(", ")}, got ${String(spec.kind)}`);
+    }
+    assertFiniteNumber("buildPolygons: chord", spec.chord);
+    if (spec.chord <= 0) {
+        throw new Error(`buildPolygons: chord must be positive, got ${String(spec.chord)}`);
+    }
+    assertFiniteNumber("buildPolygons: alphaDeg", spec.alphaDeg);
+    if (!Number.isInteger(spec.nPoints) || spec.nPoints < 4) {
+        throw new Error(`buildPolygons: nPoints must be an integer >= 4, got ${String(spec.nPoints)}`);
+    }
+    const center = spec.center ?? { x: 0.5, y: 0 };
+    assertFiniteNumber("buildPolygons: center.x", center.x);
+    assertFiniteNumber("buildPolygons: center.y", center.y);
+    let polys: Point[][];
+    if (spec.kind === "naca4") {
+        if (!spec.naca) throw new Error("buildPolygons: naca params are required for kind naca4");
+        const raw = naca4Airfoil(spec.naca.m, spec.naca.p, spec.naca.t, spec.nPoints);
+        polys = [transformPoints(raw, 0, 0, spec.chord, spec.alphaDeg)];
+    } else if (spec.kind === "cylinder") {
+        const radius = spec.radius ?? 0.25;
+        polys = [cylinderPolygon(center.x, center.y, radius, spec.nPoints)];
+    } else if (spec.kind === "block") {
+        const width = spec.width ?? 0.5;
+        const height = spec.height ?? 0.5;
+        const raw = blockPolygon(0, 0, width, height, spec.nPoints);
+        polys = [transformPoints(raw, center.x, center.y, 1, spec.alphaDeg)];
+    } else {
+        const width = spec.width ?? 1.0;
+        const height = spec.height ?? 0.4;
+        polys = ductPolygons(center.x, center.y, width, height, spec.nPoints);
+    }
+    return polys.map((poly) => ensureCCW(strideCap(dedupClosed(poly))));
 }
