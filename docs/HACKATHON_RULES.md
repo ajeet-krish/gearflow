@@ -1,5 +1,7 @@
 # Hackathon Rules Reference
-Source of truth for constraints. Flagged items await Official Rules confirmation.
+> LOCKED PROFILE: Solo participant, Indie track, Push the Frontier theme. Virtual worldwide. Build Oct 26 to Nov 4 2026. Single submitter lists self only.
+
+Source of truth for constraints. Flagged items await Official Rules confirmation. Profile above is locked for all planning, scoping, and judging alignment.
 
 ## Event Overview
 | Item | Detail |
@@ -13,9 +15,24 @@ Source of truth for constraints. Flagged items await Official Rules confirmation
 | Credits | 150 USD API credits per participant (anticipated) |
 | Themes | 1) Build for Your World 2) Push the Frontier |
 
-Sources:
-* https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details
-* https://dev.meta.ai (API docs and model pages)
+## Locked Track and Theme
+
+### Indie track (locked)
+* Solo entry is allowed. Limit is up to 4 per team, but solo has no teammate dependency and no acceptance risk.
+* Single submitter flow: one person accepts terms, submits, and lists self only.
+* Indie lens rewards creativity, technical ambition, craft, and whether it works and delights.
+* What scores high for Indie: bold idea, clever multi model use, polished demo moment, clear technical craft in 10 days.
+
+### Push the Frontier theme (locked)
+Pushes machine capability and physical system understanding. Scope includes software, robotics, manufacturing, energy, materials, scientific acceleration, and machine control of physical systems.
+What scores high through the Indie lens:
+* Technical ambition: hard perception plus reasoning plus rendering problem, not a thin wrapper.
+* Frontier fit: accelerates science, controls or explains a physical system, or extends what models can see and do.
+* Working proof: live demo with measurable behavior (accuracy, latency, segmentation quality) plus graceful fallback.
+* Clarity: judges can see the frontier leap in one demo moment.
+
+### Startup track (not entered, short note)
+Startup lens rewards execution and production readiness. Noted for reference only. No action needed for this solo Indie entry.
 
 ## Timeline (ET and UTC)
 | Milestone | ET | UTC |
@@ -27,13 +44,13 @@ Sources:
 
 Note: Exact kickoff hour is pending Official Rules. Dates above are reference. Confirm in Official Rules.
 
-## Eligibility and Team Rules
-* Open to global virtual participants, subject to local law and platform terms.
+## Eligibility and Team Rules (Solo Indie locked)
+* Solo entry confirmed. Open to global virtual participants, subject to local law and platform terms.
 * Original work only. Build must be created during the build window, except approved open source libraries and Meta APIs.
-* Team size and solo rules pending Official Rules confirmation.
-* One submission per team (to be confirmed).
+* Team limit is up to 4, but solo has no teammate dependency. Single submitter lists self only.
+* One submission per entrant (to be confirmed in Official Rules).
 * Exclusions apply (Meta employees, judges, and certain restricted regions, to be confirmed in Official Rules).
-* All members must accept terms and submission license.
+* Solo submitter accepts terms and submission license directly.
 
 ## Technical Requirements
 Mandatory use of Meta AI products with multi model orchestration.
@@ -68,9 +85,15 @@ Rules:
 | Demo | 25 percent | Polished 2 to 3 min story, live works, graceful fallback, memorable moment |
 | Technical Depth | 20 percent | Sound architecture, hard problems solved, evaluation, performance, reliability |
 
-Lens notes:
-* Indie lens: rewards creativity, ambition, and craft (it works and delights).
-* Startup lens: rewards execution and production readiness (it ships and scales).
+Lens notes (Indie primary):
+* Indie lens (locked): rewards creativity, ambition, and craft (it works and delights). Priority for this entry.
+* Startup lens (reference only): rewards execution and production readiness. Not scored for this entry.
+
+## Solo Strategy Note (10 day scope control)
+* One owner, one submitter. No bus factor risk from teammates, but strict scope control is required.
+* Pick one frontier problem, one core loop, one wow moment. Cut everything else.
+* Single presenter demo: rehearse solo narration, one click cached fallback, offline pack ready.
+* Daily checkpoint: working demo stays runnable. Docs first, code second.
 
 ## Prizes (Anticipated, Pending Official Rules)
 | Track | Amount |

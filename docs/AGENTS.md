@@ -2,7 +2,7 @@
 Read docs/HACKATHON_RULES.md before any planning.
 
 ## Project Context
-Meta Global Hackathon build, Oct 26 to Nov 4 2026. Judging: Impact 30, Meta Tooling 25, Demo 25, Technical Depth 20.
+Solo Indie Push the Frontier entry. Solo participant, virtual worldwide, build Oct 26 to Nov 4 2026. Judging: Impact 30, Meta Tooling 25, Demo 25, Technical Depth 20. Indie lens rewards creativity, ambition, craft.
 
 ## Quick Commands
 * Node: npm install, npm run dev, npm test (to be filled)
@@ -14,6 +14,7 @@ Meta Global Hackathon build, Oct 26 to Nov 4 2026. Judging: Impact 30, Meta Tool
 * Conventional commits (feat, fix, docs, chore).
 * Docs first: update docs/DECISIONS.md and docs/RESEARCH.md as you go.
 * Env only for keys. Never commit secrets.
+* Solo scope: one owner, one core loop, one wow moment. Cut extras, keep demo runnable daily.
 
 ## Project Map
 * docs/HACKATHON_RULES.md (constraints)
@@ -27,3 +28,6 @@ Meta Global Hackathon build, Oct 26 to Nov 4 2026. Judging: Impact 30, Meta Tool
 3. Implement small step, add tests if present.
 4. Log decision and update docs.
 5. Report files changed plus verification.
+
+## Status
+Phase 0 Complete. Phase 1 Idea selection (solo indie frontier) Pending.

@@ -1,8 +1,8 @@
 # Architecture
-Last updated: 2026-10-26
+Last updated: 2026-10-26. Solo owner, minimal ops, demo must survive network failure.
 
 ## System Overview
-Placeholder: client app plus API service plus Meta AI orchestration layer.
+Placeholder: client app plus API service plus Meta AI orchestration layer. Single owner stack, minimal services, one deploy path.
 Text diagram: Client > Orchestrator > (SAM 3.1, Spark/Wonder, Image, Glimmer) > Cache plus Eval Log > Client UI.
 
 ## Components
@@ -30,12 +30,15 @@ Text diagram: Client > Orchestrator > (SAM 3.1, Spark/Wonder, Image, Glimmer) > 
 
 ## API Strategy
 * Base URL: https://api.meta.ai/v1
-* Standard mode by default. Contributor mode only with explicit consent (trains models).
-* Caching: hash inputs, set TTL, serve stale on failure for demo continuity.
+* Standard mode by default for this solo entry. Use Standard for proprietary prompts and user data.
+* Contributor mode only with explicit consent and clear labeling. Solo default is Standard unless user opts in.
+* Caching: hash inputs, set TTL, serve stale on failure. Preload cached responses for live demo.
+* Offline fallback: cached demo pack runs full script with zero network. One click toggle.
 * Fallback: SAM to box heuristic, Spark to template, Image to cached asset.
 * Keys in env, sample env file, no secrets in repo.
 
 ## Geography and Offline Fallback
 * Handle ET plus UTC times, locale aware copy.
-* Cached demo pack for judging network issues.
+* Cached demo pack for judging network issues. Required for solo live demo.
 * Low bandwidth mode: text first, images lazy, clear status copy.
+* Solo maintainability: single owner stack, minimal ops, pinned versions, one command setup.

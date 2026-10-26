@@ -1,5 +1,5 @@
 # Meta Global Hackathon
-Build for Meta Global AI Developer Hackathon, Oct 26 to Nov 4 2026. Read docs/HACKATHON_RULES.md first.
+Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKATHON_RULES.md first.
 
 ## Quick Commands
 * Node: npm install, npm run dev, npm test (TBD)
@@ -12,6 +12,7 @@ Build for Meta Global AI Developer Hackathon, Oct 26 to Nov 4 2026. Read docs/HA
 * Conventional commits. Docs first, code second.
 * Multi model orchestration is mandatory (Spark plus SAM plus Image).
 * Keys in env only. Never commit secrets.
+* Solo scope: one owner, one core loop, one wow moment. Keep demo runnable daily.
 
 ## Project Map
 * docs/HACKATHON_RULES.md (rules and judging)
@@ -24,7 +25,8 @@ Build for Meta Global AI Developer Hackathon, Oct 26 to Nov 4 2026. Read docs/HA
 ## Status
 | Phase | Description | Status |
 |-------|-------------|--------|
-| Phase 0 | Infra scaffolding | In Progress |
+| Phase 0 | Infra scaffolding | Complete |
+| Phase 1 | Idea selection (solo indie frontier) | Pending |
 
 ## Deep Docs
 * Rules: docs/HACKATHON_RULES.md

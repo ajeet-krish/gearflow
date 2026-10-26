@@ -11,4 +11,5 @@ Append only. Brief notes with sources and dates.
 * Open: confirm Official Rules for team size, exclusions, submission portal, license grant.
 
 ## Domain Research
+* Track locked 2026-10-26: Solo Indie Push the Frontier. Future research should prioritize frontier domains (software, robotics, manufacturing, energy, materials, scientific acceleration, physical system control) with solo demoable scope.
 * To be filled after idea selection. Add user interviews, competing tools, data sources.
