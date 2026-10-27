@@ -97,3 +97,23 @@ Append only. Brief notes with sources and dates.
 * Cost controls: max_tokens 300 to 500, temperature 0 to 0.3, history last 8 turns, compact spec JSON only (no grids/Cp arrays), session-affinity header per conversation for KV-cache reuse, client HashCache plus evalLog per-call cost/latency/cached, workspace monthly budget with enforcement on (rejects after cap) plus per-key attribution and Prometheus baseten_model_api_* metrics, client kill switch (daily cap counter, disable button, serve-stale-on-failure).
 * Prompt grounding: include compact ParametricSpec JSON, Re, alphaDeg, grid size, engine/mode label, Cl/CpMin two numbers, validation tier (PASS/WARN/INFO) one line, last 8 transcript lines. Exclude full SDF grids, per-cell Cp/u/v arrays, base64 sketches (resend by URL or omit), full polar tables (send deltas only), secrets.
 * Sources: Baseten Model APIs overview, Function calling, Streaming, Pricing and limits, Chat Completions reference (OpenAPI llm-openapi-spec.json), Inference overview, meta-oss-cookbook muse-spark hosted baseten.md, Baseten muse-spark-open launch blog 2026-10-15, Baseten library muse-spark-open page (pricing).
+
+## 2026-10-27 - B0 spike meta-models/muse-spark-open-1026 (no key in repo, 0 live calls)
+* Env: .env absent (hidden glob found only .env.example). .env.example names META_API_KEY server-only, no BASETEN_API_KEY. No shell tool in this runtime so test -n could not run here. Status: no key material in repo, live presence UNKNOWN, 0 calls, 0 spend.
+* Target (UNCONFIRMED live, from prior Baseten note): base https://inference.baseten.co/v1, POST /v1/chat/completions, Bearer BASETEN_API_KEY, OpenAI Chat Completions shape. Exact id to pin live: meta-models/muse-spark-open-1026 (prior note used meta-models/muse-spark-open, suffix difference open).
+* Probes to run from /private/var/folders/g8/ljmpg71538qc912yf7295l_80000gn/T after export (see task): (a) hello max_tokens 16, (b) max_tokens cap, (c) one trivial function tool, (d) stream true expect data [DONE], (e) bad model for error shape. Record status, JSON keys, usage, finish_reason, rate-limit headers, SSE terminal.
+* Confirm live: exact id accepted, Chat vs Responses, Bearer, n must be 1, response_format json_schema expect 400, streaming SSE, tool_calls shape, usage.prompt_tokens_details.cached_tokens, per-token price (not expected in API, check library page only).
+* Pricing (prior page, reconfirm live headers/body): input 1.25/M, cached 0.15/M, output 4.25/M, ctx 1048576. GearFlow 800 in plus 300 out approx 0.0023 uncached. Redact key, never write key to repo.
+* B1 implication (pending live proof): keep proxy pattern, retarget to inference.baseten.co, drop response_format json_schema, use strict tools or fenced JSON plus validate, keep offline default on.
+* Sources: docs/RESEARCH.md 2026-10-27 Baseten note, .env.example (variable names only), Baseten library muse-spark-open page.
+
+## 2026-10-27 - B0 Baseten live contract (5 probes, model meta-models/muse-spark-open-1026)
+* Target confirmed live: base https://inference.baseten.co/v1, POST /v1/chat/completions, Bearer BASETEN_API_KEY, key redacted, no key material in repo.
+* Probe A hello: HTTP 200, OpenAI chat.completion shape, usage prompt 146 completion 16, cached 128, finish length on max 16.
+* Probe B json_schema response_format: HTTP 200 accepted (not 400), content null on max 5 truncation, so JSON mode not rejected but unproven for full body.
+* Probe C tools: HTTP 200 but NO tool_calls array, model reasons about tools in reasoning_content text in its own harness format, so native OpenAI tool calling is NOT usable, use prompt fenced JSON envelope instead.
+* Probe D streaming: HTTP 200 text/event-stream, deltas in reasoning_content, terminal empty choices plus data DONE confirmed.
+* Probe E bad model: HTTP 404 body {"error":"please check the model you provided"}.
+* Rate limits from headers: 100 requests, 2M tokens.
+* Decision: envelope over prompt JSON, accumulate both delta.content and delta.reasoning_content, structured output via prompt not response_format reliance, error mapping 404 model check, 429 retry.
+* Sources: live Baseten Model API responses 2026-10-27 (headers plus bodies, redacted).

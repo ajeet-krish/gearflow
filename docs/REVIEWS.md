@@ -786,3 +786,49 @@ Verdict: FAIL
 Note honesty note at TurbulenceSection.tsx:51 accurate. Rust, protocol, migration, and regression checks pass. Orchestrator reported npm 654 pass, build clean, cargo 82 pass 2 ignored. Reviewer did not rerun tests.
 
 No em dashes.
+
+## 2026-10-27 - B1 Baseten transport review
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Scope: Phase B1 uncommitted Baseten transport vs HEAD 6e2e0f8 (src/agent/basetenGate.ts, src/agent/basetenClient.ts, src/agent/basetenGate.test.ts, src/agent/basetenClient.test.ts, vite.config.ts basetenProxy, .env.example)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major | vite.config.ts:258-263,227-256 | Non streaming and streaming upstream bodies are forwarded verbatim with upstream status. toGenericError in basetenGate.ts:73-88 is never used by the proxy, so provider error detail reaches the browser despite the generic error contract. | backend-dev: map non 2xx upstream responses to toGenericError status and message in the proxy for both stream and non stream paths, forward only retry-after, add a proxy integration test with a leaking upstream body |
+| Major | vite.config.ts:258-263 | Non streaming upstream response has no byte cap. Buffer.from(await upstream.arrayBuffer()) buffers unbounded output, unlike the Meta proxy cap at vite.config.ts:96-109. | backend-dev: enforce a Baseten max response bytes cap on declared content length and on accumulated bytes, return a generic 502 over cap, pin with a proxy test |
+| Major | vite.config.ts:209-224,234-255 and src/agent/basetenClient.ts:254-271,450-480 | Timeouts and abort stop covering the body once headers arrive. The server clears its timer and removes the request close listener before the SSE read loop, and the client clears its fetch timer when fetch resolves, so a stalled stream can hang indefinitely and a client disconnect does not abort the upstream read. No backpressure handling on res.write. | backend-dev: keep an idle or total stream deadline and the close abort wired through the read loop on both sides, cancel the reader on close, respect write drain, add stalled stream and disconnect tests |
+| Major | src/agent/basetenGate.test.ts:1-140, src/agent/basetenClient.test.ts:1-205 | Tests pin pure gate and client behavior, not proxy wiring. Nothing fails if vite.config.ts drops forceModel, the key check, same origin, rate limit, body cap, or SSE passthrough, because basetenProxy is never exercised. | tester: add vite proxy integration tests using a fake upstream covering forced model, absent key 503, same origin rejection, rate limit, 413, generic errors, and chunk by chunk SSE delivery |
+| Minor | src/agent/basetenClient.ts:291-295,372-377,135-141 | Retry set is broader and weaker than specified: timeout AbortError is retried in addition to 429 and 5xx, and retry-after only parses numeric seconds with zero delay when the header is absent or an HTTP date, capped at 8 s at basetenClient.ts:84. | backend-dev: retry only the specified statuses before the first token or document the timeout exception, parse HTTP date retry-after, apply a bounded default backoff, make the wait abort aware, add timing tests with a nonzero delay |
+| Minor | src/agent/basetenClient.ts:90-99,162-172 | estimateBasetenCost charges the full cached count at the cached rate even when cached exceeds input, because only the uncached term clamps with Math.min. Common case cached at or below input is correct at 1.25, 0.15, and 4.25 per million. | backend-dev: clamp cached to input in both terms and add a cached greater than input test |
+| Minor | src/agent/basetenGate.ts:90-111 | BasetenRateLimiter map never evicts stale IPs, so distinct source addresses grow process memory without bound. Window logic itself is correct at 10 per 60 s. | backend-dev: prune empty or expired entries on allow or on a size threshold, add an eviction test |
+| Minor | src/agent/basetenClient.ts:107-129 | A malformed action-json fence throws inside extractActionJson instead of falling through to a later valid json fence. Callers in chat and streamChat catch it and set action to null at basetenClient.ts:336-341 and 481-486, so nothing throws to the UI. | backend-dev: fall through to the next envelope candidate on fence parse failure, add a mixed malformed then valid fence test |
+
+Checks: key safety PASS (vite.config.ts:170-176 reads process.env.BASETEN_API_KEY server side only and returns a generic 503 when absent, .env.example:4-6 has no VITE prefix, no logging of the key in vite.config.ts or src/agent, client bundle imports only basetenGate constants). Model pinning PASS (vite.config.ts:204 forceModel overwrites client model, basetenGate.ts:45-56 pins meta-models/muse-spark-open-1026 with n 1 and max_tokens capped at 700, upstream URL is the constant at basetenGate.ts:10). SSE passthrough FAIL per Major rows (chunked writes at vite.config.ts:236-241 are incremental, not buffered, but generic errors leak). Retry FAIL per Minor row (exactly one retry, before body read in streamChat at basetenClient.ts:367-406, so no retry after a partial token, but the status set and retry-after parsing deviate). Envelope parsing PASS with Minor (fenced action-json preferred at basetenClient.ts:107-115, malformed JSON becomes action null in callers, never a UI throw). Cost reporting PASS with Minor (usage plus prompt_tokens_details cached tokens at basetenClient.ts:162-172, eval payload with model, latency, usage, cached, and cost at 345-350 and 487-495, rates at 85-87). Rate limiting, body caps, same origin, generic errors FAIL (limiter and 64 KiB cap enforced at vite.config.ts:163-191 and same origin via proxyGate.ts:45-60 which allows requests with neither Origin nor Referer, but generic errors fail per Major row). Tests FAIL per Major row (behavioral for gate and client, would fail if forceModel or client retry were removed, but not if the proxy gate wiring were bypassed).
+
+Method note: reviewer session had read, glob, and grep only, with no shell tool, so git status, git diff, and test execution could not be run here. Files were inspected directly at the paths above and the verdict rests on source and test inspection, consistent with prior entries in this file.
+
+Note recurring pattern: pure module tests pass while the integration wiring that enforces the contract (here the Vite proxy) is untested, the same isolated pass pattern flagged in Phases 1, 2, and 3.
+
+## 2026-10-27 - B1 fix confirmation
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Scope: Re-review of B1 Baseten transport fixes vs prior FAIL at docs/REVIEWS.md:790 (vite.config.ts basetenProxy, src/agent/basetenGate.ts, src/agent/basetenClient.ts, src/agent/basetenProxy.test.ts, src/agent/basetenGate.test.ts, src/agent/basetenClient.test.ts)
+Verdict: PASS
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major 1 | vite.config.ts:159-169,296-304 | Generic errors on both paths | PASS: toGenericError applied to non 2xx for stream and non stream, only retry-after forwarded, body cancelled |
+| Major 2 | src/agent/basetenGate.ts:12, vite.config.ts:354-406 | Response cap declared plus accumulated | PASS: 1 MiB constant, content-length precheck, accumulated reader cap with cancel and fallback cap |
+| Major 3 | vite.config.ts:244-283,307-343, src/agent/basetenClient.ts:188-235,534-576 | Stream deadlines, close abort, reader cancel, drain | PASS: total timer not cleared, idle timer per chunk, close abort wired, reader cancel both sides, drain awaited on backpressure |
+| Major 4 | src/agent/basetenProxy.test.ts:112-386 | Proxy integration coverage | PASS: forced model, 503, 403, rate 429, 413, generic 500 and 429 bodies, chunk SSE, declared and accumulated caps, stall, disconnect |
+| Minor 1 | src/agent/basetenClient.ts:83-88,139-171,352-353,367-385,437-468 | Retry HTTP date, bounded default, abort aware | PASS: HTTP date parsed and clamped to 8 s, 500 ms default, abort aware wait, timeout retry documented |
+| Minor 2 | src/agent/basetenClient.ts:91-100 | Cost clamp | PASS: cached clamped to input |
+| Minor 3 | src/agent/basetenGate.ts:99-133 | Limiter eviction | PASS: evictExpired on allow with size accessor and test |
+| Minor 4 | src/agent/basetenClient.ts:109-133 | Fence fallback | PASS: malformed action fences fall through to later valid fence |
+
+Minor observation: vite.config.ts:328-333 drain await has no dedicated backpressure test and no abort race on the drain promise. Non blocking.
+Tests: implementer reported npm test 59 files 712 tests and builds clean. Reviewer inspected source and tests in this session, no shell tool available to rerun.
+Note recurring pattern: integration wiring now covered by basetenProxy.test.ts, closing the isolated pass gap from the B1 review.
