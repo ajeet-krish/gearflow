@@ -23,8 +23,10 @@ export class WasmLbmSolver {
     cl(): number;
     /**
      * Configure geometry plus flow parameters. Picks inlet and outlet
-     * from the kind: duct uses parabolic plus zero gradient, else
-     * uniform plus convective. stats_start_step is the optional
+     * from the kind: duct keeps the legacy channel pairing (parabolic
+     * plus zero gradient) for Poiseuille fixtures, every other body
+     * including the orifice plate uses uniform plus convective.
+     * stats_start_step is the optional
      * transient cut for time statistics (None means 0, no cut).
      * Values above MAX_STATS_START_STEP are rejected. The binding does
      * not know the run target, so a cut at or past the target is not

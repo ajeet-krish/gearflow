@@ -27,7 +27,7 @@ const CHAT_SYSTEM = [
     "reply is one or two short sentences in plain words, no em dashes.",
     "proposedSpec is optional and follows { geometry, reynolds, rationale }.",
     "geometry follows { kind, chord, alphaDeg, nPoints, naca?, radius?, center?, width?, height? }.",
-    "Rules: kind is naca4, cylinder, block, or duct. chord is 1. alphaDeg in [-4, 12].",
+    "Rules: kind is naca4, cylinder, block, or orifice. chord is 1. alphaDeg in [-180, 180], characterized in [-4, 12].",
     "nPoints in [32, 160]. For naca4: naca.m in [0, 0.09], naca.p in [0.2, 0.8], naca.t in [0.06, 0.18].",
     "reynolds in [1000, 1000000]. rationale is one short sentence.",
     "suggestedChange is optional and follows { field, from, to, rationale, predictedEffect }.",

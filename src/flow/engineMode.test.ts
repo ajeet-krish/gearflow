@@ -101,13 +101,23 @@ describe("blockageForGeometry", () => {
         expect(atTwenty.ratio).toBeCloseTo(expected, 12);
         expect(atTwenty.percent).toBeCloseTo(expected * 100, 12);
     });
-    it("uses height for a duct rather than width", () => {
+    it("uses the gap opening for an orifice rather than width", () => {
         const out = blockageForGeometry(
-            { kind: "duct", chord: 1, alphaDeg: 0, nPoints: 64, width: 1.0, height: 0.4, center: { x: 0.5, y: 0 } },
+            { kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 64, width: 0.08, height: 0.4, center: { x: 0.5, y: 0 } },
             DEFAULT_DOMAIN
         );
         expect(out.ratio).toBeCloseTo(0.2, 12);
         expect(out.percent).toBeCloseTo(20, 12);
+    });
+    it("labels orifice blockage as by design with no generic Cd warning", () => {
+        const out = blockageForGeometry(
+            { kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 64, width: 0.08, height: 0.4, center: { x: 0.5, y: 0 } },
+            DEFAULT_DOMAIN
+        );
+        expect(out.warning).not.toBeNull();
+        expect(out.warning as string).toContain("by design");
+        expect(out.warning as string).toContain("open gap 20.0 percent");
+        expect(out.warning as string).not.toContain("exceeds 5 percent");
     });
     it("uses polygon y extent for custom geometry", () => {
         const out = blockageForGeometry(

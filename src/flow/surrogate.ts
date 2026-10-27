@@ -17,7 +17,7 @@ import { AnalyticFlowProvider, cloneGeometry, type FrameSource } from "./frameSo
 import { resolveBody } from "@/flow/analyticFlow";
 import { buildSdfGrid } from "./sdf";
 import { circulationCl } from "@/validation/metrics";
-import { validateGeometrySpec, validateGridSpec } from "@/contracts/schema";
+import { alphaBand, validateGeometrySpec, validateGridSpec } from "@/contracts/schema";
 
 export const SURROGATE_IN_CH = 3;
 export const SURROGATE_OUT_CH = 3;
@@ -427,7 +427,8 @@ type FetchFn = (url: string) => Promise<{
 /**
  * Surrogate FrameSource with analytic fallback. Call ensureLoaded (async)
  * once; getFrame stays sync and serves the surrogate frame when weights are
- * active and fit the sync budget, else the analytic fallback. Production
+ * active, the angle sits in the characterized alpha band, and the weights
+ * fit the sync budget, else the analytic fallback. Production
  * weights (128x128, base 32) exceed the sync budget and fall back until the
  * async ONNX path lands in Phase 4. Any load or inference failure keeps
  * the fallback path, never throws from getFrame.
@@ -567,7 +568,12 @@ export class SurrogateFlowProvider implements FrameSource {
             this.meta = { ...this.meta, cached: true };
             return this.field;
         }
-        if (this.weights !== null && syncInferenceAllowed(this.grid.nx, this.grid.ny, this.weights.manifest.base)) {
+        // Surrogate training only covers the characterized alpha band, so
+        // out of band angles serve the analytic fallback with an honest
+        // backend label even when sync inference would fit the budget.
+        // Production base 32 weights stay sync gated below as before.
+        const inBand = alphaBand(this.geom.alphaDeg) === "characterized";
+        if (inBand && this.weights !== null && syncInferenceAllowed(this.grid.nx, this.grid.ny, this.weights.manifest.base)) {
             try {
                 const t0 = Date.now();
                 const frame = this.runInference();

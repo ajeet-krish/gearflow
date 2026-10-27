@@ -27,7 +27,7 @@ const BODIES: Array<{ value: string; label: string }> = [
     { value: "naca2412", label: "NACA 2412" },
     { value: "naca4412", label: "NACA 4412" },
     { value: "cylinder", label: "CYLINDER" },
-    { value: "duct", label: "DUCT" },
+    { value: "orifice", label: "ORIFICE" },
     { value: "block", label: "BLOCK" },
 ];
 
@@ -85,12 +85,12 @@ export default function SolverBar({
                     id="solverAlpha"
                     className="barInput"
                     type="number"
-                    min={-4}
-                    max={12}
+                    min={-180}
+                    max={180}
                     step={0.5}
                     value={alpha}
                     onChange={(e) => onAlpha(Number(e.target.value))}
-                    aria-label="Angle of attack in degrees, minus 4 to 12"
+                    aria-label="Angle of attack in degrees, minus 180 to 180"
                 />
             </label>
             <label className="barLabeled" htmlFor="solverRe">

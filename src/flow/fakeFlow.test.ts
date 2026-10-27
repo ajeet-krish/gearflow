@@ -26,14 +26,14 @@ describe("fakeFlow", () => {
         const kinds: GeometrySpec[] = [
             { kind: "cylinder", chord: 1, alphaDeg: 0, nPoints: 64, radius: 0.25, center: { x: 0.5, y: 0 } },
             { kind: "block", chord: 1, alphaDeg: 0, nPoints: 64, width: 0.5, height: 0.2, center: { x: 0.5, y: 0 } },
-            { kind: "duct", chord: 1, alphaDeg: 0, nPoints: 64, width: 1.0, height: 0.4, center: { x: 0.5, y: 0 } },
+            { kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 64, width: 0.08, height: 0.4, center: { x: 0.5, y: 0 } },
         ];
         for (const geom of kinds) {
             const f = generateFakeFlow(DEFAULT_GRID, geom, `mask-${geom.kind}`);
             const blocked = f.obstacle.reduce((s, x) => s + x, 0);
             expect(blocked).toBeGreaterThan(10);
-            // Duct walls leave the channel open: centreline at x = 0.5 is clear.
-            if (geom.kind === "duct") {
+            // Orifice walls leave the gap open: centreline at x = 0.5 is clear.
+            if (geom.kind === "orifice") {
                 const i = Math.round(((0.5 - -0.5) / 2.5) * 127);
                 const j = Math.round(((0 - -1.0) / 2.0) * 127);
                 expect(f.obstacle[j * 128 + i]).toBe(0);

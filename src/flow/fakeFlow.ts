@@ -9,6 +9,8 @@
 import type { FlowField, GeometrySpec, GridSpec } from "@/contracts/types";
 import { pointInPolygon, naca4Airfoil, transformPoints } from "@/geometry/parametric";
 import type { Point } from "@/geometry/parametric";
+import { wakeSlopeForAlpha } from "./wake";
+import { ORIFICE_GAP_DEFAULT, ORIFICE_THICKNESS_DEFAULT } from "@/contracts/types";
 
 function hashSeed(str: string): number {
     let h = 2166136261;
@@ -56,15 +58,16 @@ function obstacleMask(px: number, py: number, geom: GeometrySpec, poly: Point[] 
         const h = (geom.height ?? 0.5) / 2;
         return Math.abs(px - c.x) <= w && Math.abs(py - c.y) <= h;
     }
-    if (geom.kind === "duct") {
-        // Channel constriction: solid walls above and below a gap of full
-        // height `height`, centred at c.y and spanning `width` in x. Outside
-        // the duct x-range there is no solid.
+    if (geom.kind === "orifice") {
+        // Orifice plate: solid segments above and below a central gap of
+        // full height `height` (the gap opening), plate thickness `width`
+        // in x centred at c.x. The plate runs past the domain edge in y,
+        // so any cell within the thickness band and outside the gap is solid.
         const c = geom.center ?? { x: 0.5, y: 0 };
-        const w = (geom.width ?? 1.0) / 2;
-        const h = (geom.height ?? 0.4) / 2;
-        if (Math.abs(px - c.x) > w) return false;
-        return py > c.y + h || py < c.y - h;
+        const t = (geom.width ?? ORIFICE_THICKNESS_DEFAULT) / 2;
+        const g = (geom.height ?? ORIFICE_GAP_DEFAULT) / 2;
+        if (Math.abs(px - c.x) > t) return false;
+        return Math.abs(py - c.y) >= g;
     }
     return false;
 }
@@ -80,8 +83,10 @@ export interface WakeProfile {
  * Wake centreline for the fake flow model. Centred on the body (polygon
  * centroid for airfoils, centre.y otherwise) with a downwash slope from
  * angle of attack: positive alpha (nose up) pushes the wake downward, so the
- * slope is negative in y-up coords. Phase 1 placeholder until Phase 2
- * replaces this module with surrogate or LBM fields.
+ * slope is negative in y-up coords. The slope is clamped to the
+ * characterized band via wakeSlopeForAlpha so full rotation cannot blow up
+ * the tan term. Phase 1 placeholder until Phase 2 replaces this module with
+ * surrogate or LBM fields.
  */
 export function wakeProfile(geom: GeometrySpec, poly: Point[] | null): WakeProfile {
     let baseY = geom.center?.y ?? 0;
@@ -90,7 +95,7 @@ export function wakeProfile(geom: GeometrySpec, poly: Point[] | null): WakeProfi
         for (const pt of poly) sum += pt.y;
         baseY = sum / poly.length;
     }
-    const slope = -Math.tan((geom.alphaDeg * Math.PI) / 180) * 0.5;
+    const slope = wakeSlopeForAlpha(geom.alphaDeg);
     return { baseY, slope };
 }
 

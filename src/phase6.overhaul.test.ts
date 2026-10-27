@@ -21,7 +21,7 @@ import { maybeLoadWasm } from "@/flow/wasmSpike";
 import { chatReply } from "@/meta/sparkChat";
 import { MetaClient } from "@/meta/client";
 import { HashCache } from "@/meta/cache";
-import { GRID_128, GRID_256, GRID_OPTIONS, DEFAULT_DISPLAY_PREFS } from "@/contracts/types";
+import { GRID_64, GRID_128, GRID_256, GRID_OPTIONS, DEFAULT_DISPLAY_PREFS } from "@/contracts/types";
 import type { FlowField } from "@/contracts/types";
 
 function makeFlow(): FlowField {
@@ -79,9 +79,10 @@ describe("phase6 colormaps", () => {
     });
 
     it("pins grid constants for the resolution controller", () => {
+        expect(GRID_64).toBe(64);
         expect(GRID_128).toBe(128);
         expect(GRID_256).toBe(256);
-        expect(GRID_OPTIONS).toEqual([128, 256]);
+        expect(GRID_OPTIONS).toEqual([64, 128, 256]);
     });
 });
 

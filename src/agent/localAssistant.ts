@@ -10,7 +10,7 @@
 // action is rechecked through validateAgentAction, so local envelopes carry
 // the same validity as Baseten envelopes. Never throws.
 
-import { ALPHA_MAX, ALPHA_MIN, RE_MAX, RE_MIN } from "@/contracts/schema";
+import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, ALPHA_MAX, ALPHA_MIN, RE_MAX, RE_MIN } from "@/contracts/schema";
 import type { AgentContext } from "./agentContext";
 import {
     BODY_TOKENS,
@@ -164,7 +164,7 @@ function buildHelp(): string {
 
 function buildGeneric(): string {
     return (
-        "Local note, no network. Ask to explain the run, set up a body (NACA 0012, 2412, 4412, cylinder, block, duct), " +
+        "Local note, no network. Ask to explain the run, set up a body (NACA 0012, 2412, 4412, cylinder, block, orifice), " +
         "switch engine or field, or run LBM, and the console answers from local state. Canvas unchanged."
     );
 }
@@ -221,12 +221,12 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 );
             }
             if (alphaVal !== null) {
-                const clamped = Math.min(Math.max(alphaVal, ALPHA_MIN), ALPHA_MAX);
+                const clamped = Math.min(Math.max(alphaVal, ALPHA_HARD_MIN), ALPHA_HARD_MAX);
                 if (accept({ kind: "set_alpha", alphaDeg: clamped })) {
                     applied.push(`alpha ${clamped}`);
                 }
                 if (clamped !== alphaVal) {
-                    notices.push(`Note: alpha ${alphaVal} clamped to ${clamped} (envelope [${ALPHA_MIN}, ${ALPHA_MAX}]).`);
+                    notices.push(`Note: alpha ${alphaVal} clamped to ${clamped} (envelope [${ALPHA_HARD_MIN}, ${ALPHA_HARD_MAX}]).`);
                 }
             }
             if (reVal !== null) {
@@ -244,13 +244,13 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             } else {
                 sections.push(
                     `Local setup note, no network. Staying on ${bodyLabel}; tell me which body ` +
-                    `(NACA 0012, 2412, 4412, cylinder, block, duct), alpha, and Re to use.`
+                    `(NACA 0012, 2412, 4412, cylinder, block, orifice), alpha, and Re to use.`
                 );
             }
             if (notices.length > 0) sections.push(notices.join(" "));
             if (bodyTok === null && applied.length > 0) {
                 sections.push(
-                    `Staying on ${bodyLabel}; name a body (NACA 0012, 2412, 4412, cylinder, block, duct) to switch.`
+                    `Staying on ${bodyLabel}; name a body (NACA 0012, 2412, 4412, cylinder, block, orifice) to switch.`
                 );
             }
         } else if (HELP_RE.test(lower)) {
@@ -258,7 +258,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         } else if (SETUP_WORD_RE.test(lower)) {
             sections.push(
                 `Local setup note, no network. Staying on ${bodyLabel}; tell me which body ` +
-                `(NACA 0012, 2412, 4412, cylinder, block, duct), alpha, and Re to use.`
+                `(NACA 0012, 2412, 4412, cylinder, block, orifice), alpha, and Re to use.`
             );
         }
         const engineMatch = lower.match(ENGINE_RE);

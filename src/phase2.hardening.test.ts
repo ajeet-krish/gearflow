@@ -28,8 +28,11 @@ import type { GeometrySpec, GridSpec } from "@/contracts/types";
 import {
   ALPHA_MIN,
   ALPHA_MAX,
+  ALPHA_HARD_MIN,
+  ALPHA_HARD_MAX,
   NACA_T_MIN,
   NACA_T_MAX_ENV,
+  alphaBand,
 } from "@/contracts/schema";
 
 const SMALL: GridSpec = { nx: 64, ny: 64, domain: { ...DEFAULT_GRID.domain } };
@@ -176,17 +179,17 @@ describe("phase2 edge cases: AoA sweep, thickness sweep, wake-only Re", () => {
     expect(downstreamDiff).toBeGreaterThan(1e-6);
   });
 
-  it("duct shows speedup in the channel", () => {
-    const duct: GeometrySpec = {
-      kind: "duct",
+  it("orifice shows speedup in the gap", () => {
+    const orifice: GeometrySpec = {
+      kind: "orifice",
       chord: 1,
       alphaDeg: 0,
       nPoints: 64,
-      width: 1.0,
+      width: 0.08,
       height: 0.4,
       center: { x: 0.5, y: 0 },
     };
-    const r = generateAnalyticFlow(SMALL, duct);
+    const r = generateAnalyticFlow(SMALL, orifice);
     let maxU = -Infinity;
     const { domain } = SMALL;
     for (let j = 0; j < SMALL.ny; j++) {
@@ -276,9 +279,10 @@ describe("phase2 error conditions: oversize, NaN, poisoned spec, singular", () =
     const good = p.getFrame();
     const goodU = good.u.slice();
     expect(p.solveCount).toBe(1);
-    expect(() => p.setGeometry({ ...NACA, alphaDeg: 45 })).toThrow(/alphaDeg/);
+    expect(() => p.setGeometry({ ...NACA, alphaDeg: 200 })).toThrow(/alphaDeg/);
     expect(() => p.setGeometry({ ...NACA, naca: { code: "2912", m: 0.02, p: 0.9, t: 0.12 } })).toThrow(/naca/);
-    expect(() => p.setAlpha(-10)).toThrow(/alphaDeg/);
+    expect(() => p.setAlpha(200)).toThrow(/alphaDeg/);
+    expect(() => p.setAlpha(-200)).toThrow(/alphaDeg/);
     expect(() => p.setRe(NaN)).toThrow(/Re/);
     const after = p.getFrame();
     expect(p.solveCount).toBe(1);
@@ -314,9 +318,11 @@ describe("phase2 provider cache and UI contract", () => {
     expect(res.panelCount).toBeGreaterThan(10);
   });
 
-  it("slider envelope matches the validated geometry envelope", () => {
+  it("slider band matches the characterized band while full rotation solves", () => {
     expect(ALPHA_MIN).toBe(-4);
     expect(ALPHA_MAX).toBe(12);
+    expect(ALPHA_HARD_MIN).toBe(-180);
+    expect(ALPHA_HARD_MAX).toBe(180);
     expect(NACA_T_MIN).toBe(0.06);
     expect(NACA_T_MAX_ENV).toBe(0.18);
     const src = fs.readFileSync(path.join(process.cwd(), "src/ui/FlowControls.tsx"), "utf8");
@@ -329,7 +335,11 @@ describe("phase2 provider cache and UI contract", () => {
     for (const edge of [-4, 12]) {
       expect(() => generateAnalyticFlow(SMALL, { ...NACA, alphaDeg: edge })).not.toThrow();
     }
-    for (const bad of [-4.5, 12.5, 45]) {
+    for (const outOfBand of [-90, 45]) {
+      expect(() => generateAnalyticFlow(SMALL, { ...NACA, alphaDeg: outOfBand })).not.toThrow();
+      expect(alphaBand(outOfBand)).toBe("out-of-band");
+    }
+    for (const bad of [-181, 200]) {
       expect(() => generateAnalyticFlow(SMALL, { ...NACA, alphaDeg: bad })).toThrow(/alphaDeg/);
     }
   });

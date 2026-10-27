@@ -273,9 +273,11 @@ impl WasmLbmSolver {
         })
     }
 
-    /// Configure geometry plus flow parameters. Picks inlet and outlet
-    /// from the kind: duct uses parabolic plus zero gradient, else
-    /// uniform plus convective. stats_start_step is the optional
+    /// Configure geometry plus flow parameters. A legacy duct kind migrates
+    /// to the orifice plate above, so the duct arm below only serves direct
+    /// core callers (the Poiseuille channel validation fixture); every
+    /// other body including the orifice plate uses uniform plus convective.
+    /// stats_start_step is the optional
     /// transient cut for time statistics (None means 0, no cut).
     /// Values above MAX_STATS_START_STEP are rejected. The binding does
     /// not know the run target, so a cut at or past the target is not
@@ -292,8 +294,13 @@ impl WasmLbmSolver {
     ) -> Result<(), JsValue> {
         check_geom_json_len(geom_json.len())
             .map_err(|e| JsValue::from_str(&e))?;
-        let geom: GeometrySpec = serde_json::from_str(geom_json)
+        let parsed: GeometrySpec = serde_json::from_str(geom_json)
             .map_err(|e| JsValue::from_str(&format!("WasmLbmSolver.configure: bad geometry JSON: {e}")))?;
+        // Retired duct intake migrates to the orifice plate so a legacy
+        // worker JSON or direct Wasm caller runs the orifice migration
+        // instead of the retired channel body. Mirrors the TS rail and App
+        // migration through migrateDuctToOrifice.
+        let geom = crate::geometry::migrate_legacy_duct(&parsed).unwrap_or(parsed);
         let (inlet, outlet) = if geom.kind == "duct" {
             (
                 crate::boundaries::InletProfile::Parabolic,

@@ -17,6 +17,8 @@ function render(prefs = DEFAULT_DISPLAY_PREFS) {
             gridMode="auto"
             activeGrid={256}
             onGridMode={noop}
+            variable="speed"
+            onVariable={noop}
         />,
     );
 }
@@ -66,9 +68,12 @@ describe("SettingsModal", () => {
         expect(html).toContain("Streamlines");
     });
 
-    it("does not contain a field variable control", () => {
+    it("renders the field quantity chips beside the colormap", () => {
         const html = render();
-        expect(html).not.toContain("Field variable");
+        expect(html).toContain("Field quantity");
+        for (const label of ["SPEED", "PRESSURE", "VORTICITY", "TKE", "RECIRC"]) {
+            expect(html).toContain(label);
+        }
     });
 
     it("offers Reset defaults", () => {
@@ -92,6 +97,8 @@ describe("SettingsModal", () => {
                 gridMode="auto"
                 activeGrid={256}
                 onGridMode={noop}
+                variable="speed"
+                onVariable={noop}
             />,
         );
         expect(html).toBe("");

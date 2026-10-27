@@ -234,4 +234,23 @@ describe("SurrogateFlowProvider", () => {
         expect(provider.meta.backend).toBe("surrogate");
         expect(frame.nx).toBe(8);
     });
+
+    it("serves analytic fallback out of the characterized alpha band", () => {
+        for (const alphaDeg of [45, 90]) {
+            const provider = new SurrogateFlowProvider({
+                grid: TINY_GRID,
+                geom: { ...TINY_GEOM, alphaDeg },
+                weightsOverride: zeroWeights(2, 8, 8, [1, 0, 0]),
+            });
+            const frame = provider.getFrame();
+            expect(provider.meta.backend).toBe("analytic-fallback");
+            expect(frame.nx).toBe(8);
+            let fluid = 0;
+            for (let k = 0; k < frame.u.length; k++) {
+                expect(Number.isFinite(frame.u[k])).toBe(true);
+                if (frame.obstacle[k] <= 0.5) fluid++;
+            }
+            expect(fluid).toBeGreaterThan(0);
+        }
+    });
 });

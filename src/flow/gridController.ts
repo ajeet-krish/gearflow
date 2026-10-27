@@ -1,20 +1,23 @@
 // Resolution controller. Analytic solves default to 256x256; two consecutive
 // solves slower than 800 ms at 256 drop to 128 with a notice. The mode is
 // persisted to localStorage. Surrogate always stays at 128 and never goes
-// through this controller.
+// through this controller. Phase B adds the 64 preset plus a custom square
+// (32 to 512) parsed by parseCustomGrid.
 
 import { useCallback, useRef, useState } from "react";
-import { GRID_128, GRID_256, type GridSize } from "@/contracts/types";
+import { CUSTOM_GRID_MAX, CUSTOM_GRID_MIN, GRID_128, GRID_256, GRID_64, type GridSize } from "@/contracts/types";
 
-export type GridMode = "auto" | "256" | "128";
+export type GridMode = "auto" | "256" | "128" | "64" | "custom";
 
 export const GRID_MODE_KEY = "gearflow:gridMode";
+export const GRID_CUSTOM_KEY = "gearflow:gridCustom";
 export const SLOW_SOLVE_MS = 800;
 export const SLOW_STREAK_LIMIT = 2;
 
 export interface ResolutionState {
     mode: GridMode;
     active: GridSize;
+    customSize: number;
     slowStreak: number;
     autoDropped: boolean;
     notice: string | null;
@@ -24,7 +27,7 @@ function readMode(): GridMode {
     try {
         if (typeof localStorage === "undefined") return "auto";
         const raw = localStorage.getItem(GRID_MODE_KEY);
-        if (raw === "256" || raw === "128" || raw === "auto") return raw;
+        if (raw === "256" || raw === "128" || raw === "64" || raw === "auto" || raw === "custom") return raw;
     } catch {
         // Private mode: fall through to auto.
     }
@@ -40,11 +43,72 @@ function storeMode(mode: GridMode): void {
     }
 }
 
+function readCustomSize(): number {
+    try {
+        if (typeof localStorage === "undefined") return GRID_128;
+        const raw = localStorage.getItem(GRID_CUSTOM_KEY);
+        const parsed = parseCustomGrid(raw);
+        if (parsed.ok) return parsed.size;
+    } catch {
+        // Private mode: fall through to the default.
+    }
+    return GRID_128;
+}
+
+function storeCustomSize(size: number): void {
+    try {
+        if (typeof localStorage === "undefined") return;
+        localStorage.setItem(GRID_CUSTOM_KEY, String(size));
+    } catch {
+        // Private mode: size still applies to this session.
+    }
+}
+
+export interface CustomGridParse {
+    ok: boolean;
+    size: number;
+    reason: string | null;
+}
+
+/**
+ * Parse a custom square grid side. Accepts numbers and numeric strings.
+ * Must be an integer in [32, 512]. Never throws.
+ */
+export function parseCustomGrid(raw: unknown): CustomGridParse {
+    const fail = (reason: string): CustomGridParse => ({ ok: false, size: GRID_128, reason });
+    if (typeof raw === "string") {
+        if (raw.trim().length === 0) {
+            return fail(`custom grid needs a number in [${CUSTOM_GRID_MIN}, ${CUSTOM_GRID_MAX}], got empty input`);
+        }
+        const n = Number(raw.trim());
+        return parseCustomGrid(n);
+    }
+    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+        return fail(`custom grid needs a number in [${CUSTOM_GRID_MIN}, ${CUSTOM_GRID_MAX}], got non-numeric input`);
+    }
+    if (!Number.isInteger(raw)) {
+        return fail(`custom grid must be an integer in [${CUSTOM_GRID_MIN}, ${CUSTOM_GRID_MAX}], got ${String(raw)}`);
+    }
+    if (raw < CUSTOM_GRID_MIN || raw > CUSTOM_GRID_MAX) {
+        return fail(`custom grid must be in [${CUSTOM_GRID_MIN}, ${CUSTOM_GRID_MAX}], got ${raw}`);
+    }
+    return { ok: true, size: raw, reason: null };
+}
+
+function activeFor(mode: GridMode, customSize: number): GridSize {
+    if (mode === "128") return GRID_128;
+    if (mode === "64") return GRID_64;
+    if (mode === "custom") return customSize;
+    return GRID_256;
+}
+
 export function initialResolution(mode?: GridMode): ResolutionState {
     const m = mode ?? readMode();
+    const customSize = readCustomSize();
     return {
         mode: m,
-        active: m === "128" ? GRID_128 : GRID_256,
+        active: m === "128" ? GRID_128 : m === "64" ? GRID_64 : m === "custom" ? customSize : GRID_256,
+        customSize,
         slowStreak: 0,
         autoDropped: false,
         notice: null,
@@ -89,11 +153,22 @@ export function recordSolve(
     return { state: { ...state, slowStreak: streak }, fellBack: false };
 }
 
-/** Pin a grid mode. Pinning 256 clears a prior auto drop. */
-export function setGridMode(state: ResolutionState, mode: GridMode): ResolutionState {
+/** Pin a grid mode. Pinning 256 clears a prior auto drop. Custom pins the parsed size. */
+export function setGridMode(state: ResolutionState, mode: GridMode, customRaw?: unknown): ResolutionState {
     storeMode(mode);
     if (mode === "128") {
         return { ...state, mode, active: GRID_128, notice: null };
+    }
+    if (mode === "64") {
+        return { ...state, mode, active: GRID_64, notice: null };
+    }
+    if (mode === "custom") {
+        const parsed = parseCustomGrid(customRaw ?? state.customSize);
+        if (!parsed.ok) {
+            return { ...state, mode, active: state.customSize, notice: parsed.reason };
+        }
+        storeCustomSize(parsed.size);
+        return { ...state, mode, active: parsed.size, customSize: parsed.size, notice: null };
     }
     return { ...state, mode, active: GRID_256, slowStreak: 0, autoDropped: false, notice: null };
 }
@@ -108,8 +183,8 @@ export function useResolution() {
         setState(next.state);
         return next.fellBack;
     }, []);
-    const setMode = useCallback((mode: GridMode): void => {
-        setState((prev) => setGridMode(prev, mode));
+    const setMode = useCallback((mode: GridMode, customRaw?: unknown): void => {
+        setState((prev) => setGridMode(prev, mode, customRaw));
     }, []);
     const clearNotice = useCallback((): void => {
         setState((prev) => (prev.notice === null ? prev : { ...prev, notice: null }));

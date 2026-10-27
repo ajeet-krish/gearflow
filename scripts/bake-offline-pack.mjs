@@ -40,7 +40,7 @@ function assertFinite(value, name) {
 }
 
 function validateGeometry(g) {
-    const kinds = ["naca4", "cylinder", "block", "duct", "custom"];
+    const kinds = ["naca4", "cylinder", "block", "orifice", "custom"];
     if (!kinds.includes(g.kind)) fail(`geometry kind ${g.kind} not allowed`);
     assertFinite(g.chord, "chord");
     if (g.chord <= 0) fail("chord must be positive");

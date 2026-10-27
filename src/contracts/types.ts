@@ -3,7 +3,7 @@
 
 import type { ColormapName } from "@/flow/colormap";
 
-export type GeometryKind = "naca4" | "cylinder" | "block" | "duct" | "custom";
+export type GeometryKind = "naca4" | "cylinder" | "block" | "orifice" | "custom";
 
 export interface Naca4Params {
   /** 4 digit code, e.g. "2412" */
@@ -30,7 +30,7 @@ export interface GeometrySpec {
   radius?: number;
   /** Cylinder or block center */
   center?: { x: number; y: number };
-  /** Block or duct extents */
+  /** Block extents; orifice plate thickness (width) and gap opening (height) */
   width?: number;
   height?: number;
   /** Custom polygon points in chord normalized coords, LE at (0,0), chord 1 (kind === custom) */
@@ -249,12 +249,12 @@ export interface ChatAction {
 }
 
 /** Phase B2 body token for the solver bar BODY select. Custom shapes go through set_spec. */
-export type BodyToken = "naca0012" | "naca2412" | "naca4412" | "cylinder" | "block" | "duct";
+export type BodyToken = "naca0012" | "naca2412" | "naca4412" | "cylinder" | "block" | "orifice";
 
 /** Phase B2 engine token. Analytic, wasm, and lbm drive the engine switch, surrogate drives the solve mode. */
 export type AgentEngineToken = "analytic" | "wasm" | "lbm" | "surrogate";
 
-/** Phase B2 agent action union. Bounds match the canvas controls: alpha in [-4, 12], reynolds in [1000, 1000000]. */
+/** Phase B2 agent action union. Bounds match the canvas controls: alpha in [-180, 180], reynolds in [100, 1000000]. */
 export type AgentAction =
     | { kind: "set_body"; body: BodyToken }
     | { kind: "set_alpha"; alphaDeg: number }
@@ -268,12 +268,28 @@ export type AgentAction =
 /** Selectable field quantity rendered on the tunnel canvas. */
 export type FieldMode = "speed" | "cp" | "omega" | "u" | "v" | "k" | "recirc";
 
-/** Supported solve grid sizes. Surrogate stays at 128, analytic may use 256. */
-export type GridSize = 128 | 256;
+/** Supported solve grid sizes. Surrogate stays at 128, analytic may use 64, 128, or 256. */
+export type GridPreset = 64 | 128 | 256;
+/** Effective solve grid size: a preset or a custom square side. */
+export type GridSize = GridPreset | (number & {});
 
-export const GRID_128: GridSize = 128;
-export const GRID_256: GridSize = 256;
-export const GRID_OPTIONS: GridSize[] = [GRID_128, GRID_256];
+export const GRID_64: GridPreset = 64;
+export const GRID_128: GridPreset = 128;
+export const GRID_256: GridPreset = 256;
+export const GRID_OPTIONS: GridPreset[] = [GRID_64, GRID_128, GRID_256];
+
+/** Custom square grid bounds. Squares from 32 to 512 inclusive. */
+export const CUSTOM_GRID_MIN = 32;
+export const CUSTOM_GRID_MAX = 512;
+
+/** Orifice plate bounds. Width is plate thickness, height is the gap opening. */
+export const ORIFICE_GAP_MIN = 0.05;
+export const ORIFICE_GAP_MAX = 1.8;
+export const ORIFICE_GAP_DEFAULT = 0.4;
+export const ORIFICE_THICKNESS_MIN = 0.02;
+export const ORIFICE_THICKNESS_MAX = 0.2;
+export const ORIFICE_THICKNESS_DEFAULT = 0.08;
+export const ORIFICE_WALL_HALF = 1.5;
 
 /** User controlled display preferences, persisted to localStorage. */
 export type ParticleColorMode = "auto" | "white" | "black" | "cyan" | "magenta" | "orange";

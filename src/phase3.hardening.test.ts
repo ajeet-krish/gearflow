@@ -289,7 +289,7 @@ describe("phase3 error: oversize fixtures rejected before allocation", () => {
     expect(() => validateManifest({ ...tinyManifest(65, 128, 128) })).toThrow(/base/);
     expect(() => validateManifest({ ...tinyManifest(2, 128, 128), weightsFile: "../evil.bin" })).toThrow();
     expect(() => parseTmrDat("alpha 1.0\n2.0 3.0")).toThrow(/variables/);
-    expect(() => new SurrogateFlowProvider({ grid: { nx: 8, ny: 8, domain: { ...DEFAULT_DOMAIN } }, geom: { ...TINY_GEOM, alphaDeg: 99 } })).toThrow();
+    expect(() => new SurrogateFlowProvider({ grid: { nx: 8, ny: 8, domain: { ...DEFAULT_DOMAIN } }, geom: { ...TINY_GEOM, alphaDeg: 199 } })).toThrow();
   });
 });
 

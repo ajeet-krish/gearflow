@@ -8,6 +8,8 @@ import {
     validateGeometrySpec,
     validatePackFilePath,
     validateLoadedGeometryMatchesPack,
+    alphaBand,
+    alphaOutOfBandNote,
 } from "./schema";
 import type { DemoPack, FlowField } from "./types";
 
@@ -94,13 +96,16 @@ describe("validateDemoPack", () => {
         expect(() => validateDemoPack(pack2)).toThrow(/naca\.t/);
     });
 
-    it("requires cylinder radius and positive duct extents", () => {
+    it("requires cylinder radius and positive orifice extents", () => {
         expect(() =>
             validateGeometrySpec({ kind: "cylinder", chord: 1, alphaDeg: 0, nPoints: 8 })
         ).toThrow(/radius/);
         expect(() =>
-            validateGeometrySpec({ kind: "duct", chord: 1, alphaDeg: 0, nPoints: 8, width: -1, height: 0.4 })
+            validateGeometrySpec({ kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 8, width: 0.005, height: 0.4 })
         ).toThrow(/width/);
+        expect(() =>
+            validateGeometrySpec({ kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 8, width: 0.08, height: 5 })
+        ).toThrow(/height/);
     });
 });
 
@@ -258,7 +263,7 @@ describe("validateLoadedGeometryMatchesPack", () => {
     });
 });
 
-describe("UI envelope (sliders)", () => {
+describe("alpha envelope (hard plus characterized band)", () => {
     const base = () => ({
         kind: "naca4" as const,
         naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 },
@@ -267,8 +272,11 @@ describe("UI envelope (sliders)", () => {
         nPoints: 60,
     });
 
-    it("accepts the slider boundary values", () => {
+    it("accepts the slider boundary values and full rotation extremes", () => {
         for (const alphaDeg of [-4, 12]) {
+            expect(() => validateGeometrySpec({ ...base(), alphaDeg })).not.toThrow();
+        }
+        for (const alphaDeg of [-180, 180, 45, -90]) {
             expect(() => validateGeometrySpec({ ...base(), alphaDeg })).not.toThrow();
         }
         expect(() => validateGeometrySpec({ ...base(), naca: { code: "2006", m: 0.02, p: 0.4, t: 0.06 } })).not.toThrow();
@@ -276,10 +284,20 @@ describe("UI envelope (sliders)", () => {
         expect(() => validateGeometrySpec({ ...base(), naca: { code: "2006", m: 0, p: 0.4, t: 0.06 } })).not.toThrow();
     });
 
-    it("rejects alphaDeg outside [-4, 12]", () => {
-        for (const alphaDeg of [-4.5, -10, 12.5, 45]) {
+    it("rejects alphaDeg outside [-180, 180]", () => {
+        for (const alphaDeg of [-180.5, 180.5, -270, 360]) {
             expect(() => validateGeometrySpec({ ...base(), alphaDeg })).toThrow(/alphaDeg/);
         }
+    });
+
+    it("flags the characterized band and notes out-of-band runs", () => {
+        expect(alphaBand(6)).toBe("characterized");
+        expect(alphaBand(-4)).toBe("characterized");
+        expect(alphaBand(12)).toBe("characterized");
+        expect(alphaBand(45)).toBe("out-of-band");
+        expect(alphaBand(-90)).toBe("out-of-band");
+        expect(alphaOutOfBandNote(6)).toBeNull();
+        expect(alphaOutOfBandNote(45)).toContain("outside the characterized band");
     });
 
     it("rejects naca params outside the slider envelope", () => {
@@ -302,7 +320,7 @@ describe("UI envelope (sliders)", () => {
 
     it("rejects out-of-envelope geometry inside DemoPack manifests", () => {
         const pack = goodPack();
-        pack.geometry = { ...pack.geometry, alphaDeg: 45 };
+        pack.geometry = { ...pack.geometry, alphaDeg: 200 };
         expect(() => validateDemoPack(pack)).toThrow(/alphaDeg/);
     });
 });

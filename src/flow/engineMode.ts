@@ -126,11 +126,31 @@ function reportForHeight(bodyHeight: number, domainHeight: number): BlockageInfo
 }
 
 /**
+ * Gap opening report for the orifice plate. The ratio stays the gap over
+ * the domain height for tau and reference length parity with the Rust
+ * core, while the warning is by design copy: the plate deliberately blocks
+ * most of the section, so the generic Cd blockage warning is suppressed.
+ */
+function reportForOrificeGap(gap: number, domainHeight: number): BlockageInfo {
+    const raw = domainHeight > 0 && Number.isFinite(domainHeight) ? gap / domainHeight : 0;
+    const ratio = clampRatio(raw);
+    const percent = ratio * 100;
+    return {
+        ratio,
+        percent,
+        limitPercent: BLOCKAGE_LIMIT_PERCENT,
+        warning: `orifice plate by design, open gap ${percent.toFixed(1)} percent of tunnel height, jet Cd reads high by design`,
+    };
+}
+
+/**
  * Blockage ratio for a geometry over a domain. Body height is normal to the
  * freestream over the domain height. Cylinder uses 2r, block uses the
  * rotated projected height height * cos(alpha) + width * sin(alpha),
- * duct uses height, airfoil and custom use the rotated polygon y extent.
- * Mirrors the Rust body_height_phys plus blockage_report formulas.
+ * orifice reports the gap opening ratio with by design copy (the plate
+ * deliberately blocks most of the section, so no generic Cd warning),
+ * airfoil and custom use the rotated polygon
+ * y extent. Mirrors the Rust body_height_phys plus blockage_report formulas.
  */
 export function blockageForGeometry(geom: GeometrySpec, domain: Domain): BlockageInfo {
     const h = domain.yMax - domain.yMin;
@@ -154,12 +174,12 @@ export function blockageForGeometry(geom: GeometrySpec, domain: Domain): Blockag
         const projected = bh * Math.abs(Math.cos(alphaRad)) + bw * Math.abs(Math.sin(alphaRad));
         return reportForHeight(projected, h);
     }
-    if (geom.kind === "duct") {
-        const dh = geom.height ?? 0.4;
-        if (!Number.isFinite(dh) || dh <= 0) {
+    if (geom.kind === "orifice") {
+        const gap = geom.height ?? 0.4;
+        if (!Number.isFinite(gap) || gap <= 0) {
             return { ratio: 0, percent: 0, limitPercent: BLOCKAGE_LIMIT_PERCENT, warning: null };
         }
-        return reportForHeight(dh, h);
+        return reportForOrificeGap(gap, h);
     }
     try {
         const polys = buildPolygons(geom);

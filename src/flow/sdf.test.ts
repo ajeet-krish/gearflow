@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSdfGrid, circleSdf, polygonSdf } from "./sdf";
-import { cylinderPolygon, blockPolygon, ductPolygons } from "@/geometry/parametric";
+import { cylinderPolygon, blockPolygon, orificePolygons } from "@/geometry/parametric";
 import { DEFAULT_GRID } from "@/contracts/types";
 
 const GRID = { nx: 32, ny: 32, domain: { ...DEFAULT_GRID.domain } };
@@ -38,8 +38,8 @@ describe("sdf", () => {
         expect(polygonSdf(-0.5, -1.0, poly)).toBeGreaterThan(0);
     });
 
-    it("duct union leaves the channel open", () => {
-        const walls = ductPolygons(0.5, 0, 1.0, 0.4, 64);
+    it("orifice union leaves the gap open", () => {
+        const walls = orificePolygons(0.5, 0, 0.08, 0.4, 64);
         expect(walls).toHaveLength(2);
         const g = buildSdfGrid(walls, GRID);
         const at = (x: number, y: number): number => {
@@ -82,7 +82,7 @@ describe("sdf allocation caps", () => {
     });
 
     it("accepts a normal multi-body grid", () => {
-        const walls = ductPolygons(0.5, 0, 1.0, 0.4, 64);
+        const walls = orificePolygons(0.5, 0, 0.08, 0.4, 64);
         const g = buildSdfGrid(walls, GRID);
         expect(g.sdf.length).toBe(GRID.nx * GRID.ny);
     });

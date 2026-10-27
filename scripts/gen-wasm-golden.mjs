@@ -82,13 +82,13 @@ const cases = [
         params: { U: 1, Re: 1000 },
     },
     {
-        name: "duct-re1000",
+        name: "orifice-re1000",
         geom: {
-            kind: "duct",
+            kind: "orifice",
             chord: 1,
             alphaDeg: 0,
             nPoints: 64,
-            width: 1.0,
+            width: 0.08,
             height: 0.4,
             center: { x: 0.5, y: 0 },
         },

@@ -80,17 +80,17 @@ describe("analyticFlow", () => {
         expect(downstreamDiff).toBeGreaterThan(1e-6);
     });
 
-    it("duct shows speedup in the channel", () => {
-        const duct: GeometrySpec = {
-            kind: "duct",
+    it("orifice shows speedup in the gap", () => {
+        const orifice: GeometrySpec = {
+            kind: "orifice",
             chord: 1,
             alphaDeg: 0,
             nPoints: 64,
-            width: 1.0,
+            width: 0.08,
             height: 0.4,
             center: { x: 0.5, y: 0 },
         };
-        const r = generateAnalyticFlow(DEFAULT_GRID, duct);
+        const r = generateAnalyticFlow(DEFAULT_GRID, orifice);
         assertFiniteField(r);
         let maxU = -Infinity;
         const { domain } = DEFAULT_GRID;
@@ -157,21 +157,21 @@ describe("analyticFlow", () => {
         for (const g of blockBody.body.sol.gammas) expect(g).toBe(0);
         expect(Math.abs(blockBody.body.sol.cl)).toBeLessThan(0.05);
 
-        const duct: GeometrySpec = {
-            kind: "duct",
+        const orifice: GeometrySpec = {
+            kind: "orifice",
             chord: 1,
             alphaDeg: 0,
             nPoints: 64,
-            width: 1.0,
+            width: 0.08,
             height: 0.4,
             center: { x: 0.5, y: 0 },
         };
-        const ductBody = resolveBody(duct, 1);
-        expect(ductBody.body.sol.gammas).toHaveLength(2);
-        for (const g of ductBody.body.sol.gammas) expect(g).toBe(0);
-        expect(Math.abs(ductBody.body.sol.cl)).toBeLessThan(0.1);
-        const ductFlow = generateAnalyticFlow(DEFAULT_GRID, duct);
-        expect(Math.abs(ductFlow.cl)).toBeLessThan(0.1);
+        const orificeBody = resolveBody(orifice, 1);
+        expect(orificeBody.body.sol.gammas).toHaveLength(2);
+        for (const g of orificeBody.body.sol.gammas) expect(g).toBe(0);
+        expect(Math.abs(orificeBody.body.sol.cl)).toBeLessThan(0.1);
+        const orificeFlow = generateAnalyticFlow(DEFAULT_GRID, orifice);
+        expect(Math.abs(orificeFlow.cl)).toBeLessThan(0.1);
     });
 
     it("rejects bad params", () => {

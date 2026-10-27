@@ -1,12 +1,13 @@
 // Settings modal: appearance, field, particles, resolution in one dialog.
 // Rendered only when open. Focus trap, Escape and backdrop close, restore.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { COLORMAPS, type ColormapName } from "@/flow/colormap";
-import { DEFAULT_DISPLAY_PREFS, type DisplayPrefs, type ParticleColorMode } from "@/contracts/types";
+import { DEFAULT_DISPLAY_PREFS, type DisplayPrefs, type FieldMode, type ParticleColorMode } from "@/contracts/types";
 import { PARTICLE_COLOR_OPTIONS } from "@/render/particleColor";
-import type { GridMode } from "@/flow/gridController";
+import { parseCustomGrid, type GridMode } from "@/flow/gridController";
 import type { GridSize } from "@/contracts/types";
+import FieldBar from "./FieldBar";
 
 export interface SettingsModalProps {
     open: boolean;
@@ -15,7 +16,13 @@ export interface SettingsModalProps {
     onPatch: (next: Partial<DisplayPrefs>) => void;
     gridMode: GridMode;
     activeGrid: GridSize;
-    onGridMode: (next: GridMode) => void;
+    customSize?: number;
+    gridNotice?: string | null;
+    onGridMode: (next: GridMode, customRaw?: unknown) => void;
+    variable: FieldMode;
+    onVariable: (next: FieldMode) => void;
+    hasTke?: boolean;
+    hasRecirc?: boolean;
 }
 
 const THEMES: Array<{ value: DisplayPrefs["theme"]; label: string }> = [
@@ -29,6 +36,25 @@ function countLabel(n: number): string {
     return n === 0 ? "Off" : String(n);
 }
 
+/**
+ * Commit decision for the Settings custom grid field. Valid input fires
+ * onGridMode with the parsed side, invalid input keeps the last good size
+ * and carries the parser reason. Never throws.
+ */
+export function decideSettingsCustomCommit(raw: unknown, fallbackSize: number): {
+    fire: boolean;
+    size: number;
+    message: string | null;
+} {
+    const parsed = parseCustomGrid(raw);
+    if (parsed.ok) return { fire: true, size: parsed.size, message: null };
+    return {
+        fire: false,
+        size: fallbackSize,
+        message: parsed.reason ?? "Custom grid needs a number in [32, 512].",
+    };
+}
+
 export default function SettingsModal({
     open,
     onClose,
@@ -36,13 +62,28 @@ export default function SettingsModal({
     onPatch,
     gridMode,
     activeGrid,
+    customSize = 128,
+    gridNotice = null,
     onGridMode,
+    variable,
+    onVariable,
+    hasTke = false,
+    hasRecirc = false,
 }: SettingsModalProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
     const closeRef = useRef<HTMLButtonElement>(null);
     const prevFocusRef = useRef<Element | null>(null);
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
+    const [customText, setCustomText] = useState(String(customSize));
+    const [customError, setCustomError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (open) {
+            setCustomText(String(customSize));
+            setCustomError(null);
+        }
+    }, [open, customSize]);
 
     useEffect(() => {
         if (!open) return;
@@ -183,6 +224,15 @@ export default function SettingsModal({
                                 ))}
                             </select>
                         </div>
+                        <div className="settingsRow">
+                            <span className="settingsLabel" id="settingsFieldLabel">Field quantity</span>
+                            <FieldBar
+                                variable={variable}
+                                onVariable={onVariable}
+                                hasTke={hasTke}
+                                hasRecirc={hasRecirc}
+                            />
+                        </div>
                         <div className="settingsRow toggleRow">
                             <input
                                 id="settingsFieldVis"
@@ -271,16 +321,60 @@ export default function SettingsModal({
                                 id="settingsGrid"
                                 className="barSelect"
                                 value={gridMode}
-                                onChange={(e) => onGridMode(e.target.value as GridMode)}
+                                onChange={(e) => {
+                                    const next = e.target.value as GridMode;
+                                    if (next === "custom") onGridMode("custom", customSize);
+                                    else onGridMode(next);
+                                }}
                                 aria-label="Solve resolution"
                                 aria-describedby="settingsGridHint"
                             >
                                 <option value="auto">Auto (256, fallback to 128)</option>
                                 <option value="256">256 x 256 pinned</option>
                                 <option value="128">128 x 128 pinned</option>
+                                <option value="64">64 x 64 pinned</option>
+                                <option value="custom">Custom square</option>
                             </select>
                         </div>
+                        {gridMode === "custom" && (
+                            <div className="settingsRow">
+                                <label className="settingsLabel" htmlFor="settingsCustomGrid">Custom square side, 32 to 512</label>
+                                <input
+                                    id="settingsCustomGrid"
+                                    className="barSelect"
+                                    type="number"
+                                    min={32}
+                                    max={512}
+                                    step={1}
+                                    value={customText}
+                                    onChange={(e) => setCustomText(e.target.value)}
+                                    onBlur={() => {
+                                        const decision = decideSettingsCustomCommit(customText, customSize);
+                                        if (decision.fire) {
+                                            setCustomError(null);
+                                            onGridMode("custom", decision.size);
+                                        } else {
+                                            setCustomError(decision.message);
+                                        }
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                        else if (e.key === "Escape") {
+                                            setCustomText(String(customSize));
+                                            setCustomError(null);
+                                        }
+                                    }}
+                                    aria-label="Custom square grid side, 32 to 512"
+                                />
+                                {customError !== null && (
+                                    <p className="mError" role="alert">{customError}</p>
+                                )}
+                            </div>
+                        )}
                         <p className="hint mono" id="settingsGridHint">Active grid {activeGrid} x {activeGrid}. Surrogate and fixture stay at 128.</p>
+                        {gridNotice !== null && (
+                            <p className="hint mono" role="status">{gridNotice}</p>
+                        )}
                     </section>
                 </div>
                 <div className="settingsFooter">

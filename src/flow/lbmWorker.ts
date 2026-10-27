@@ -71,6 +71,30 @@ export function checkGeomJsonLen(geomJson: string): string | null {
     return null;
 }
 
+/**
+ * Retired duct intake error, or null when the payload needs no migration.
+ * A legacy worker JSON still carrying kind duct is rejected with a
+ * migration error before any solver is constructed. Mirrors
+ * migrateDuctToOrifice in geometry/parametric.ts and the Rust
+ * migrate_legacy_duct intake. Never throws: unparsable payloads fall
+ * through to the solver configure error path.
+ */
+export function ductIntakeError(geomJson: string): string | null {
+    let kind: unknown = null;
+    try {
+        const parsed: unknown = JSON.parse(geomJson);
+        if (typeof parsed === "object" && parsed !== null) {
+            kind = (parsed as Record<string, unknown>).kind;
+        }
+    } catch {
+        return null;
+    }
+    if (kind === "duct") {
+        return "LBM worker init rejected: duct is retired, migrate to the orifice plate (width resets to 0.08, height clamps to the 0.05 to 1.8 gap).";
+    }
+    return null;
+}
+
 function post(msg: unknown, transfer?: Transferable[]): void {
     try {
         (self as unknown as { postMessage(m: unknown, t?: Transferable[]): void }).postMessage(msg, transfer as Transferable[]);
@@ -326,6 +350,11 @@ export function handleMainMessage(msg: LbmMainMessage): void {
                         fail(myGen, `LBM worker init rejected: ${geomError}.`);
                         break;
                     }
+                    const retiredError = ductIntakeError(msg.geomJson);
+                    if (retiredError !== null) {
+                        fail(myGen, retiredError);
+                        break;
+                    }
                     const wanted = msg.targetSteps;
                     const batch = clampBatchSteps(msg.batchSteps);
                     const { nx, ny, domain, geomJson, re, uLattice, lesEnabled } = msg;
@@ -392,6 +421,11 @@ export function handleMainMessage(msg: LbmMainMessage): void {
                         geomJson: string; re: number; uLattice: number; lesEnabled: boolean;
                         targetSteps: number; batchSteps: number; statsStartStep?: number;
                     };
+                    const retiredResetError = ductIntakeError(r.geomJson);
+                    if (retiredResetError !== null) {
+                        fail(myGen, retiredResetError);
+                        break;
+                    }
                     const wantedStatsStart = typeof r.statsStartStep === "number" ? r.statsStartStep : 0;
                     serializeConfig(async () => {
                         if (myGen !== currentGen) return;

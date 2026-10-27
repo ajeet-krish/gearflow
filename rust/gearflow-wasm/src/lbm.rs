@@ -10,12 +10,12 @@ use crate::forces::{strouhal_from_cl, ForceAccumulator, ForceSummary};
 use crate::geometry::build_polygons;
 use crate::lattice::{
     blockage_report, check_tau, equilibrium, lattice_params, macroscopic,
-    non_equilibrium_moments, smagorinsky_tau, source_index, BlockageReport, CS2,
+    non_equilibrium_moments, orifice_gap_report, smagorinsky_tau, source_index, BlockageReport, CS2,
     CS_SMAG_DEFAULT, CX, CY, OPP, ST_DEFAULT, U_LAT_MAX, U_LAT_MIN,
 };
 use crate::sdf::build_sdf_grid;
 use crate::stats::{FinalStats, StatsAccumulator};
-use crate::types::{CircleDef, Domain, FlowField, GeometrySpec, GridSpec, Xy};
+use crate::types::{CircleDef, Domain, FlowField, GeometrySpec, GridSpec, Xy, ORIFICE_GAP_DEFAULT};
 
 /// Maximum accepted statistics transient cut in steps. Mirrors
 /// MAX_TARGET_STEPS in src/flow/lbmProtocol.ts so the Rust core and
@@ -184,10 +184,20 @@ impl LbmState {
             ));
         }
         if params.blockage > 0.05 && geom.kind != "duct" {
-            warnings.push(format!(
-                "blockage {:.1} percent exceeds 5 percent reference limit, Cd will read high",
-                params.blockage * 100.0
-            ));
+            // Orifice plates block most of the section by design, so they
+            // carry by design copy instead of the generic Cd warning. The
+            // ratio stays the gap opening for tau and reference length
+            // parity with the TS engine mode report.
+            if geom.kind == "orifice" {
+                if let Some(note) = orifice_gap_report(params.blockage).warning {
+                    warnings.push(note);
+                }
+            } else {
+                warnings.push(format!(
+                    "blockage {:.1} percent exceeds 5 percent reference limit, Cd will read high",
+                    params.blockage * 100.0
+                ));
+            }
         }
         let solid = build_solid_mask(grid, geom)?;
         let chord_lat = chord_lat_cells(geom, &polygons, dx);
@@ -796,6 +806,13 @@ fn body_height_phys(geom: &GeometrySpec, polygons: &[Vec<Xy>]) -> Result<f64, St
                 return Err("lbm: duct height must be positive".to_string());
             }
             Ok(h)
+        }
+        "orifice" => {
+            let gap = geom.height.unwrap_or(ORIFICE_GAP_DEFAULT);
+            if !gap.is_finite() || gap <= 0.0 {
+                return Err("lbm: orifice gap must be positive".to_string());
+            }
+            Ok(gap)
         }
         _ => {
             // Airfoil and custom: projected y extent of the rotated polygon.

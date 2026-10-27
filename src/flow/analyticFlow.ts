@@ -12,7 +12,7 @@ import { buildPanels, solveBodies, panelVelocity } from "./potential";
 import type { Panel, PanelSolution } from "./potential";
 import { buildSdfGrid } from "./sdf";
 import type { CircleDef } from "./sdf";
-import { applyWake } from "./wake";
+import { applyWake, wakeSlopeForAlpha } from "./wake";
 
 export interface AnalyticFlowParams {
     /** Freestream speed. Defaults to 1. */
@@ -71,8 +71,8 @@ export function resolveBody(geom: GeometrySpec, U: number): { body: ResolvedBody
     const polygons = buildPolygons(geom);
     const bodies = polygons.map((poly) => buildPanels(poly));
     // Kutta applies to lifting airfoil bodies: NACA 4-digit sections and
-    // closed custom airfoil polygons from SAM sketches. Blunt bodies
-    // (cylinder, block, duct walls) keep gamma 0 with no Kutta row.
+    // closed custom airfoil polygons from SAM sketches. Bluff bodies
+    // (cylinder, block, orifice walls) keep gamma 0 with no Kutta row.
     const kuttaPerBody = bodies.map((_, i) => geom.kind === "naca4" || (geom.kind === "custom" && isClosedAirfoil(polygons[i])));
     const sol = solveBodies(bodies, U, geom.chord, kuttaPerBody);
     if (!Number.isFinite(sol.cl)) {
@@ -135,7 +135,7 @@ export function fieldFromResolved(
         for (const pt of body.polygons[0]) sum += pt.y;
         baseY = sum / body.polygons[0].length;
     }
-    const slope = -Math.tan((geom.alphaDeg * Math.PI) / 180) * 0.5;
+    const slope = wakeSlopeForAlpha(geom.alphaDeg);
     applyWake(u, v, nx, ny, domain, obstacle, { U, Re, baseY, slope });
     const cap = 3 * U;
     for (let k = 0; k < n; k++) {

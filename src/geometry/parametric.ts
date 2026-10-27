@@ -13,6 +13,15 @@
 //    approximately (0.9945, -0.1045)).
 
 import type { GeometrySpec } from "@/contracts/types";
+import {
+    ORIFICE_GAP_DEFAULT,
+    ORIFICE_GAP_MAX,
+    ORIFICE_GAP_MIN,
+    ORIFICE_THICKNESS_DEFAULT,
+    ORIFICE_THICKNESS_MAX,
+    ORIFICE_THICKNESS_MIN,
+    ORIFICE_WALL_HALF,
+} from "@/contracts/types";
 
 export interface Point {
     x: number;
@@ -244,38 +253,64 @@ export function blockPolygon(cx: number, cy: number, width: number, height: numb
 }
 
 /**
- * Duct wall polygons: two solid plates above and below a channel of full
- * height `height`, spanning `width` in x. Walls run from the channel edge out
- * to wallHalf in y (default 1.5, past the domain edge, to limit bypass flow
- * around the plate ends). Returns [upper, lower]. Alpha rotation is ignored
- * for ducts so the walls stay aligned with the channel axis.
+ * Orifice plate polygons: two solid segments above and below a central gap
+ * of full height `gap`, plate thickness `thickness` in x. Segments run from
+ * the gap edge out to wallHalf in y (default 1.5, past the domain edge, to
+ * limit bypass flow around the plate ends). Returns [upper, lower]. Alpha
+ * rotation is ignored for orifice plates so the plate stays normal to the
+ * channel axis.
  */
-export function ductPolygons(
+export function orificePolygons(
     cx: number,
     cy: number,
-    width: number,
-    height: number,
+    thickness: number,
+    gap: number,
     nPoints = 64,
-    wallHalf = 1.5
+    wallHalf = ORIFICE_WALL_HALF
 ): Point[][] {
-    assertFiniteNumber("ductPolygons: cx", cx);
-    assertFiniteNumber("ductPolygons: cy", cy);
-    if (!Number.isFinite(width) || width <= 0) {
-        throw new Error(`ductPolygons: width must be a positive finite number, got ${String(width)}`);
+    assertFiniteNumber("orificePolygons: cx", cx);
+    assertFiniteNumber("orificePolygons: cy", cy);
+    if (!Number.isFinite(thickness) || thickness < ORIFICE_THICKNESS_MIN || thickness > ORIFICE_THICKNESS_MAX) {
+        throw new Error(`orificePolygons: thickness must be in [${ORIFICE_THICKNESS_MIN}, ${ORIFICE_THICKNESS_MAX}], got ${String(thickness)}`);
     }
-    if (!Number.isFinite(height) || height <= 0) {
-        throw new Error(`ductPolygons: height must be a positive finite number, got ${String(height)}`);
+    if (!Number.isFinite(gap) || gap < ORIFICE_GAP_MIN || gap > ORIFICE_GAP_MAX) {
+        throw new Error(`orificePolygons: gap must be in [${ORIFICE_GAP_MIN}, ${ORIFICE_GAP_MAX}], got ${String(gap)}`);
     }
     if (!Number.isInteger(nPoints) || nPoints < 4) {
-        throw new Error(`ductPolygons: nPoints must be an integer >= 4, got ${String(nPoints)}`);
+        throw new Error(`orificePolygons: nPoints must be an integer >= 4, got ${String(nPoints)}`);
     }
-    if (!Number.isFinite(wallHalf) || wallHalf <= height / 2) {
-        throw new Error(`ductPolygons: wallHalf must be finite and exceed height / 2, got ${String(wallHalf)}`);
+    if (!Number.isFinite(wallHalf) || wallHalf <= gap / 2) {
+        throw new Error(`orificePolygons: wallHalf must be finite and exceed gap / 2, got ${String(wallHalf)}`);
     }
     const per = Math.max(4, Math.ceil(nPoints / 2));
-    const upper = sampleRectangle(cx - width / 2, cy + height / 2, cx + width / 2, cy + wallHalf, per);
-    const lower = sampleRectangle(cx - width / 2, cy - wallHalf, cx + width / 2, cy - height / 2, per);
+    const upper = sampleRectangle(cx - thickness / 2, cy + gap / 2, cx + thickness / 2, cy + wallHalf, per);
+    const lower = sampleRectangle(cx - thickness / 2, cy - wallHalf, cx + thickness / 2, cy - gap / 2, per);
     return [upper, lower];
+}
+
+/**
+ * Migrate a legacy duct spec to the orifice plate body. The duct channel
+ * height becomes the orifice gap (clamped to the gap envelope), the plate
+ * thickness resets to the default because duct width measured the channel
+ * length, not a plate thickness. Non-duct specs pass through unchanged.
+ */
+export function migrateDuctToOrifice(spec: GeometrySpec): GeometrySpec {
+    if (typeof spec !== "object" || spec === null) {
+        throw new Error("migrateDuctToOrifice: spec must be an object");
+    }
+    if ((spec as unknown as { kind: string }).kind !== "duct") return { ...(spec as GeometrySpec) };
+    const legacy = spec as unknown as Record<string, unknown>;
+    const rawGap = typeof legacy.height === "number" ? (legacy.height as number) : ORIFICE_GAP_DEFAULT;
+    const gap = Number.isFinite(rawGap)
+        ? Math.min(ORIFICE_GAP_MAX, Math.max(ORIFICE_GAP_MIN, rawGap))
+        : ORIFICE_GAP_DEFAULT;
+    const next: GeometrySpec = {
+        ...(spec as GeometrySpec),
+        kind: "orifice",
+        width: ORIFICE_THICKNESS_DEFAULT,
+        height: gap,
+    };
+    return next;
 }
 
 /** Signed area of a closed polygon (positive for CCW). Shared with the panel solver. */
@@ -320,14 +355,14 @@ function strideCap(pts: Point[]): Point[] {
 /**
  * Build world space polygons for a GeometrySpec. Chord is 1 with LE at (0, 0),
  * y-up. Alpha rotates the geometry while the freestream stays fixed at (U, 0).
- * Returns one polygon per body (ducts return two wall polygons). Output is
+ * Returns one polygon per body (orifice plates return two wall polygons). Output is
  * deduplicated (closed TE point removed), stride capped, and CCW.
  */
 export function buildPolygons(spec: GeometrySpec): Point[][] {
     if (typeof spec !== "object" || spec === null) {
         throw new Error("buildPolygons: spec must be an object");
     }
-    const kinds = ["naca4", "cylinder", "block", "duct", "custom"];
+    const kinds = ["naca4", "cylinder", "block", "orifice", "custom"];
     if (!kinds.includes(spec.kind)) {
         throw new Error(`buildPolygons: kind must be one of ${kinds.join(", ")}, got ${String(spec.kind)}`);
     }
@@ -366,9 +401,9 @@ export function buildPolygons(spec: GeometrySpec): Point[][] {
         });
         polys = [transformPoints(raw, 0, 0, spec.chord, spec.alphaDeg)];
     } else {
-        const width = spec.width ?? 1.0;
-        const height = spec.height ?? 0.4;
-        polys = ductPolygons(center.x, center.y, width, height, spec.nPoints);
+        const thickness = spec.width ?? ORIFICE_THICKNESS_DEFAULT;
+        const gap = spec.height ?? ORIFICE_GAP_DEFAULT;
+        polys = orificePolygons(center.x, center.y, thickness, gap, spec.nPoints);
     }
     return polys.map((poly) => ensureCCW(strideCap(dedupClosed(poly))));
 }

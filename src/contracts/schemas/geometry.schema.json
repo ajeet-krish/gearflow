@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["kind", "chord", "alphaDeg", "nPoints"],
   "properties": {
-    "kind": { "enum": ["naca4", "cylinder", "block", "duct"] },
+    "kind": { "enum": ["naca4", "cylinder", "block", "orifice", "custom"] },
     "naca": {
       "type": "object",
       "required": ["code", "m", "p", "t"],
@@ -17,7 +17,7 @@
       }
     },
     "chord": { "type": "number" },
-    "alphaDeg": { "type": "number", "minimum": -4, "maximum": 12 },
+    "alphaDeg": { "type": "number", "minimum": -180, "maximum": 180 },
     "nPoints": { "type": "integer", "minimum": 4 },
     "radius": { "type": "number" },
     "center": {
@@ -25,7 +25,7 @@
       "required": ["x", "y"],
       "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
     },
-    "width": { "type": "number" },
-    "height": { "type": "number" }
+    "width": { "type": "number", "description": "Block width, or orifice plate thickness (0.02 to 0.2)" },
+    "height": { "type": "number", "description": "Block height, or orifice gap opening (0.05 to 1.8)" }
   }
 }

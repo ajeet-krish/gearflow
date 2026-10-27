@@ -3,6 +3,7 @@
 // number, truncated labels, capped honesty lines, target under 900 tokens.
 
 import type { FieldMode, GeometrySpec, LbmStats } from "@/contracts/types";
+import { ALPHA_MAX, ALPHA_MIN } from "@/contracts/schema";
 
 const PROVENANCE_MAX = 120;
 const LABEL_MAX = 80;
@@ -143,6 +144,9 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
         const hasRecirc = snap.hasRecirc === true;
         const honesty: string[] = [];
         const effectiveFlag = snap.lbmEffective === true;
+        if (alphaRaw !== null && (alphaRaw < ALPHA_MIN || alphaRaw > ALPHA_MAX)) {
+            honesty.push(`Alpha ${alphaRaw.toFixed(1)} deg is outside the characterized band [${ALPHA_MIN}, ${ALPHA_MAX}] deg, coefficients are unvalidated.`);
+        }
         if (snap.offline === true) {
             honesty.push("Offline mode, local templates only, no live model calls.");
         }

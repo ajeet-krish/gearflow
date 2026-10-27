@@ -85,9 +85,11 @@ describe("agent App wiring", () => {
         expect(liveK.actions).toEqual([{ kind: "set_field", field: "k" }]);
         const liveRun = parseAgentEnvelope(fence({ kind: "run_lbm" }), LIVE);
         expect(liveRun.actions).toEqual([{ kind: "run_lbm" }]);
-        const badAlpha = parseAgentEnvelope(fence({ kind: "set_alpha", alphaDeg: 20 }), LIVE);
+        const badAlpha = parseAgentEnvelope(fence({ kind: "set_alpha", alphaDeg: 200 }), LIVE);
         expect(badAlpha.actions).toEqual([]);
         expect(badAlpha.rejections.join(" ")).toContain("alphaDeg");
+        const outOfBandAlpha = parseAgentEnvelope(fence({ kind: "set_alpha", alphaDeg: 45 }), LIVE);
+        expect(outOfBandAlpha.actions).toEqual([{ kind: "set_alpha", alphaDeg: 45 }]);
     });
 
     it("keeps the engine URL mirror mapping on the real parser", () => {

@@ -1,11 +1,11 @@
 {
-  "name": "duct-h040",
+  "name": "orifice-g040",
   "geometry": {
-    "kind": "duct",
+    "kind": "orifice",
     "chord": 1,
     "alphaDeg": 0,
     "nPoints": 64,
-    "width": 1,
+    "width": 0.08,
     "height": 0.4,
     "center": {
       "x": 0.5,

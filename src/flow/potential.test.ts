@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildPanels, solveBodies, solvePanels, panelVelocity, cylinderVelocity } from "./potential";
-import { buildPolygons, blockPolygon, cylinderPolygon, ductPolygons } from "@/geometry/parametric";
+import { buildPolygons, blockPolygon, cylinderPolygon, orificePolygons } from "@/geometry/parametric";
 
 const CX = 0.5;
 const CY = 0;
@@ -99,8 +99,8 @@ describe("non-lifting bodies carry gamma 0 with no Kutta row", () => {
         expect(Math.abs(sol.cl)).toBeLessThan(0.05);
     });
 
-    it("duct walls with no Kutta have zero per-body gammas and near zero Cl", () => {
-        const walls = ductPolygons(0.5, 0, 1.0, 0.4, 64);
+    it("orifice walls with no Kutta have zero per-body gammas and near zero Cl", () => {
+        const walls = orificePolygons(0.5, 0, 0.08, 0.4, 64);
         const bodies = walls.map((w) => buildPanels(w));
         const sol = solveBodies(bodies, 1, 1, [false, false]);
         expect(sol.gammas).toHaveLength(2);

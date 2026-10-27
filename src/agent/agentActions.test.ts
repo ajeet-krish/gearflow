@@ -27,11 +27,25 @@ describe("parseAgentEnvelope", () => {
     });
 
     it("rejects out of envelope alpha with a reason", () => {
-        const raw = `\`\`\`action-json\n{"kind": "set_alpha", "alphaDeg": 20}\n\`\`\``;
+        const raw = `\`\`\`action-json\n{"kind": "set_alpha", "alphaDeg": 200}\n\`\`\``;
         const out = parseAgentEnvelope(raw, ANALYTIC);
         expect(out.actions).toEqual([]);
         expect(out.rejections.length).toBeGreaterThan(0);
         expect(out.rejections.join(" ")).toContain("outside");
+        const band = `\`\`\`action-json\n{"kind": "set_alpha", "alphaDeg": 20}\n\`\`\``;
+        expect(parseAgentEnvelope(band, ANALYTIC).actions).toEqual([{ kind: "set_alpha", alphaDeg: 20 }]);
+    });
+
+    it("pins the exact hard alpha boundaries at 90, 180, 181, and minus 181", () => {
+        expect(validateAgentAction({ kind: "set_alpha", alphaDeg: 90 }, ANALYTIC).ok).toBe(true);
+        expect(validateAgentAction({ kind: "set_alpha", alphaDeg: 180 }, ANALYTIC).ok).toBe(true);
+        expect(validateAgentAction({ kind: "set_alpha", alphaDeg: -180 }, ANALYTIC).ok).toBe(true);
+        const over = validateAgentAction({ kind: "set_alpha", alphaDeg: 181 }, ANALYTIC);
+        expect(over.ok).toBe(false);
+        expect(over.reason ?? "").toContain("outside");
+        const under = validateAgentAction({ kind: "set_alpha", alphaDeg: -181 }, ANALYTIC);
+        expect(under.ok).toBe(false);
+        expect(under.reason ?? "").toContain("outside");
     });
 
     it("rejects gated TKE field before the first stats sample", () => {

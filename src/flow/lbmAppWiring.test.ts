@@ -60,9 +60,12 @@ describe("LBM App wiring", () => {
         expect(cfgSrc).toContain("LBM needs low Re, Re set to 200 for the run default.");
     });
 
-    it("caps the SolverBar Re input while LBM is active", async () => {
+    it("caps the rail Re input while LBM is active", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).toContain("maxRe={lbmActive ? LBM_MAX_RE : 1000000}");
+        // The rail Re field commits through the shared parser, which caps
+        // under LBM and notes it; the SolverBar component keeps its maxRe
+        // prop for the parallel geometry half.
+        expect(src).toContain("commitReynoldsValue(raw, lbmActive, reynolds)");
         const barSrc = await readFile(barPath, "utf8");
         expect(barSrc).toContain("maxRe");
         expect(barSrc).toContain("max={maxRe}");
@@ -70,9 +73,8 @@ describe("LBM App wiring", () => {
 
     it("routes the rail Re slider and parametric applies through the LBM cap", async () => {
         const src = await readFile(appPath, "utf8");
-        // Rail log slider shares the capped bar handler, SolverBar keeps its maxRe.
-        expect(src).toContain("onReynoldsChange={onReynoldsBar}");
-        expect(src).toContain("maxRe={lbmActive ? LBM_MAX_RE : 1000000}");
+        // SIMULATION section log slider plus number entry share the capped funnel handler.
+        expect(src).toContain("onCommitReynolds={onReynoldsBar}");
         // Parametric applies (MetaPanel, agent set_spec) clamp under LBM and note it.
         expect(src).toContain("clampReForEngine(next.reynolds, lbmActive)");
         expect(src).toContain("setLbmNotice(LBM_PARAM_CAP_NOTICE)");

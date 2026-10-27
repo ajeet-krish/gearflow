@@ -185,7 +185,7 @@ describe("review #12: provider constructor and all-obstacle guards", () => {
   it("constructor rejects bad grid, geometry, and U", () => {
     const grid = { nx: 8, ny: 8, domain: { ...DEFAULT_DOMAIN } };
     expect(() => new SurrogateFlowProvider({ grid, geom, U: -1 })).toThrow();
-    expect(() => new SurrogateFlowProvider({ grid, geom: { ...geom, alphaDeg: 99 } })).toThrow();
+    expect(() => new SurrogateFlowProvider({ grid, geom: { ...geom, alphaDeg: 199 } })).toThrow();
     expect(() => new SurrogateFlowProvider({ grid: { ...grid, nx: 8192 }, geom })).toThrow();
   });
 

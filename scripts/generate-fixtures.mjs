@@ -6,8 +6,9 @@
 // script is a line-for-line mirror for offline fixture baking only: same
 // cosine spacing, same closed TE coeff (-0.1036), same aerodynamic alpha sign
 // (positive = nose up = negated math angle), same FNV-1a hashSeed, same
-// mulberry32 jitter, same obstacle masks (naca4, cylinder, block, duct),
-// same alpha-deflected wake model, same v-phase `seed % 7`.
+// mulberry32 jitter, same obstacle masks (naca4, cylinder, block, orifice),
+// same alpha-deflected wake model with the characterized band clamp, same
+// v-phase `seed % 7`.
 // If you change the TS modules, mirror the change here, regenerate, and run
 // the parity guard: npm test -- fixtures.parity
 
@@ -93,7 +94,7 @@ function mulberry32(seed) {
     };
 }
 
-// Mirror of obstacleMask in src/flow/fakeFlow.ts (naca4, cylinder, block, duct).
+// Mirror of obstacleMask in src/flow/fakeFlow.ts (naca4, cylinder, block, orifice).
 function obstacleMask(px, py, geom, poly) {
     if (geom.kind === "naca4") {
         if (!poly) return false;
@@ -109,13 +110,21 @@ function obstacleMask(px, py, geom, poly) {
         const w = (geom.width ?? 0.5) / 2, h = (geom.height ?? 0.5) / 2;
         return Math.abs(px - c.x) <= w && Math.abs(py - c.y) <= h;
     }
-    if (geom.kind === "duct") {
+    if (geom.kind === "orifice") {
         const c = geom.center ?? { x: 0.5, y: 0 };
-        const w = (geom.width ?? 1.0) / 2, h = (geom.height ?? 0.4) / 2;
-        if (Math.abs(px - c.x) > w) return false;
-        return py > c.y + h || py < c.y - h;
+        const t = (geom.width ?? 0.08) / 2, g = (geom.height ?? 0.4) / 2;
+        if (Math.abs(px - c.x) > t) return false;
+        return Math.abs(py - c.y) >= g;
     }
     return false;
+}
+
+// Mirror of wakeSlopeForAlpha in src/flow/wake.ts plus wakeProfile in
+// src/flow/fakeFlow.ts: slope clamps alpha to the characterized band.
+function wakeSlopeForAlpha(alphaDeg) {
+    if (!Number.isFinite(alphaDeg)) return 0;
+    const clamped = Math.min(12, Math.max(-4, alphaDeg));
+    return -Math.tan((clamped * Math.PI) / 180) * 0.5;
 }
 
 // Mirror of wakeProfile in src/flow/fakeFlow.ts.
@@ -126,7 +135,7 @@ function wakeProfile(geom, poly) {
         for (const pt of poly) sum += pt.y;
         baseY = sum / poly.length;
     }
-    const slope = -Math.tan((geom.alphaDeg * Math.PI) / 180) * 0.5;
+    const slope = wakeSlopeForAlpha(geom.alphaDeg);
     return { baseY, slope };
 }
 
@@ -172,12 +181,12 @@ const domain = { xMin: -0.5, xMax: 2.0, yMin: -1.0, yMax: 1.0 };
 const grid = { nx: 128, ny: 128, domain };
 
 // Five Phase 1 fixtures (see docs/RESEARCH.md): two airfoils, cylinder,
-// duct/channel constriction, rectangular block. Shared 128x128 grid.
+// orifice plate constriction, rectangular block. Shared 128x128 grid.
 const cases = [
     { name: "naca2412-a6", geom: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 } },
     { name: "naca0012-a0", geom: { kind: "naca4", naca: { code: "0012", m: 0, p: 0, t: 0.12 }, chord: 1, alphaDeg: 0, nPoints: 120 } },
     { name: "cylinder-r025", geom: { kind: "cylinder", chord: 1, alphaDeg: 0, nPoints: 64, radius: 0.25, center: { x: 0.5, y: 0 } } },
-    { name: "duct-h040", geom: { kind: "duct", chord: 1, alphaDeg: 0, nPoints: 64, width: 1.0, height: 0.4, center: { x: 0.5, y: 0 } } },
+    { name: "orifice-g040", geom: { kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 64, width: 0.08, height: 0.4, center: { x: 0.5, y: 0 } } },
     { name: "block-w050-h020", geom: { kind: "block", chord: 1, alphaDeg: 0, nPoints: 64, width: 0.5, height: 0.2, center: { x: 0.5, y: 0 } } },
 ];
 

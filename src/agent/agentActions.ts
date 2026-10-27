@@ -4,9 +4,9 @@
 // accepts at most five actions, extras are rejected with a note.
 
 import type { AgentAction, FieldMode, ParametricSpec } from "@/contracts/types";
-import { ALPHA_MAX, ALPHA_MIN, RE_MAX, RE_MIN, validateParametricSpec } from "@/contracts/schema";
+import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, RE_MAX, RE_MIN, validateParametricSpec } from "@/contracts/schema";
 
-export const BODY_TOKENS: ReadonlyArray<string> = ["naca0012", "naca2412", "naca4412", "cylinder", "block", "duct"];
+export const BODY_TOKENS: ReadonlyArray<string> = ["naca0012", "naca2412", "naca4412", "cylinder", "block", "orifice"];
 export const ENGINE_TOKENS: ReadonlyArray<string> = ["analytic", "wasm", "lbm", "surrogate"];
 export const FIELD_TOKENS: ReadonlyArray<string> = ["speed", "cp", "omega", "u", "v", "k", "recirc"];
 export const REPLY_MAX = 2000;
@@ -66,8 +66,9 @@ function envelopeReply(payload: unknown): string | null {
 }
 
 /**
- * Validate one action against the live context. Envelopes clamp alpha to
- * [-4, 12] and reynolds to [1000, 1000000]. Gated k and recirc fields need
+ * Validate one action against the live context. Envelopes accept the hard
+ * alpha envelope [-180, 180] with the characterized band flagged downstream,
+ * and reynolds in [1000, 1000000]. Gated k and recirc fields need
  * the channel plus the first stats sample. run_lbm needs the LBM engine
  * effective. Never throws.
  */
@@ -89,8 +90,8 @@ export function validateAgentAction(action: unknown, ctx: AgentValidationContext
             if (typeof v !== "number" || !Number.isFinite(v)) {
                 return { ok: false, reason: "set_alpha needs a finite alphaDeg", action: null };
             }
-            if (v < ALPHA_MIN || v > ALPHA_MAX) {
-                return { ok: false, reason: `set_alpha alphaDeg ${v} outside [${ALPHA_MIN}, ${ALPHA_MAX}]`, action: null };
+            if (v < ALPHA_HARD_MIN || v > ALPHA_HARD_MAX) {
+                return { ok: false, reason: `set_alpha alphaDeg ${v} outside [${ALPHA_HARD_MIN}, ${ALPHA_HARD_MAX}]`, action: null };
             }
             return { ok: true, reason: null, action: { kind: "set_alpha", alphaDeg: v } };
         }

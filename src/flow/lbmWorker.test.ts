@@ -11,6 +11,7 @@ import {
     checkRunLimits,
     clampBatchSteps,
     copyChannel,
+    ductIntakeError,
     handleMainMessage,
     isCompleteReset,
 } from "./lbmWorker";
@@ -64,6 +65,16 @@ describe("lbmWorker helpers", () => {
         expect(checkRunLimits(1, MAX_BATCH_STEPS + 1)).toContain("batchSteps");
         expect(checkGeomJsonLen("x".repeat(MAX_GEOM_JSON_BYTES))).toBeNull();
         expect(checkGeomJsonLen("x".repeat(MAX_GEOM_JSON_BYTES + 1))).toContain("MAX_GEOM_JSON_BYTES");
+    });
+
+    it("flags a retired duct payload with a migration error", () => {
+        const duct = JSON.stringify({ kind: "duct", chord: 1, alphaDeg: 0, nPoints: 64, width: 1, height: 0.9 });
+        const err = ductIntakeError(duct);
+        expect(err).not.toBeNull();
+        expect(err as string).toContain("duct is retired");
+        expect(err as string).toContain("orifice");
+        expect(ductIntakeError(JSON.stringify({ kind: "orifice" }))).toBeNull();
+        expect(ductIntakeError("not json")).toBeNull();
     });
 });
 
@@ -296,5 +307,20 @@ describe("lbmWorker dispatch with a fake solver", () => {
         expect(readies[0]?.msg.gen).toBe(2);
         expect(fakes[0]?.configured).toEqual([]);
         expect(fakes[1]?.configured).toEqual(["geom-B"]);
+    });
+
+    it("rejects a duct init at intake with a migration error, never configuring", async () => {
+        installSelf();
+        __resetWorkerForTest();
+        const fake = new FakeSolver();
+        __setSolverFactoryForTest(async () => fake);
+        const duct = JSON.stringify({ kind: "duct", chord: 1, alphaDeg: 0, nPoints: 64, width: 1, height: 0.9 });
+        handleMainMessage(initMsg(1, duct));
+        await __drainQueueForTest();
+        await waitFor(() => posted.some((p) => p.msg.type === "error" && p.msg.gen === 1));
+        const err = posted.filter((p) => p.msg.type === "error")[0]?.msg as unknown as Record<string, unknown>;
+        expect(String(err.message)).toContain("duct is retired");
+        expect(fake.configured).toEqual([]);
+        expect(posted.some((p) => p.msg.type === "ready")).toBe(false);
     });
 });

@@ -3,7 +3,19 @@
 // downstream velocity deficit plus downwash. Mutates u and v in place.
 // Pure math, no wasm-bindgen, host testable.
 
-use crate::types::Domain;
+use crate::types::{Domain, ALPHA_MAX, ALPHA_MIN};
+
+/// Wake centreline slope for an angle of attack. Mirrors
+/// wakeSlopeForAlpha in src/flow/wake.ts: the effective alpha is clamped
+/// to the characterized band so full rotation sweeps cannot blow up the
+/// tan term.
+pub fn wake_slope_for_alpha(alpha_deg: f64) -> f64 {
+    if !alpha_deg.is_finite() {
+        return 0.0;
+    }
+    let clamped = alpha_deg.clamp(ALPHA_MIN, ALPHA_MAX);
+    -((clamped * std::f64::consts::PI) / 180.0).tan() * 0.5
+}
 
 /// Wake shape parameters. Mirrors WakeParams in wake.ts.
 #[derive(Clone, Copy, Debug)]
@@ -113,5 +125,14 @@ mod tests {
         let (mut u, mut v, obs) = blank(16);
         let bad = WakeParams { u: -1.0, re: 1000.0, base_y: 0.0, slope: 0.0, x_wake: 0.8 };
         assert!(apply_wake(&mut u, &mut v, 4, 4, domain, &obs, bad).is_err());
+    }
+
+    #[test]
+    fn wake_slope_clamps_out_of_band_alpha() {
+        let in_band = wake_slope_for_alpha(6.0);
+        assert!(in_band < 0.0);
+        assert!((wake_slope_for_alpha(-4.0) - wake_slope_for_alpha(-90.0)).abs() < 1e-12);
+        assert!((wake_slope_for_alpha(12.0) - wake_slope_for_alpha(180.0)).abs() < 1e-12);
+        assert_eq!(wake_slope_for_alpha(f64::NAN), 0.0);
     }
 }

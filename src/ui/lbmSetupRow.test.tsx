@@ -146,10 +146,13 @@ describe("LbmSetupRow", () => {
         expect(html).not.toContain(">RE<");
     });
 
-    it("renders only when LBM is active through the App gate inside the scene bars", async () => {
+    it("stays out of the scene path while the failover and entry notices stay wired", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).toMatch(/\{lbmActive &&[\s\S]*?LbmSetupRow/);
-        expect(src).toContain("LbmSetupRow");
+        expect(src).not.toContain("<LbmSetupRow");
+        expect(src).toContain("LbmEntryNotice");
+        expect(src).toContain("LbmFailoverNotice");
+        expect(src).toContain("onRecover={onLbmRecoverRe}");
+        expect(src).toContain("onDismiss={onLbmDismissNotice}");
     });
 });
 

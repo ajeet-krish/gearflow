@@ -5,6 +5,19 @@
 // is untouched.
 
 import type { Domain } from "@/contracts/types";
+import { ALPHA_MAX, ALPHA_MIN } from "@/contracts/schema";
+
+/**
+ * Wake centreline slope for an angle of attack. The effective alpha is
+ * clamped to the characterized band [-4, 12] so full rotation sweeps cannot
+ * blow up the tan term; out-of-band runs keep a bounded downwash while the
+ * panel Cl carries the honest unvalidated note.
+ */
+export function wakeSlopeForAlpha(alphaDeg: number): number {
+    if (!Number.isFinite(alphaDeg)) return 0;
+    const clamped = Math.min(ALPHA_MAX, Math.max(ALPHA_MIN, alphaDeg));
+    return -Math.tan((clamped * Math.PI) / 180) * 0.5;
+}
 
 export interface WakeParams {
     U: number;

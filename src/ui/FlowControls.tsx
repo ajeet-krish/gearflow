@@ -46,7 +46,7 @@ export default function FlowControls({
     onModeChange,
 }: FlowControlsProps) {
     const isNaca = spec.kind === "naca4";
-    const isAlphaWakeOnly = spec.kind === "cylinder" || spec.kind === "duct";
+    const isAlphaWakeOnly = spec.kind === "cylinder" || spec.kind === "orifice";
     const logRe = Math.min(LOG_RE_MAX, Math.max(LOG_RE_MIN, Math.log10(Math.max(1, reynolds))));
 
     const setKind = (kind: GeometryKind) => {
@@ -66,8 +66,8 @@ export default function FlowControls({
             ...spec,
             kind,
             center: spec.center ?? { x: 0.5, y: 0 },
-            width: spec.width ?? (kind === "duct" ? 1.0 : 0.5),
-            height: spec.height ?? (kind === "duct" ? 0.4 : 0.5),
+            width: spec.width ?? (kind === "orifice" ? 0.08 : 0.5),
+            height: spec.height ?? (kind === "orifice" ? 0.4 : 0.5),
         });
     };
 
@@ -84,7 +84,7 @@ export default function FlowControls({
                     <option value="naca4">NACA 4-digit airfoil</option>
                     <option value="cylinder">Cylinder</option>
                     <option value="block">Block</option>
-                    <option value="duct">Duct constriction</option>
+                    <option value="orifice">Orifice plate</option>
                 </select>
                 {isNaca && (
           <p className="hint mono">

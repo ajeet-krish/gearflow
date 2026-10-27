@@ -90,19 +90,19 @@ describe("localReply setup parsing", () => {
         expect(out.reply).toContain("Canvas unchanged");
     });
 
-    it("parses Re and body tokens for cylinder, block, and duct", () => {
+    it("parses Re and body tokens for cylinder, block, and orifice", () => {
         const cyl = localReply("set up cylinder at Re 80000", makeCtx());
         expect(cyl.actions).toContainEqual({ kind: "set_body", body: "cylinder" });
         expect(cyl.actions).toContainEqual({ kind: "set_reynolds", reynolds: 80000 });
         const block = localReply("switch to block", makeCtx());
         expect(block.actions).toContainEqual({ kind: "set_body", body: "block" });
-        const duct = localReply("switch to duct", makeCtx());
-        expect(duct.actions).toContainEqual({ kind: "set_body", body: "duct" });
+        const orifice = localReply("switch to orifice", makeCtx());
+        expect(orifice.actions).toContainEqual({ kind: "set_body", body: "orifice" });
     });
 
     it("clamps alpha and Re to the schema envelopes with a notice", () => {
-        const alpha = localReply("set alpha 20", makeCtx());
-        expect(alpha.actions).toContainEqual({ kind: "set_alpha", alphaDeg: 12 });
+        const alpha = localReply("set alpha 200", makeCtx());
+        expect(alpha.actions).toContainEqual({ kind: "set_alpha", alphaDeg: 180 });
         expect(alpha.reply).toContain("clamped");
         const re = localReply("set reynolds to 5", makeCtx());
         expect(re.actions).toContainEqual({ kind: "set_reynolds", reynolds: 1000 });

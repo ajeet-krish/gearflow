@@ -2,7 +2,7 @@
 // Closed bodies only: N constant source strengths plus one vortex strength per
 // lifting body. Each Kutta body contributes one Kutta equation (trailing edge
 // tangential velocities sum to zero). Non-lifting bodies (cylinder, block,
-// duct walls) carry gamma 0 with no Kutta row. Pure math, no rendering or
+// orifice walls) carry gamma 0 with no Kutta row. Pure math, no rendering or
 // framework imports.
 
 import type { Point } from "@/geometry/parametric";
@@ -376,7 +376,7 @@ export function solveBodies(
 /**
  * Solve a single body panel system for freestream (U, 0). Kutta defaults to
  * true for backward compatibility; pass { kutta: false } for non-lifting
- * bodies (cylinder, block, duct) to get pure source flow with gamma 0.
+ * bodies (cylinder, block, orifice) to get pure source flow with gamma 0.
  */
 export function solvePanels(panels: Panel[], U: number, chordRef = 1, opts: SolvePanelsOptions = {}): PanelSolution {
     if (!Array.isArray(panels) || panels.length < 3) {

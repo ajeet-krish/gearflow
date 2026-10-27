@@ -67,6 +67,30 @@ export function resolveShellShortcut(key: string, ctx: ShortcutContext): ShellAc
     return null;
 }
 
+export interface TerminalEscapeContext {
+    terminalOpen: boolean;
+    settingsOpen: boolean;
+    ctrl?: boolean;
+    meta?: boolean;
+    alt?: boolean;
+    repeat?: boolean;
+}
+
+/**
+ * Global terminal Escape: closes the raised run terminal on Escape even
+ * when focus sits in a rail field. The field level handler reverts its own
+ * text first, then this window capture closes the panel, so one press does
+ * both without stealing focus. Settings open always wins. Never throws.
+ */
+export function shouldCloseTerminalOnEscape(key: string, ctx: TerminalEscapeContext): boolean {
+    if (key !== "Escape") return false;
+    if (!ctx.terminalOpen) return false;
+    if (ctx.settingsOpen) return false;
+    if (ctx.ctrl === true || ctx.meta === true || ctx.alt === true) return false;
+    if (ctx.repeat === true) return false;
+    return true;
+}
+
 interface InertLike {
     setAttribute: (name: string, value: string) => void;
     removeAttribute: (name: string) => void;

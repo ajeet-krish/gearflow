@@ -87,11 +87,15 @@ describe("App effective variable wiring", () => {
         expect(src).toContain("const onVariable = (next: typeof prefs.variable) => patch({ variable: next })");
     });
 
-    it("passes the effective variable to the chips, canvas, and colorbar", async () => {
+    it("passes the effective variable to the settings chips, canvas, and colorbar", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).toContain("variable={effectiveVariable}");
+        // SettingsModal chips plus the vertical colorbar share the derived
+        // variable, the canvas takes it as the field mode. The old scene
+        // summary bar is gone, the terminal strip carries engine/grid/Re/step.
         expect(src).toContain("fieldMode={effectiveVariable}");
-        expect(src).toContain("FIELD ${effectiveVariable.toUpperCase()}");
+        expect(src.match(/variable=\{effectiveVariable\}/g)?.length).toBeGreaterThanOrEqual(2);
+        expect(src).not.toContain("FIELD ${effectiveVariable.toUpperCase()}");
+        expect(src).toContain("<RunTerminal");
     });
 
     it("requires the statistics sample as well as the channel for the chips", async () => {

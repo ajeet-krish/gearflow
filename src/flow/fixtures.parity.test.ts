@@ -16,7 +16,7 @@ const CASES = [
     "naca2412-a6",
     "naca0012-a0",
     "cylinder-r025",
-    "duct-h040",
+    "orifice-g040",
     "block-w050-h020",
 ];
 

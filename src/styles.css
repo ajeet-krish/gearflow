@@ -300,6 +300,7 @@ html, body, #root {
   flex: none;
 }
 .dot.analytic, .dot.on { background: var(--green); color: var(--green); }
+.dot.running { background: var(--purple); animation: dotPulse 1.2s ease-in-out infinite; }
 .dot.surrogate { background: var(--orange); color: var(--orange); }
 .dot.pending { background: var(--orange); animation: dotPulse 1.2s ease-in-out infinite; }
 .dot.fallback, .dot.failed, .dot.off { background: var(--red); color: var(--red); }
@@ -587,6 +588,22 @@ html, body, #root {
   padding: 6px 10px;
 }
 .controls select:focus { border-color: rgba(189, 147, 249, 0.5); outline: none; }
+.controls input[type="number"], .controls input[type="text"] {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--mono);
+  padding: 6px 10px;
+}
+.controls input[type="number"]:focus, .controls input[type="text"]:focus {
+  border-color: rgba(189, 147, 249, 0.5);
+  outline: none;
+}
+.controls output { font-variant-numeric: tabular-nums; }
 .hint { font-size: 11px; color: var(--comment); margin: 4px 0 0; }
 .toggleRow { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
 .toggleRow input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--purple); }
@@ -832,6 +849,112 @@ html, body, #root {
   font-size: 12px;
 }
 
+/* Bottom terminal: quiet mono instrument readout pinned under the tunnel.
+   The 24px strip stays on in every layout, the 190px log panel opens above
+   it only while expanded. Fault rows reuse the alert tokens, so both themes
+   stay legible. The running dot reuses the shared pulse, which the reduced
+   motion query already stills. */
+.runTerm {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--deep);
+  border-top: 1px solid var(--dust);
+}
+.runTermPanel {
+  height: 190px;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--dust);
+  background: rgba(0, 0, 0, 0.25);
+  scrollbar-width: thin;
+  scrollbar-color: var(--dust) transparent;
+}
+.runTermRows {
+  list-style: none;
+  margin: 0;
+  padding: 6px 12px 2px;
+  display: grid;
+  gap: 2px;
+}
+.runTermRow {
+  font-size: 11px;
+  color: var(--comment);
+  overflow-wrap: anywhere;
+}
+.runTermRow.tone-warn { color: var(--orange); }
+.runTermRow.tone-block, .runTermRow.tone-error {
+  background: var(--alert-bg);
+  color: var(--alert-ink);
+  border-left: 2px solid var(--red);
+  padding: 1px 6px;
+}
+.runTermEmpty { margin: 0; padding: 8px 12px; font-size: 11px; color: var(--comment); }
+.runTermClear {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 12px 8px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.35));
+}
+.runTermClearBtn {
+  min-height: 30px;
+  padding: 2px 12px;
+  font-size: 10px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--comment);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.runTermClearBtn:hover { color: var(--text); background: rgba(255, 255, 255, 0.1); }
+.runTermStrip {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.runTermToggle {
+  margin-left: auto;
+  flex: none;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--label);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.runTermToggle:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.runTermToggle[aria-expanded="true"] { color: var(--purple); }
+.runTermCount { color: var(--comment); font-variant-numeric: tabular-nums; }
+
+/* Field chips inside the Settings FIELD section: same gating as the old
+   scene bar, seated on the dialog card instead of the tunnel glass. */
+.settingsSection .sceneBar {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  backdrop-filter: none;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
 /* Misc states. */
 .error { color: var(--alert-ink); padding: 12px; font-size: 12px; }
 .loading { color: var(--text); padding: 12px; font-size: 12px; }
@@ -851,8 +974,6 @@ html, body, #root {
   padding: 0.5em 1.2em;
   font-family: var(--mono);
 }
-.displaySummary { display: grid; gap: 8px; }
-.displaySummaryLine { margin: 0; color: var(--comment); font-size: 11px; }
 .turb { display: grid; gap: 8px; }
 .turbRows { margin: 0; display: grid; gap: 4px; }
 .turbRow { display: flex; justify-content: space-between; gap: 12px; }
@@ -860,7 +981,6 @@ html, body, #root {
 .turbRow dd { margin: 0; color: var(--text); font-size: 11px; }
 .turbEmpty { margin: 0; color: var(--comment); font-size: 11px; }
 .turbNote { margin: 4px 0 0; }
-.displaySummary .displaySettingsBtn { width: 100%; min-height: 44px; }
 /* Settings modal: centered dialog over a dimmed backdrop. */
 .modalBackdrop {
   position: fixed;
@@ -1120,7 +1240,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* Print: clean report sheet. Rails and nav hide, tunnel expands. */
 @media print {
   html, body { background: #ffffff; color: #000000; font-size: 11pt; }
-  .skip, .topNav, .railLeft, .railRight, .resizeHandle, .noticeStack, .runCard, .colorbarDock { display: none !important; }
+  .skip, .topNav, .railLeft, .railRight, .resizeHandle, .noticeStack, .runCard, .runTerm, .colorbarDock { display: none !important; }
   .railLatch, .barsHandle, .focusExit { display: none !important; }
   .side, .foot { display: none !important; }
   .workbench { display: block; }

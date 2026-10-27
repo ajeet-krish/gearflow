@@ -113,4 +113,14 @@ describe("buildAgentContext B2 minors", () => {
         expect(buildAgentContext(snapshot()).lbm.effective).toBe(false);
         expect(buildAgentContext(snapshot({ lbmEffective: true })).lbm.effective).toBe(true);
     });
+
+    it("flags an out of band alpha with an honest unvalidated line", () => {
+        const inBand = buildAgentContext(snapshot());
+        expect(inBand.honesty.join(" ")).not.toContain("unvalidated");
+        const high = buildAgentContext(snapshot({ spec: { ...snapshot().spec, alphaDeg: 45 } }));
+        expect(high.honesty.join(" ")).toContain("Alpha 45.0 deg is outside the characterized band");
+        expect(high.honesty.join(" ")).toContain("unvalidated");
+        const low = buildAgentContext(snapshot({ spec: { ...snapshot().spec, alphaDeg: -90 } }));
+        expect(low.honesty.join(" ")).toContain("Alpha -90.0 deg is outside the characterized band");
+    });
 });

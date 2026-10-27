@@ -311,6 +311,30 @@ pub fn blockage_report(ratio: f64) -> BlockageReport {
     }
 }
 
+/// Gap opening report for the orifice plate. The ratio stays the gap over
+/// the domain height for tau and reference length parity with the TS
+/// engine mode report, while the warning is by design copy: the plate
+/// deliberately blocks most of the section, so the generic Cd blockage
+/// warning is suppressed.
+pub fn orifice_gap_report(ratio: f64) -> BlockageReport {
+    let r = if !ratio.is_finite() {
+        0.0
+    } else {
+        ratio.clamp(0.0, 1.0)
+    };
+    let percent = r * 100.0;
+    BlockageReport {
+        ratio: r,
+        percent,
+        limit_percent: BLOCKAGE_LIMIT_PERCENT,
+        warning: Some(format!(
+            "orifice plate by design, open gap {:.1} percent of tunnel height, jet Cd reads high by design",
+            percent
+        )),
+        cd_correction: (1.0 - r) * (1.0 - r),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,5 +442,16 @@ mod tests {
         assert!(high.warning.is_some());
         let expected_high = (1.0 - 0.126) * (1.0 - 0.126);
         assert!((high.cd_correction - expected_high).abs() < 1e-15);
+    }
+
+    #[test]
+    fn orifice_gap_report_is_by_design() {
+        let gap = orifice_gap_report(0.2);
+        assert!((gap.ratio - 0.2).abs() < 1e-15);
+        assert!((gap.percent - 20.0).abs() < 1e-12);
+        let warning = gap.warning.expect("orifice always carries by design copy");
+        assert!(warning.contains("by design"), "warning = {warning}");
+        assert!(warning.contains("open gap"), "warning = {warning}");
+        assert!(!warning.contains("exceeds 5 percent"), "warning = {warning}");
     }
 }

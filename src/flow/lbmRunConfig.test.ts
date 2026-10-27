@@ -135,6 +135,19 @@ describe("lbmRunConfig", () => {
         expect(gate.warnings.length).toBeGreaterThan(0);
     });
 
+    it("labels orifice preflight blockage as by design, not generic Cd", () => {
+        const gate = preflightLbm(
+            { kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 64, width: 0.08, height: 0.4, center: { x: 0.5, y: 0 } },
+            { nx: 41, ny: 33, domain: { ...DEFAULT_DOMAIN } },
+            0.05,
+            100
+        );
+        expect(gate.blockage).toBeCloseTo(0.2, 2);
+        expect(gate.warnings.join(" ")).toContain("by design");
+        expect(gate.warnings.join(" ")).toContain("open gap 20.0 percent");
+        expect(gate.warnings.join(" ")).not.toContain("exceeds 5 percent");
+    });
+
     it("keeps the Re only entry default after the native verification diverges", () => {
         // Release 40000 step runs at radius 0.15 diverge at step 576
         // (Re 200) and step 10304 (Re 100), so no body suggestion ships.

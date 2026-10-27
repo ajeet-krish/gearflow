@@ -116,28 +116,28 @@ describe("AnalyticFlowProvider", () => {
 });
 
 describe("AnalyticFlowProvider envelope (no bypass)", () => {
-    it("constructor rejects out-of-envelope geometry fail-fast", () => {
-        expect(() => new AnalyticFlowProvider(SMALL, { ...NACA, alphaDeg: 45 })).toThrow(/alphaDeg/);
+    it("constructor rejects out-of-hard-envelope geometry fail-fast", () => {
+        expect(() => new AnalyticFlowProvider(SMALL, { ...NACA, alphaDeg: 200 })).toThrow(/alphaDeg/);
         expect(
             () => new AnalyticFlowProvider(SMALL, { ...NACA, naca: { code: "2419", m: 0.02, p: 0.4, t: 0.19 } })
         ).toThrow(/naca\.t/);
     });
 
-    it("setAlpha rejects out-of-envelope values without mutating state", () => {
+    it("setAlpha rejects out-of-hard-envelope values without mutating state", () => {
         const p = new AnalyticFlowProvider(SMALL, NACA);
         p.getFrame();
         const solves = p.solveCount;
-        expect(() => p.setAlpha(45)).toThrow(/alphaDeg/);
-        expect(() => p.setAlpha(-10)).toThrow(/alphaDeg/);
+        expect(() => p.setAlpha(200)).toThrow(/alphaDeg/);
+        expect(() => p.setAlpha(-200)).toThrow(/alphaDeg/);
         p.getFrame();
         expect(p.solveCount).toBe(solves);
     });
 
-    it("setGeometry rejects out-of-envelope specs without mutating state", () => {
+    it("setGeometry rejects out-of-hard-envelope specs without mutating state", () => {
         const p = new AnalyticFlowProvider(SMALL, NACA);
         p.getFrame();
         const solves = p.solveCount;
-        expect(() => p.setGeometry({ ...NACA, alphaDeg: 45 })).toThrow(/alphaDeg/);
+        expect(() => p.setGeometry({ ...NACA, alphaDeg: 200 })).toThrow(/alphaDeg/);
         expect(() =>
             p.setGeometry({ ...NACA, naca: { code: "2912", m: 0.02, p: 0.9, t: 0.12 } })
         ).toThrow(/naca\.p/);

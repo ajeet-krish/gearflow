@@ -136,7 +136,7 @@ pub fn field_from_resolved(
             }
         }
     }
-    let slope = -((geom.alpha_deg * std::f64::consts::PI) / 180.0).tan() * 0.5;
+    let slope = crate::wake::wake_slope_for_alpha(geom.alpha_deg);
     apply_wake(
         &mut uu,
         &mut vv,

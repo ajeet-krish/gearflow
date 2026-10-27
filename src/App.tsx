@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FlowCanvas, { type FlowCanvasHandle } from "@/render/FlowCanvas";
-import FlowControls, { type FlowMode } from "@/ui/FlowControls";
+import type { FlowMode } from "@/ui/FlowControls";
 import ErrorBoundary from "@/ui/ErrorBoundary";
 import ResizeHandle from "@/components/ui/ResizeHandle";
 import AgentConsole from "@/ui/AgentConsole";
 import EvalLogPanel from "@/ui/EvalLogPanel";
 import SettingsModal from "@/ui/SettingsModal";
 import TopNav, { type NavId } from "@/ui/TopNav";
-import SolverBar from "@/ui/SolverBar";
-import LbmSetupRow, { LbmEntryNotice, LbmFailoverNotice } from "@/ui/LbmSetupRow";
-import FieldBar, { fallbackVariableFor } from "@/ui/FieldBar";
+import { LbmEntryNotice, LbmFailoverNotice } from "@/ui/LbmSetupRow";
+import { fallbackVariableFor } from "@/ui/FieldBar";
+import RunTerminal, { type TerminalRow, type TerminalStatus } from "@/ui/RunTerminal";
 import TelemetryBar from "@/ui/TelemetryBar";
 import AnalysisPanel from "@/ui/AnalysisPanel";
+import SimulationSection from "@/ui/SimulationSection";
+import GeometrySection from "@/ui/GeometrySection";
 import { turbulenceSectionDef } from "@/ui/TurbulenceSection";
 import VerticalColorbar from "@/ui/VerticalColorbar";
-import { buildPolygons } from "@/geometry/parametric";
+import { buildPolygons, migrateDuctToOrifice } from "@/geometry/parametric";
 import { applyBodyPreset, bodySelectValue as bodySelectValueFor } from "@/geometry/bodyPresets";
 import { AnalyticFlowProvider, type FrameSource } from "@/flow/frameSource";
 import { createFlowProvider } from "@/flow/createFlowProvider";
@@ -23,10 +25,7 @@ import { LbmClient, type LbmProgress } from "@/flow/lbmClient";
 import {
     LBM_DEFAULT_TARGET_STEPS,
     LBM_DEFAULT_U_LATTICE,
-    LBM_MAX_RE,
     LBM_PARAM_CAP_NOTICE,
-    clampLbmTargetSteps,
-    clampLbmULattice,
     clampReForEngine,
     lbmEntryTransition,
     lbmLesEnabled,
@@ -39,7 +38,7 @@ import { SurrogateFlowProvider } from "@/flow/surrogate";
 import { useResolution } from "@/flow/gridController";
 import { useDisplayPrefs } from "@/ui/displayStore";
 import { useLayoutPrefs, shellVisibility } from "@/ui/layoutStore";
-import { RailShell, SceneBars, resolveShellShortcut } from "@/ui/shellRegions";
+import { RailShell, resolveShellShortcut, shouldCloseTerminalOnEscape } from "@/ui/shellRegions";
 import { applyTheme, storeTheme } from "@/ui/theme";
 import { maybeLoadWasm } from "@/flow/wasmSpike";
 import ValidationPanel, { type ValidationSummary } from "@/ui/ValidationPanel";
@@ -53,6 +52,9 @@ import { HashCache } from "@/meta/cache";
 import { MetaClient } from "@/meta/client";
 import { g_evalLog } from "@/meta/evalLog";
 import { DEFAULT_DOMAIN, DEFAULT_GRID, type EvalLogEntry, type FlowField, type GeometrySpec, type OfflineCase, type ParametricSpec, type Provenance } from "@/contracts/types";
+import { ORIFICE_THICKNESS_DEFAULT } from "@/contracts/types";
+import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, alphaOutOfBandNote } from "@/contracts/schema";
+import { commitReynoldsValue } from "@/flow/reynoldsField";
 import type { ColormapName } from "@/flow/colormap";
 import type { Point } from "@/geometry/parametric";
 
@@ -185,6 +187,9 @@ export default function App() {
     const shell = shellVisibility(layoutPrefs);
     const { state: gridState, recordSolveMs, setMode: setGridMode, clearNotice } = useResolution();
     const [settingsOpen, setSettingsOpen] = useState(false);
+    // Bottom terminal: session only log panel, collapsed on load. Focus mode
+    // never hides it, first Escape closes the panel, second exits focus.
+    const [terminalOpen, setTerminalOpen] = useState(false);
 
     useEffect(() => {
         applyTheme(prefs.theme);
@@ -300,18 +305,28 @@ export default function App() {
         if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
         else layoutPatch({ rightCollapsed: !layoutPrefs.rightCollapsed });
     }, [layoutPrefs.focusMode, layoutPrefs.rightCollapsed, layoutPatch]);
-    const toggleBars = useCallback(() => {
-        if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
-        else layoutPatch({ barsCollapsed: !layoutPrefs.barsCollapsed });
-    }, [layoutPrefs.focusMode, layoutPrefs.barsCollapsed, layoutPatch]);
     const toggleFocus = useCallback(() => {
         layoutPatch({ focusMode: !layoutPrefs.focusMode });
     }, [layoutPrefs.focusMode, layoutPatch]);
 
     // Shell shortcuts: backtick focus, brackets rails, Escape exits focus.
     // Ignored in fields, with modifiers, and while Settings owns the dialog.
+    // The terminal capture runs first so Escape in a rail input closes the
+    // raised panel after the field reverts its own text.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
+            if (shouldCloseTerminalOnEscape(e.key, {
+                terminalOpen,
+                settingsOpen,
+                ctrl: e.ctrlKey,
+                meta: e.metaKey,
+                alt: e.altKey,
+                repeat: e.repeat,
+            })) {
+                e.preventDefault();
+                setTerminalOpen(false);
+                return;
+            }
             const action = resolveShellShortcut(e.key, {
                 settingsOpen,
                 target: e.target,
@@ -330,14 +345,17 @@ export default function App() {
             } else if (action === "right") {
                 e.preventDefault();
                 toggleRight();
-            } else if (action === "exitFocus" && layoutPrefs.focusMode) {
+            } else if (action === "exitFocus") {
                 e.preventDefault();
-                layoutPatch({ focusMode: false });
+                // A raised terminal panel eats the first Escape so the strip
+                // stays put, the second Escape restores the prior layout.
+                if (terminalOpen) setTerminalOpen(false);
+                else if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
             }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [settingsOpen, layoutPrefs.focusMode, toggleFocus, toggleLeft, toggleRight, layoutPatch]);
+    }, [settingsOpen, terminalOpen, layoutPrefs.focusMode, toggleFocus, toggleLeft, toggleRight, layoutPatch]);
 
     useEffect(() => {
         if (!offline) {
@@ -375,10 +393,10 @@ export default function App() {
     useEffect(() => g_evalLog.subscribe(setEvalEntries), []);
 
     // Zenith style stacked analysis rail. Multiple sections open at once,
-    // default open GEOMETRY and DISPLAY. Navbar VALIDATE and EXPORT links
+    // default open GEOMETRY. Navbar VALIDATE and EXPORT links
     // open the matching section. Content stays mounted when collapsed.
     const [openSections, setOpenSections] = useState<Set<string>>(
-        () => new Set(["geometry", "display"])
+        () => new Set(["geometry"])
     );
     const [navActive, setNavActive] = useState<NavId>("studio");
     const toggleSection = useCallback((id: string) => {
@@ -414,12 +432,17 @@ export default function App() {
 
     // Parametric applies (MetaPanel, agent set_spec) share the LBM Re ceiling
     // with the bars. The capped value is returned so the caller can note it.
+    // A legacy duct geometry migrates to the orifice plate here so App state
+    // commits the migration once even when the apply bypasses the rail.
     const applyParametric = (next: ParametricSpec): { reynolds: number; capped: boolean } => {
-        setSpec(next.geometry);
+        const geometry = (next.geometry as unknown as { kind: string }).kind === "duct"
+            ? migrateDuctToOrifice(next.geometry)
+            : next.geometry;
+        setSpec(geometry);
         const { reynolds: cappedRe, capped } = clampReForEngine(next.reynolds, lbmActive);
         setReynolds(cappedRe);
         if (capped) setLbmNotice(LBM_PARAM_CAP_NOTICE);
-        if (next.geometry.kind === "custom") setMode("analytic");
+        if (geometry.kind === "custom") setMode("analytic");
         return { reynolds: cappedRe, capped };
     };
 
@@ -572,12 +595,14 @@ export default function App() {
     const [lbmLesAuto, setLbmLesAuto] = useState(true);
     const [lbmLesManual, setLbmLesManual] = useState(false);
     const [lbmNotice, setLbmNotice] = useState<string | null>(null);
-    // Append only run log for the bottom terminal hook. The terminal task
-    // consumes this array, entries carry the last completed step plus the
-    // message and level. Capped at 200 rows, never cleared except on reload.
+    // Append only run log feeding the bottom terminal. Capped at 200 rows,
+    // Clear empties the run event rows while derived fault rows persist.
     const [runLog, setRunLog] = useState<RunLogEntry[]>([]);
     const appendRunLog = useCallback((entry: RunLogEntry) => {
         setRunLog((prev) => [...prev.slice(-199), entry]);
+    }, []);
+    const clearTerminal = useCallback(() => {
+        setRunLog([]);
     }, []);
     const lbmLesEffective = lbmLesEnabled(lbmLesAuto, lbmLesManual, debouncedRe);
     // Last completed progress plus the configured target, mirrored in refs
@@ -608,6 +633,40 @@ export default function App() {
         () => blockageForGeometry(debouncedSpec, DEFAULT_DOMAIN),
         [debouncedSpec]
     );
+
+    // SIMULATION section pre-flight warnings. Same gate inputs as the Run
+    // handler below, warnings only, the hard block still lands in the notice
+    // stack plus the run log when Run is pressed.
+    const simPreflightWarnings = useMemo(() => {
+        try {
+            return preflightLbm(
+                debouncedSpec,
+                { nx: lbmGrid.nx, ny: lbmGrid.ny, domain: { ...DEFAULT_DOMAIN } },
+                lbmULattice,
+                debouncedRe
+            ).warnings;
+        } catch {
+            return [];
+        }
+    }, [debouncedSpec, lbmGrid.nx, lbmGrid.ny, lbmULattice, debouncedRe]);
+
+    // GEOMETRY section orifice plate resolution warning. Counts plate
+    // thickness cells on the active analytic grid, warns below 3 cells.
+    const orificeResolutionWarning = useMemo(() => {
+        if (debouncedSpec.kind !== "orifice") return null;
+        try {
+            const thickness = debouncedSpec.width ?? ORIFICE_THICKNESS_DEFAULT;
+            const dx = (DEFAULT_DOMAIN.xMax - DEFAULT_DOMAIN.xMin) / (activeGrid - 1);
+            const cells = thickness / dx;
+            if (!Number.isFinite(cells)) return null;
+            if (cells < 3) {
+                return `Orifice plate spans about ${cells.toFixed(1)} cells at ${activeGrid}, below 3 cells the gap reads wide. Refine the grid or thicken the plate.`;
+            }
+        } catch {
+            return null;
+        }
+        return null;
+    }, [debouncedSpec, activeGrid]);
 
     const lbmFailover = useCallback((message: string) => {
         if (lbmFailedRef.current !== null) return;
@@ -963,7 +1022,41 @@ export default function App() {
         : isSurrogateActive ? "surrogate live"
         : isWasmActive ? `wasm-rust live ${solveGrid.nx}`
         : `analytic live ${solveGrid.nx}`;
+    // Bottom terminal status: grey idle before the first LBM snapshot, green
+    // ready while live frames serve, pulsing accent while the worker runs,
+    // red while a failover or a held solve latches the fallback.
+    const terminalStatus: TerminalStatus =
+        solveError !== null || lbmFailedActive ? "failed"
+        : lbmStatus === "running" ? "running"
+        : lbmActive && !lbmHasSnapshot ? "idle"
+        : "ready";
+    // Bottom terminal rows: read only mirror of the run log plus the live
+    // failover and validation notices. No notice logic is duplicated, the
+    // notice stack stays the single owner of dismiss and recover actions.
+    const terminalRows = useMemo<TerminalRow[]>(() => {
+        const rows: TerminalRow[] = runLog.map((e, i) => ({
+            key: `run-${i}-s${e.step}`,
+            text: `step ${e.step}: ${e.message}`,
+            tone: e.level,
+        }));
+        if (lbmFailedActive && lbmFailed !== null) {
+            rows.push({ key: "failover", text: lbmFailed, tone: "error" });
+        }
+        if (solveError !== null && !isFixture) {
+            rows.push({ key: "solve", text: `Solve held, showing last good (${solveError})`, tone: "error" });
+        }
+        if (gridState.notice !== null) {
+            rows.push({ key: "grid", text: gridState.notice, tone: "warn" });
+        }
+        if (valSummary.blocking > 0) {
+            rows.push({ key: "val", text: `Validation: ${valSummary.blocking} blocking failures, see VALIDATION section.`, tone: "block" });
+        } else if (valSummary.fail > 0) {
+            rows.push({ key: "val", text: `Validation: ${valSummary.fail} failures, see VALIDATION section.`, tone: "warn" });
+        }
+        return rows;
+    }, [runLog, lbmFailedActive, lbmFailed, solveError, isFixture, gridState.notice, valSummary]);
     const regime = regimeLabel(debouncedRe);
+    const alphaNote = alphaOutOfBandNote(debouncedSpec.alphaDeg);
     const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${mode}|${lbmEffective ? `${lbmGrid.nx}x${lbmGrid.ny}` : solveGrid.nx}|${lbmTick}`;
 
     // Honest gating: TKE and recirculation chips enable only when the live
@@ -1077,19 +1170,20 @@ export default function App() {
     // kinds follow the same object rules FlowControls.setKind uses. A NACA
     // section tuned by sliders falls back to the 2412 slot in the select.
     const bodySelectValue = bodySelectValueFor(spec);
-    const onBodySelect = (value: string) => {
-        const next = applyBodyPreset(spec, value);
-        if (next !== spec) setSpec(next);
-    };
     const onAlphaBar = (next: number) => {
         if (!Number.isFinite(next)) return;
-        setSpec((s) => ({ ...s, alphaDeg: Math.min(12, Math.max(-4, next)) }));
+        setSpec((s) => ({ ...s, alphaDeg: Math.min(ALPHA_HARD_MAX, Math.max(ALPHA_HARD_MIN, next)) }));
     };
-    const onReynoldsBar = (next: number) => {
-        if (!Number.isFinite(next)) return;
-        // LBM needs low Re for a stable solve, other backends keep full range.
-        const cap = lbmActive ? LBM_MAX_RE : 1_000_000;
-        setReynolds(Math.min(cap, Math.max(100, Math.round(next))));
+    const commitReynolds = useCallback((raw: unknown) => {
+        // Single Re funnel: every committable value (clamp, LBM cap, LES band)
+        // surfaces its note in the notice stack, the capped flag stays for
+        // callers that still branch on the ceiling.
+        const commit = commitReynoldsValue(raw, lbmActive, reynolds);
+        if (commit.notice !== null) setLbmNotice(commit.notice);
+        setReynolds(commit.reynolds);
+    }, [lbmActive, reynolds]);
+    const onReynoldsBar = (next: number | string) => {
+        commitReynolds(next);
     };
 
     // Phase B2 agent executor. Setup actions apply directly through the
@@ -1261,49 +1355,6 @@ export default function App() {
                 )}
 
                 <section className="tunnelCol" aria-label="Tunnel window">
-                    <SceneBars
-                        bodyId="sceneBarsBody"
-                        collapsed={shell.bars}
-                        summary={`FIELD ${effectiveVariable.toUpperCase()} . ${engineLabel} . Re ${Math.round(debouncedRe)}`}
-                        onToggle={toggleBars}
-                    >
-                        <div>
-                            <SolverBar
-                                mode={mode}
-                                onMode={setMode}
-                                body={bodySelectValue}
-                                onBody={onBodySelect}
-                                alpha={spec.alphaDeg}
-                                onAlpha={onAlphaBar}
-                                reynolds={reynolds}
-                                onReynolds={onReynoldsBar}
-                                live={solveError === null}
-                                maxRe={lbmActive ? LBM_MAX_RE : 1000000}
-                            />
-                            <FieldBar
-                                variable={effectiveVariable}
-                                onVariable={onVariable}
-                                hasTke={hasTke}
-                                hasRecirc={hasRecirc}
-                            />
-                            {lbmActive && (
-                                <LbmSetupRow
-                                    uLattice={lbmULattice}
-                                    onULattice={(v) => setLbmULattice(clampLbmULattice(v))}
-                                    targetSteps={lbmTargetSteps}
-                                    onTargetSteps={(v) => setLbmTargetSteps(clampLbmTargetSteps(v))}
-                                    lesAuto={lbmLesAuto}
-                                    onLesAuto={(v) => setLbmLesAuto(v)}
-                                    lesManual={lbmLesManual}
-                                    onLesManual={(v) => setLbmLesManual(v)}
-                                    status={lbmStatus}
-                                    onRun={onLbmRun}
-                                    onCancel={onLbmCancel}
-                                    progressText={lbmProgressText}
-                                />
-                            )}
-                        </div>
-                    </SceneBars>
                     <TelemetryBar
                         engine={engineLabel}
                         dotClass={dotClass}
@@ -1392,6 +1443,9 @@ export default function App() {
                                     {sourceIsSurrogate ? "Surrogate" : "Analytic"} solve failed ({solveError}), showing last good field. Adjust the shape controls to recover.
                                 </p>
                             )}
+                            {alphaNote !== null && !isFixture && solveError === null && (
+                                <p className="reNote notice" role="status">{alphaNote}</p>
+                            )}
                         </div>
                         <div className="runCard" aria-label="Run summary">
                             <p className="runTitle">RUN</p>
@@ -1416,6 +1470,17 @@ export default function App() {
                             Full 9 row ledger lives in the app side panel. PDF export carries the same counts plus report rows.
                         </p>
                     </div>
+                    <RunTerminal
+                        status={terminalStatus}
+                        engine={engineLabel}
+                        gridLabel={lbmEffective ? `${lbmGrid.nx} x ${lbmGrid.ny}` : `${solveGrid.nx} x ${solveGrid.ny}`}
+                        reynolds={debouncedRe}
+                        stepText={lbmActive ? lbmProgressText : "single pass"}
+                        rows={terminalRows}
+                        expanded={terminalOpen}
+                        onToggle={() => setTerminalOpen((v) => !v)}
+                        onClear={clearTerminal}
+                    />
                 </section>
 
                 {!shell.right && (
@@ -1429,7 +1494,7 @@ export default function App() {
 
                 <RailShell
                     side="right"
-                    label="Analysis rail: geometry, display, validation, eval ledger, export"
+                    label="Analysis rail: geometry, validation, eval ledger, export"
                     region="analysis rail"
                     bladeLabel="ANALYSIS"
                     bodyId="railRightBody"
@@ -1443,47 +1508,52 @@ export default function App() {
                             onToggle={toggleSection}
                             sections={[
                                 {
-                                    id: "geometry",
-                                    label: "GEOMETRY",
+                                    id: "simulation",
+                                    label: "SIMULATION",
                                     content: (
-                                        <FlowControls
-                                            spec={spec}
+                                        <SimulationSection
+                                            gridMode={gridState.mode}
+                                            customSize={gridState.customSize}
+                                            activeGrid={solveGrid.nx}
+                                            gridNotice={gridState.notice}
+                                            onGridMode={setGridMode}
+                                            onClearGridNotice={clearNotice}
+                                            solveMode={mode}
+                                            onSolveMode={setMode}
                                             reynolds={reynolds}
-                                            mode={mode}
-                                            onSpecChange={setSpec}
-                                            onReynoldsChange={onReynoldsBar}
-                                            onModeChange={setMode}
+                                            lbmActive={lbmActive}
+                                            onCommitReynolds={onReynoldsBar}
+                                            lbmULattice={lbmULattice}
+                                            onLbmULattice={setLbmULattice}
+                                            lbmTargetSteps={lbmTargetSteps}
+                                            onLbmTargetSteps={setLbmTargetSteps}
+                                            lbmLesAuto={lbmLesAuto}
+                                            onLbmLesAuto={setLbmLesAuto}
+                                            lbmLesManual={lbmLesManual}
+                                            onLbmLesManual={setLbmLesManual}
+                                            lbmStatus={lbmStatus}
+                                            lbmProgressText={lbmProgressText}
+                                            onLbmRun={onLbmRun}
+                                            onLbmCancel={onLbmCancel}
+                                            preflightWarnings={simPreflightWarnings}
+                                            lbmNotice={lbmNotice}
+                                            onDismissLbmNotice={onLbmDismissNotice}
+                                            lbmFailed={lbmFailedActive ? lbmFailed : null}
+                                            onLbmRecover={onLbmRecoverRe}
+                                            blockageWarning={lbmBlockage.warning}
                                         />
                                     ),
                                 },
                                 {
-                                    id: "display",
-                                    label: "DISPLAY",
+                                    id: "geometry",
+                                    label: "GEOMETRY",
                                     content: (
-                                        <div>
-                                            <div className="displaySummary">
-                                                <p className="mono displaySummaryLine">
-                                                    {prefs.colormap} field {prefs.fieldVisible ? "on" : "off"}, contours {prefs.contours ? "on" : "off"}, streamlines {prefs.showStreamlines ? "on" : "off"}
-                                                </p>
-                                                <p className="mono displaySummaryLine">
-                                                    {prefs.particleCount === 0 ? "particles off" : `${prefs.particleCount} particles`} in {prefs.particleColor}
-                                                </p>
-                                                <p className="mono displaySummaryLine">
-                                                    {prefs.meanFields ? "time mean u/v on" : "instantaneous u/v"}
-                                                </p>
-                                                <button
-                                                    type="button"
-                                                    className="mBtn displaySettingsBtn"
-                                                    onClick={() => setSettingsOpen(true)}
-                                                    aria-label="Open settings"
-                                                >
-                                                    Open settings
-                                                </button>
-                                            </div>
-                                            <p className="hint mono">
-                                                Honest Re note: Re shades the wake deficit only, the potential core stays inviscid.
-                                            </p>
-                                        </div>
+                                        <GeometrySection
+                                            spec={spec}
+                                            onSpec={setSpec}
+                                            blockageWarning={lbmBlockage.warning}
+                                            orificeResolutionWarning={orificeResolutionWarning}
+                                        />
                                     ),
                                 },
                                 ...(turbulenceDef === null ? [] : [turbulenceDef]),
@@ -1522,8 +1592,14 @@ export default function App() {
                 prefs={prefs}
                 onPatch={handlePatch}
                 gridMode={gridState.mode}
-                activeGrid={solveGrid.nx === 256 ? 256 : 128}
+                activeGrid={solveGrid.nx}
+                customSize={gridState.customSize}
+                gridNotice={gridState.notice}
                 onGridMode={setGridMode}
+                variable={effectiveVariable}
+                onVariable={onVariable}
+                hasTke={hasTke}
+                hasRecirc={hasRecirc}
             />
         </div>
     );

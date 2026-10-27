@@ -44,17 +44,42 @@ export const CHANGE_FIELD_MAX = 500;
 
 /**
  * Validated UI envelope (matches the FlowControls sliders). The solver is
- * only characterized inside this envelope; wider geometry still parses at
- * the polygon level but is rejected here so providers cannot bypass it.
+ * only characterized inside this band; the hard envelope below accepts full
+ * rotation for orifice and bluff body sweeps. Wider geometry still parses
+ * at the polygon level but providers treat out-of-band alpha as unvalidated.
  */
 export const ALPHA_MIN = -4;
 export const ALPHA_MAX = 12;
+/** Hard alpha envelope: full rotation accepted, characterized band above is validated. */
+export const ALPHA_HARD_MIN = -180;
+export const ALPHA_HARD_MAX = 180;
 export const NACA_M_MIN = 0;
 export const NACA_M_MAX_ENV = 0.09;
 export const NACA_T_MIN = 0.06;
 export const NACA_T_MAX_ENV = 0.18;
 export const NACA_P_MIN = 0.2;
 export const NACA_P_MAX = 0.8;
+
+/** Orifice plate bounds. Width is plate thickness, height is the gap opening. Mirrors types.ts. */
+export const ORIFICE_GAP_MIN = 0.05;
+export const ORIFICE_GAP_MAX = 1.8;
+export const ORIFICE_GAP_DEFAULT = 0.4;
+export const ORIFICE_THICKNESS_MIN = 0.02;
+export const ORIFICE_THICKNESS_MAX = 0.2;
+export const ORIFICE_THICKNESS_DEFAULT = 0.08;
+
+/** Characterized band membership for an angle of attack. */
+export function alphaBand(alphaDeg: number): "characterized" | "out-of-band" {
+    if (!Number.isFinite(alphaDeg)) return "out-of-band";
+    return alphaDeg >= ALPHA_MIN && alphaDeg <= ALPHA_MAX ? "characterized" : "out-of-band";
+}
+
+/** Honest note for out-of-band alpha, null inside the characterized band. */
+export function alphaOutOfBandNote(alphaDeg: number): string | null {
+    if (!Number.isFinite(alphaDeg)) return "alpha is not finite, showing the last good field";
+    if (alphaDeg >= ALPHA_MIN && alphaDeg <= ALPHA_MAX) return null;
+    return `alpha ${alphaDeg.toFixed(1)} deg is outside the characterized band [${ALPHA_MIN}, ${ALPHA_MAX}] deg, coefficients are unvalidated`;
+}
 
 /** Allowlisted fixture file paths. Rejects traversal, absolute paths, backslashes, schemes. */
 export const PACK_FILE_RE = /^(geometry|flow)\/[A-Za-z0-9._-]+\.json$/;
@@ -72,7 +97,7 @@ export function validatePackFilePath(p: unknown): asserts p is string {
 export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
     if (typeof g !== "object" || g === null) throw new Error("GeometrySpec must be an object");
     const spec = g as Record<string, unknown>;
-    const kinds = ["naca4", "cylinder", "block", "duct", "custom"];
+    const kinds = ["naca4", "cylinder", "block", "orifice", "custom"];
     if (!kinds.includes(spec.kind as string)) throw new Error(`GeometrySpec.kind must be one of ${kinds.join(", ")}`);
     if (!isFiniteNumber(spec.chord) || (spec.chord as number) <= 0) {
         throw new Error("GeometrySpec.chord must be a positive finite number");
@@ -81,8 +106,8 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
         throw new Error(`GeometrySpec.chord must be ${CHORD_VALUE} (chord normalized), got ${spec.chord as number}`);
     }
     if (!isFiniteNumber(spec.alphaDeg)) throw new Error("GeometrySpec.alphaDeg must be finite");
-    if ((spec.alphaDeg as number) < ALPHA_MIN || (spec.alphaDeg as number) > ALPHA_MAX) {
-        throw new Error(`GeometrySpec.alphaDeg must be in [${ALPHA_MIN}, ${ALPHA_MAX}], got ${spec.alphaDeg as number}`);
+    if ((spec.alphaDeg as number) < ALPHA_HARD_MIN || (spec.alphaDeg as number) > ALPHA_HARD_MAX) {
+        throw new Error(`GeometrySpec.alphaDeg must be in [${ALPHA_HARD_MIN}, ${ALPHA_HARD_MAX}], got ${spec.alphaDeg as number}`);
     }
     if (!Number.isInteger(spec.nPoints) || (spec.nPoints as number) < 4) {
         throw new Error("GeometrySpec.nPoints must be an integer >= 4");
@@ -115,7 +140,7 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
             throw new Error(`GeometrySpec.radius must be <= ${RADIUS_MAX}, got ${spec.radius as number}`);
         }
     }
-    if (spec.kind === "block" || spec.kind === "duct") {
+    if (spec.kind === "block") {
         for (const k of ["width", "height"] as const) {
             if (spec[k] !== undefined && (!isFiniteNumber(spec[k]) || (spec[k] as number) <= 0)) {
                 throw new Error(`GeometrySpec.${k} must be a positive finite number for kind ${spec.kind as string}`);
@@ -123,6 +148,16 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
             if (spec[k] !== undefined && (spec[k] as number) > EXTENT_MAX) {
                 throw new Error(`GeometrySpec.${k} must be <= ${EXTENT_MAX}, got ${spec[k] as number}`);
             }
+        }
+    }
+    if (spec.kind === "orifice") {
+        const w = spec.width as number | undefined;
+        const h = spec.height as number | undefined;
+        if (w !== undefined && (!isFiniteNumber(w) || w < ORIFICE_THICKNESS_MIN || w > ORIFICE_THICKNESS_MAX)) {
+            throw new Error(`GeometrySpec.width (orifice thickness) must be in [${ORIFICE_THICKNESS_MIN}, ${ORIFICE_THICKNESS_MAX}], got ${String(w)}`);
+        }
+        if (h !== undefined && (!isFiniteNumber(h) || h < ORIFICE_GAP_MIN || h > ORIFICE_GAP_MAX)) {
+            throw new Error(`GeometrySpec.height (orifice gap) must be in [${ORIFICE_GAP_MIN}, ${ORIFICE_GAP_MAX}], got ${String(h)}`);
         }
     }
     if (spec.kind === "custom") {

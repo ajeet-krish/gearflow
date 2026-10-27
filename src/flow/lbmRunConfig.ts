@@ -116,7 +116,7 @@ export function preflightBodyHeight(geom: GeometrySpec): number {
         const a = ((geom.alphaDeg ?? 0) * Math.PI) / 180;
         return h * Math.abs(Math.cos(a)) + w * Math.abs(Math.sin(a));
     }
-    if (geom.kind === "duct") {
+    if (geom.kind === "orifice") {
         return geom.height ?? 0.4;
     }
     const polys = buildPolygons(geom);
@@ -147,8 +147,8 @@ export interface LbmPreflight {
  * does (D_lat from projected body height over dx, nu_lat, tau, per
  * lattice_params in rust/gearflow-wasm/src/lattice.rs:146 and the tau
  * floor in check_tau at lattice.rs:196). Hard blocks Run when predicted
- * tau is at or below the floor. Warns on high blockage, low tau, and
- * duct bodies. Pure, no Worker needed.
+ * tau is at or below the floor. Warns on high blockage and low tau.
+ * Pure, no Worker needed.
  */
 export function preflightLbm(
     geom: GeometrySpec,
@@ -183,17 +183,24 @@ export function preflightLbm(
         );
     }
     if (blockage > LBM_PREFLIGHT_BLOCKAGE_WARN) {
-        warnings.push(
-            `LBM pre-flight: blockage ${(blockage * 100).toFixed(1)} percent above ${(LBM_PREFLIGHT_BLOCKAGE_WARN * 100).toFixed(0)} percent, Cd will read high.`
-        );
+        // Orifice plates block most of the section by design, so they get
+        // by design copy instead of the generic Cd warning. The ratio stays
+        // the gap opening for tau and reference length parity with engine
+        // mode and the Rust core.
+        if (geom.kind === "orifice") {
+            warnings.push(
+                `LBM pre-flight: orifice plate by design, open gap ${(blockage * 100).toFixed(1)} percent of tunnel height, jet Cd reads high by design.`
+            );
+        } else {
+            warnings.push(
+                `LBM pre-flight: blockage ${(blockage * 100).toFixed(1)} percent above ${(LBM_PREFLIGHT_BLOCKAGE_WARN * 100).toFixed(0)} percent, Cd will read high.`
+            );
+        }
     }
     if (tau < LBM_PREFLIGHT_TAU_WARN) {
         warnings.push(
             `LBM pre-flight: predicted tau ${tau.toFixed(3)} below ${LBM_PREFLIGHT_TAU_WARN.toFixed(2)}, low viscosity run, watch for instability.`
         );
-    }
-    if (geom.kind === "duct") {
-        warnings.push("LBM pre-flight: duct body uses a zero gradient outlet, mass drift risk, watch density.");
     }
     return finish(blockReasons.length === 0, tau, dLat, blockage);
 }

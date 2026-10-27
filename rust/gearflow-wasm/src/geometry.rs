@@ -3,7 +3,11 @@
 // aerodynamic alpha sign (positive alpha is nose up, math angle negated).
 // Pure math, no wasm-bindgen, host testable.
 
-use crate::types::{GeometrySpec, Xy};
+use crate::types::{
+    GeometrySpec, Xy, ALPHA_HARD_MAX, ALPHA_HARD_MIN, ORIFICE_GAP_DEFAULT, ORIFICE_GAP_MAX,
+    ORIFICE_GAP_MIN, ORIFICE_THICKNESS_DEFAULT, ORIFICE_THICKNESS_MAX, ORIFICE_THICKNESS_MIN,
+    ORIFICE_WALL_HALF,
+};
 
 /// Max camber fraction accepted by naca4_airfoil.
 pub const NACA_M_MAX: f64 = 0.095;
@@ -284,8 +288,62 @@ pub fn block_polygon(
     ))
 }
 
+/// Orifice plate polygons: two solid segments above and below a central gap
+/// of full height `gap`, plate thickness `thickness` in x. Mirrors
+/// orificePolygons in src/geometry/parametric.ts. Returns [upper, lower].
+/// Alpha rotation is ignored so the plate stays normal to the channel axis.
+pub fn orifice_polygons(
+    cx: f64,
+    cy: f64,
+    thickness: f64,
+    gap: f64,
+    n_points: usize,
+    wall_half: f64,
+) -> Result<Vec<Vec<Xy>>, String> {
+    finite("orifice_polygons: cx", cx)?;
+    finite("orifice_polygons: cy", cy)?;
+    if !thickness.is_finite() || thickness < ORIFICE_THICKNESS_MIN || thickness > ORIFICE_THICKNESS_MAX {
+        return Err(format!(
+            "orifice_polygons: thickness must be in [{ORIFICE_THICKNESS_MIN}, {ORIFICE_THICKNESS_MAX}], got {thickness}"
+        ));
+    }
+    if !gap.is_finite() || gap < ORIFICE_GAP_MIN || gap > ORIFICE_GAP_MAX {
+        return Err(format!(
+            "orifice_polygons: gap must be in [{ORIFICE_GAP_MIN}, {ORIFICE_GAP_MAX}], got {gap}"
+        ));
+    }
+    if n_points < 4 {
+        return Err(format!(
+            "orifice_polygons: n_points must be >= 4, got {n_points}"
+        ));
+    }
+    if !wall_half.is_finite() || wall_half <= gap / 2.0 {
+        return Err(format!(
+            "orifice_polygons: wall_half must exceed gap / 2, got {wall_half}"
+        ));
+    }
+    let per = std::cmp::max(4, n_points.div_ceil(2));
+    let upper = sample_rectangle(
+        cx - thickness / 2.0,
+        cy + gap / 2.0,
+        cx + thickness / 2.0,
+        cy + wall_half,
+        per,
+    );
+    let lower = sample_rectangle(
+        cx - thickness / 2.0,
+        cy - wall_half,
+        cx + thickness / 2.0,
+        cy - gap / 2.0,
+        per,
+    );
+    Ok(vec![upper, lower])
+}
+
 /// Duct wall polygons: two solid plates above and below a channel of full
 /// height `height`. Returns [upper, lower]. Alpha rotation is ignored.
+/// Legacy channel body kept for Poiseuille validation fixtures; new UI
+/// specs use the orifice plate body above.
 pub fn duct_polygons(
     cx: f64,
     cy: f64,
@@ -328,10 +386,37 @@ pub fn duct_polygons(
     Ok(vec![upper, lower])
 }
 
+/// Legacy duct intake migration. The retired "duct" kind measured the
+/// channel length in width, so migration resets the plate thickness to the
+/// default and clamps the channel height into the orifice gap envelope,
+/// mirroring migrateDuctToOrifice in src/geometry/parametric.ts. Returns
+/// None for non-duct specs. Public intakes (WasmLbmSolver::configure, the
+/// worker JSON path) migrate through here; the duct_polygons helper below
+/// stays for the Poiseuille channel validation fixture only.
+pub fn migrate_legacy_duct(spec: &GeometrySpec) -> Option<GeometrySpec> {
+    if spec.kind != "duct" {
+        return None;
+    }
+    let raw_gap = spec.height.unwrap_or(ORIFICE_GAP_DEFAULT);
+    let gap = if raw_gap.is_finite() {
+        raw_gap.clamp(ORIFICE_GAP_MIN, ORIFICE_GAP_MAX)
+    } else {
+        ORIFICE_GAP_DEFAULT
+    };
+    Some(GeometrySpec {
+        kind: "orifice".to_string(),
+        width: Some(ORIFICE_THICKNESS_DEFAULT),
+        height: Some(gap),
+        ..spec.clone()
+    })
+}
+
 /// Build world space polygons for a GeometrySpec. Chord 1 with LE at (0, 0),
 /// y-up. Returns one polygon per body, deduplicated, stride capped, CCW.
+/// Accepts the hard alpha envelope [-180, 180]; orifice, duct, cylinder,
+/// and block ignore rotation for axis alignment while airfoils rotate.
 pub fn build_polygons(spec: &GeometrySpec) -> Result<Vec<Vec<Xy>>, String> {
-    let kinds = ["naca4", "cylinder", "block", "duct", "custom"];
+    let kinds = ["naca4", "cylinder", "block", "orifice", "duct", "custom"];
     if !kinds.contains(&spec.kind.as_str()) {
         return Err(format!(
             "build_polygons: kind must be one of {}, got {}",
@@ -344,6 +429,12 @@ pub fn build_polygons(spec: &GeometrySpec) -> Result<Vec<Vec<Xy>>, String> {
         return Err(format!("build_polygons: chord must be positive, got {}", spec.chord));
     }
     finite("build_polygons: alpha_deg", spec.alpha_deg)?;
+    if spec.alpha_deg < ALPHA_HARD_MIN || spec.alpha_deg > ALPHA_HARD_MAX {
+        return Err(format!(
+            "build_polygons: alpha_deg must be in [{ALPHA_HARD_MIN}, {ALPHA_HARD_MAX}], got {}",
+            spec.alpha_deg
+        ));
+    }
     if spec.n_points < 4 {
         return Err(format!(
             "build_polygons: n_points must be >= 4, got {}",
@@ -394,6 +485,10 @@ pub fn build_polygons(spec: &GeometrySpec) -> Result<Vec<Vec<Xy>>, String> {
         }
         let raw: Vec<Xy> = poly.iter().map(|pt| Xy { x: pt.x, y: pt.y }).collect();
         vec![transform_points(&raw, 0.0, 0.0, spec.chord, spec.alpha_deg)?]
+    } else if spec.kind == "orifice" {
+        let thickness = spec.width.unwrap_or(ORIFICE_THICKNESS_DEFAULT);
+        let gap = spec.height.unwrap_or(ORIFICE_GAP_DEFAULT);
+        orifice_polygons(center.x, center.y, thickness, gap, spec.n_points, ORIFICE_WALL_HALF)?
     } else {
         let width = spec.width.unwrap_or(1.0);
         let height = spec.height.unwrap_or(0.4);
@@ -487,5 +582,90 @@ mod tests {
             polygon: Some(poly),
         };
         assert!(build_polygons(&spec).is_err());
+    }
+
+    fn orifice_geom(thickness: f64, gap: f64) -> crate::types::GeometrySpec {
+        crate::types::GeometrySpec {
+            kind: "orifice".to_string(),
+            naca: None,
+            chord: 1.0,
+            alpha_deg: 0.0,
+            n_points: 64,
+            radius: None,
+            center: Some(crate::types::Xy { x: 0.5, y: 0.0 }),
+            width: Some(thickness),
+            height: Some(gap),
+            polygon: None,
+        }
+    }
+
+    #[test]
+    fn orifice_returns_two_segments_with_open_gap() {
+        let walls = orifice_polygons(0.5, 0.0, 0.08, 0.4, 64, ORIFICE_WALL_HALF).unwrap();
+        assert_eq!(walls.len(), 2);
+        for w in &walls {
+            assert!(w.len() >= 4);
+        }
+        let upper = &walls[0];
+        let lower = &walls[1];
+        let upper_min_y = upper.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+        let lower_max_y = lower.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max);
+        assert!((upper_min_y - 0.2).abs() < 1e-12, "upper_min_y = {upper_min_y}");
+        assert!((lower_max_y + 0.2).abs() < 1e-12, "lower_max_y = {lower_max_y}");
+        for w in walls {
+            for p in w {
+                assert!((p.x - 0.5).abs() <= 0.04 + 1e-12, "p.x = {}", p.x);
+            }
+        }
+        let polys = build_polygons(&orifice_geom(0.08, 0.4)).unwrap();
+        assert_eq!(polys.len(), 2);
+    }
+
+    #[test]
+    fn orifice_rejects_out_of_envelope_gap_and_thickness() {
+        assert!(orifice_polygons(0.5, 0.0, 0.005, 0.4, 64, ORIFICE_WALL_HALF).is_err());
+        assert!(orifice_polygons(0.5, 0.0, 0.08, 0.01, 64, ORIFICE_WALL_HALF).is_err());
+        assert!(orifice_polygons(0.5, 0.0, 0.08, 2.5, 64, ORIFICE_WALL_HALF).is_err());
+    }
+
+    #[test]
+    fn build_polygons_accepts_full_rotation_alpha() {
+        let mut spec = orifice_geom(0.08, 0.4);
+        spec.alpha_deg = 180.0;
+        assert!(build_polygons(&spec).is_ok());
+        spec.alpha_deg = -180.0;
+        assert!(build_polygons(&spec).is_ok());
+        spec.alpha_deg = 181.0;
+        assert!(build_polygons(&spec).is_err());
+    }
+
+    #[test]
+    fn legacy_duct_migrates_to_orifice_at_intake() {
+        use crate::types::GeometrySpec;
+        let duct = GeometrySpec {
+            kind: "duct".to_string(),
+            naca: None,
+            chord: 1.0,
+            alpha_deg: 0.0,
+            n_points: 64,
+            radius: None,
+            center: Some(crate::types::Xy { x: 0.5, y: 0.0 }),
+            width: Some(1.0),
+            height: Some(0.9),
+            polygon: None,
+        };
+        let migrated = migrate_legacy_duct(&duct).expect("duct must migrate");
+        assert_eq!(migrated.kind, "orifice");
+        assert!((migrated.width.unwrap() - ORIFICE_THICKNESS_DEFAULT).abs() < 1e-12);
+        assert!((migrated.height.unwrap() - 0.9).abs() < 1e-12);
+        // Clamp an out of envelope channel height into the gap envelope.
+        let tall = GeometrySpec { height: Some(9.0), ..duct.clone() };
+        let clamped = migrate_legacy_duct(&tall).expect("duct must migrate");
+        assert!((clamped.height.unwrap() - ORIFICE_GAP_MAX).abs() < 1e-12);
+        // Migrated walls are the two orifice segments with an open gap.
+        let polys = build_polygons(&migrated).unwrap();
+        assert_eq!(polys.len(), 2);
+        // Non-duct specs pass through untouched.
+        assert!(migrate_legacy_duct(&orifice_geom(0.08, 0.4)).is_none());
     }
 }
