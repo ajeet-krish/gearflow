@@ -1057,3 +1057,34 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Note recurring pattern: closed for Phase B integration. Sequential state transitions, App funnels, and non TS intakes now carry the contract behaviourally, ending the isolated pass pattern for these items; the only residual is App level rendered composition coverage.
+
+## 2026-10-27 - Phase C: Dataset Pilot Review
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Scope: Phase C uncommitted changes on HEAD 52eca68 (rust/gearflow-wasm/src/bin/dataset_pilot.rs new; stats.rs, lbm.rs, lib.rs module visibility; docs/ARCHITECTURE-LBM-PHASE10.md; AGENTS.md Phase 16 status)
+Verdict: PASS
+
+| # | Check | Verdict | Detail |
+|---|---|---|---|
+| 1 | New export additive | PASS | stats_dataset_fields lbm.rs:595-602 adds 6 tuple via stats.rs:176-260; stats_fields lbm.rs:585-587 and WASM field shape lib.rs:464-476 untouched (keys u,v,p,omega,obstacle,uMean,vMean,k,recirc,stats unchanged). mean_p: sample CS2*(rho-1) stats.rs:106, finalise sum/n stats.rs:310, matches snapshot p lbm.rs:527; pinned lbm.rs:2274-2284 and stats.rs:548-569. Mean omega: vorticity_from_means stats.rs:344-380 uses same edge clamped central stencil and denominators as snapshot lbm.rs:538-551 (solid u,v are 0 at lbm.rs:457-461, so solid neighbour handling matches); shear test stats.rs:571-598, lbm test lbm.rs:2285-2293. Solid zero all channels stats.rs:222-229,249-258, tests stats.rs:600-619 and lbm.rs:2263-2273. Zero sample returns six full zeros stats.rs:194-203, tests stats.rs:622-629 and lbm.rs:2296-2308. Finite: nonfinite replaced 0 and tke floored stats.rs:231-248,255-257; tests lbm.rs:2244-2262. |
+| 2 | Module visibility | PASS | pub mod block lib.rs:5-15 only widens Rust visibility; wasm-bindgen exports remain the annotated WasmSolver and WasmLbmSolver (lib.rs:61,223), dataset runner is a native bin using the rlib (Cargo.toml:7-9, dataset_pilot.rs:6-8). Verified by tester: wasm-pack build --target web --release PASS and cargo check --target wasm32-unknown-unknown --all-targets PASS. |
+| 3 | Runner std only, deterministic, manifest | PASS with Minor below | Imports std plus the lib only dataset_pilot.rs:6-11, no Cargo.toml change; hand rolled SHA256 dataset_pilot.rs:140-205. Seed 42 and sample_every 10 in config dataset_pilot.rs:236-239 (seed drives init phase lbm.rs:238). Completed manifest row dataset_pilot.rs:335-341 carries all fields documented in ARCHITECTURE-LBM-PHASE10.md:639-644; diverged row dataset_pilot.rs:278-283 carries params, steps, samples, status, error, note, no sha. On disk manifest verified: 12 rows, 10 completed, 2 diverged, all 70 bins nx*ny*4 bytes, sha256 recomputed over the 7 bins matches manifest and meta.json for all 10 completed cases. |
+| 4 | Diverged honesty | PASS | Manifest data/pilot/manifest.jsonl:3 cyl_r020_re100 diverged step 4896 samples 0, line 6 block_040_re100 diverged step 4384 samples 0; substitutes at lines 4 and 7 note the diverged case they replace, also dataset_pilot.rs:32,35 and docs ARCHITECTURE-LBM-PHASE10.md:624-629. Table values at docs:607-622 match manifest (wall sum 192.39 s vs documented 192.4 s). Steady and duct Strouhal flagged noise in docs:634-635 rather than presented as measurements. No invented numbers found. |
+| 5 | Duct plate extension | PASS | Fixture only in the runner: width case.width + 2.0 centred at domain mid dataset_pilot.rs:123-125, so walls extend 1.0 past each end of the 4.0 domain, mirroring the Poiseuille fixture (centre 0.9, width 2.0 on a 1.8 domain, lbm.rs:1158-1169). No change to duct_polygons geometry.rs:347-387, body_height_phys lbm.rs:818-824, or any validation gate; direct LbmState call bypasses the WASM legacy duct migration at lib.rs:303 as intended for the channel fixture. Documented at dataset_pilot.rs:111-116 and docs:629-632. |
+| 6 | Volume math | PASS | 160x128x4x7 = 573440 B = 560 KiB and 256x128x4x7 = 917504 B = 896 KiB; 6 small plus 4 large completed cases = 6.78 MiB, documented 6.8 MiB at docs:649-651. Full sweep 60 x 256x256x4x7 = 105 MiB, 200 cases 350 MiB, and the 11 over 7 scaling for added instantaneous channels at docs:651-653 are arithmetically consistent. |
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Minor | rust/gearflow-wasm/src/bin/dataset_pilot.rs:304,315,334 | Per case writes ignore IO results (create_dir_all, bin writes, meta.json), so a failed write still yields a completed manifest row with a sha256 at lines 335-341 | backend-dev: propagate write errors or mark the row with a write_error status before emitting completed |
+| Minor | rust/gearflow-wasm/src/bin/dataset_pilot.rs:439 and docs/ARCHITECTURE-LBM-PHASE10.md:600-601,644-646 | Docs say the run appends to manifest.jsonl, but main overwrites it with only the selected cases (an only= rerun drops prior rows), and the setup_error row at dataset_pilot.rs:247-251 lacks tau, ma, d_lat, blockage, steps, and note, unlike the documented diverged or setup_error schema | backend-dev/documentation: append or merge rows on rerun, align the setup_error row or the schema text |
+
+### Verification Checklist
+- [x] All checks passed (6 of 6, two Minor findings, neither blocking)
+- [x] No critical issues found
+- [x] Code follows project conventions (4-space indent, no new crates, no em dashes in the new docs section)
+- [x] Phase code integrates cleanly with prior phases (export additive, WASM field shape and validation gates untouched)
+
+Tests: cargo test --release PASS (93 passed, 0 failed, 2 ignored heavy gates), cargo test --release stats PASS (25 passed), wasm-pack build --target web --release PASS, manifest sha256 and bin sizes independently recomputed PASS. Executed by tester subagent, this reviewer had no shell tool.
+
+Note recurring pattern: none new for Phase C. Export additive plus honest diverged rows are pinned by unit tests and an independently recomputed on disk manifest; remaining Minors are local IO and rerun merge edges, not solver or schema drift.

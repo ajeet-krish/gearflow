@@ -2,17 +2,17 @@
 // wasm-bindgen; the core modules (geometry, potential, sdf, wake, field,
 // types) stay dependency free so `cargo test` runs on the host.
 
-mod boundaries;
-mod field;
-mod forces;
-mod geometry;
-mod lattice;
-mod lbm;
-mod potential;
-mod sdf;
-mod stats;
-mod types;
-mod wake;
+pub mod boundaries;
+pub mod field;
+pub mod forces;
+pub mod geometry;
+pub mod lattice;
+pub mod lbm;
+pub mod potential;
+pub mod sdf;
+pub mod stats;
+pub mod types;
+pub mod wake;
 
 use crate::field::{field_from_resolved, resolve_body, ResolvedBody};
 use crate::lbm::{LbmConfig, LbmState, MAX_STATS_START_STEP};

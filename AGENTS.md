@@ -39,6 +39,9 @@ Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKAT
 | Phase 11 | Worker wiring, engine mode, run controls | Complete |
 | Phase 12 | Turbulence stats UI, validation group, honest labels | Complete |
 | Phase 13 | Baseten agent chat harness (Spark console, guardrails) | Complete |
+| Phase 14 | LBM preflight honesty gate | Complete |
+| Phase 15 | Right panel rework with orifice terminal and rotation | Complete |
+| Phase 16 | Dataset pilot | In Progress |
 
 ## Deep Docs
 * Rules: docs/HACKATHON_RULES.md

@@ -586,6 +586,21 @@ impl LbmState {
         self.stats.fields_or_zeros(&self.solid)
     }
 
+    /// Full dataset mean channels for the native runner:
+    /// (u_mean, v_mean, p_mean, tke, omega_mean, recirc_mask).
+    /// omega_mean is the central difference vorticity of the mean field
+    /// with the same stencil as snapshot. Solid cells and the zero sample
+    /// state read 0 on every channel, all values finite. Additive, the UI
+    /// stats_fields shape is untouched.
+    pub fn stats_dataset_fields(
+        &self,
+    ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+        let dx = (self.domain.x_max - self.domain.x_min) / (self.nx - 1) as f64;
+        let dy = (self.domain.y_max - self.domain.y_min) / (self.ny - 1) as f64;
+        self.stats
+            .fields_or_zeros_full(&self.solid, self.nx, self.ny, dx, dy)
+    }
+
     /// Stats report for the UI. Never panics, never returns NaN or
     /// infinite (clamped to 0), strouhal is None when the peak counter
     /// cannot measure a period. Force means use the retained history
@@ -2223,6 +2238,72 @@ mod tests {
         assert!(rep.cl_rms.is_finite());
         if let Some(s) = rep.strouhal {
             assert!(s.is_finite());
+        }
+    }
+
+    #[test]
+    fn stats_dataset_fields_carry_pmean_and_omegamean() {
+        let (grid, geom, cfg) = tiny_steady_setup(0, 10);
+        let st = run_to(&grid, &geom, &cfg, 1000);
+        let n = grid.nx * grid.ny;
+        let (mu, mv, mp, k, w, m) = st.stats_dataset_fields();
+        for (name, arr) in [
+            ("uMean", &mu),
+            ("vMean", &mv),
+            ("pMean", &mp),
+            ("k", &k),
+            ("omegaMean", &w),
+            ("recirc", &m),
+        ] {
+            assert_eq!(arr.len(), n, "{name} len");
+            for (kk, val) in arr.iter().enumerate() {
+                assert!(val.is_finite(), "{name} nonfinite at cell {kk}: {val}");
+            }
+        }
+        // Solid cells read zero on every dataset channel.
+        for kk in 0..n {
+            if st.solid[kk] != 0 {
+                assert_eq!(mu[kk], 0.0, "uMean solid {kk}");
+                assert_eq!(mv[kk], 0.0, "vMean solid {kk}");
+                assert_eq!(mp[kk], 0.0, "pMean solid {kk}");
+                assert_eq!(k[kk], 0.0, "k solid {kk}");
+                assert_eq!(w[kk], 0.0, "omegaMean solid {kk}");
+                assert_eq!(m[kk], 0.0, "recirc solid {kk}");
+            }
+        }
+        // pMean matches the finalise pressure channel, omegaMean matches
+        // the shared central difference helper on the exported means.
+        let fin = st.final_stats().unwrap();
+        for kk in 0..n {
+            if st.solid[kk] == 0 {
+                assert!(
+                    (mp[kk] as f64 - fin.mean_p[kk] as f64).abs() < 1e-6,
+                    "pMean mismatch at {kk}"
+                );
+            }
+        }
+        let dx = (grid.domain.x_max - grid.domain.x_min) / (grid.nx - 1) as f64;
+        let dy = (grid.domain.y_max - grid.domain.y_min) / (grid.ny - 1) as f64;
+        let expect = crate::stats::vorticity_from_means(&mu, &mv, &st.solid, grid.nx, grid.ny, dx, dy);
+        for kk in 0..n {
+            assert!(
+                (w[kk] as f64 - expect[kk] as f64).abs() < 1e-6,
+                "omegaMean mismatch at {kk}"
+            );
+        }
+    }
+
+    #[test]
+    fn stats_dataset_fields_zero_sample_reads_zeros() {
+        let (grid, geom, cfg) = tiny_steady_setup(5000, 10);
+        let st = LbmState::new(&grid, &geom, &cfg).unwrap();
+        let n = grid.nx * grid.ny;
+        let (mu, mv, mp, k, w, m) = st.stats_dataset_fields();
+        for arr in [&mu, &mv, &mp, &k, &w, &m] {
+            assert_eq!(arr.len(), n);
+            for val in arr {
+                assert_eq!(*val, 0.0);
+            }
         }
     }
 }

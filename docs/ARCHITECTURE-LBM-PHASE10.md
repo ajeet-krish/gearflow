@@ -588,3 +588,70 @@ this tunnel, with a known slow modulation that a longer fetch
 moves toward 0.165 without settling Cd.
 
 Amendment 2026-10-27 (review round): Poiseuille gate runs 64 by 36 with a convective outlet (not 64 by 34 with zero gradient), the high Mach viscosity error is pinned under 6 percent alongside the ordering assertion, and the batch API gains resume() with step() errors on cancelled or diverged state plus diverged in run_steps output.
+
+Phase C dataset pilot, 2026-10-27, release mode. The native runner
+(src/bin/dataset_pilot.rs) calls LbmState directly, no WASM, no worker.
+Deterministic seed 42, sample_every 10, transient 8000 steps plus window
+12000 steps (1201 samples per completed case). Grids are 160 by 128 or
+256 by 128 with square cells; the body sits at 30 percent of the length
+(airfoil mid chord at 30 percent through a shifted domain, leading edge
+near 10 percent, trailing edge near 50 percent). Each completed case
+writes seven little endian float32 bins (umean, vmean, pmean, omegamean,
+tke, recirc, obstacle) plus a meta.json sidecar, and the run appends one
+JSON object per line to manifest.jsonl. The new export is additive: the
+UI stats_fields shape is untouched, stats_dataset_fields adds the mean_p
+channel and the mean vorticity of the mean field (same central
+difference stencil as snapshot, solid cells zero, zero sample reads full
+length zeros, all channels finite clamped), with host tests on both.
+
+Pilot table, 12 rows, 10 of 12 completed, total wall 192.4 s:
+
+| case | grid | tau | Ma | D_lat | B pct | Cd | Cl amp | St | wall s |
+|------|------|-----|----|-------|-------|----|--------|----|--------|
+| cyl_r020_re020 | 160 by 128 | 0.6431 | 0.1039 | 15.90 | 12.52 | 2.7720 | 0.000 | noise | 14.2 |
+| cyl_r020_re040 | 160 by 128 | 0.5716 | 0.1039 | 15.90 | 12.52 | 2.0618 | 0.000 | noise | 14.2 |
+| cyl_r020_re100 | 160 by 128 | 0.5384 | 0.1386 | 15.90 | 12.52 | diverged step 4896 | | | 3.5 |
+| cyl_r020_re060 sub | 160 by 128 | 0.5477 | 0.1039 | 15.90 | 12.52 | 1.7770 | 0.080 | 0.15373 | 14.3 |
+| block_040_re040 | 160 by 128 | 0.5716 | 0.1039 | 15.90 | 12.52 | 2.3447 | 0.000 | noise | 14.2 |
+| block_040_re100 | 160 by 128 | 0.5384 | 0.1386 | 15.90 | 12.52 | diverged step 4384 | | | 3.1 |
+| block_040_re060 sub | 160 by 128 | 0.5477 | 0.1039 | 15.90 | 12.52 | 2.0291 | 0.022 | 0.13072 | 14.2 |
+| naca0012_a00_re100 | 256 by 128 | 0.5216 | 0.1039 | 12.00 | 9.45 | 0.1841 | 0.008 | 0.32758 weak | 27.8 |
+| naca0012_a04_re100 | 256 by 128 | 0.5236 | 0.1039 | 13.10 | 10.32 | 0.2058 | 0.197 | 0.34960 | 27.8 |
+| naca0012_a06_re100 | 256 by 128 | 0.5264 | 0.1039 | 14.69 | 11.57 | 0.2405 | 0.191 | 0.27288 | 27.9 |
+| naca2412_a06_re100 | 256 by 128 | 0.5280 | 0.1039 | 15.58 | 12.27 | 0.2439 | 0.144 | 0.24381 | 27.9 |
+| duct_h040_re040 | 160 by 128 | 0.5716 | 0.1039 | 15.90 | 12.52 | 7.3499 by design | 0.001 | noise | 3.3 |
+
+Swaps and fixes. The two Re 100 bluff body points diverge on this short
+10 diameter tunnel at 12.5 percent blockage while the same tau survives
+in the longer reference tunnel, so fetch and blockage decide the margin
+here. Both are recorded as diverged rows and substituted with the
+nearest stable neighbor at Re 60 (same body, same grid, tau 0.548),
+noted in each substitute row. The duct first ran with the plate cut
+exactly at the inlet plane and poisoned at step 32; the walls now start
+upstream of the inlet like the Poiseuille fixture and the case
+completes, so this is a fixture fix, not a swap. Airfoil runs use LES at
+low tau and complete; the alpha 0 point is nearly steady (Cl amp 0.008)
+so its St is weak. Steady rows (Cl amp under 0.01) and the duct carry an
+St estimate from numerical noise, treat St as null there. Duct drag
+reads high by design because wall friction is counted as drag over the
+gap reference.
+
+Manifest schema, one JSON object per line. Completed rows carry:
+case_id, body, re, u_lattice, alpha_deg, les, nx, ny, width, tau, ma,
+d_lat, blockage, transient, window, steps, samples, cd_mean, cl_mean,
+cl_amp, tail_cd_blocks (pairs of start step and mean Cd at 8000, 12000,
+16000), strouhal (number or null), status completed, wall_s, sha256 over
+the concatenated mean bins, note. Diverged or setup_error rows carry the
+same params plus step or samples counted so far, status, error text, and
+no sha. The pilot manifest holds 12 rows and lives at
+data/pilot/manifest.jsonl next to the per case bins and meta.json files.
+
+Volume and readiness. The pilot is 6.8 MiB for 10 completed cases: about
+560 KiB per 160 by 128 case and about 896 KiB per 256 by 128 case at 7
+channels. A full 60 case sweep at 256 by 256 with the same 7 channels is
+about 105 MiB, and 200 cases about 350 MiB; adding the 4 instantaneous
+channels scales those figures by 11 over 7. Runner, schema, export, and
+volume math are ready for the full sweep. The Re 100 bluff body points
+still need the finer D_lat or interpolated bounce back upgrade before
+burning the large allocation, since the short tunnel BGK pair diverges
+at tau 0.538 while Re 60 completes.

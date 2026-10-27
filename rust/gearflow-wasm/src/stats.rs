@@ -167,6 +167,98 @@ impl StatsAccumulator {
         (mean_u, mean_v, tke, mask)
     }
 
+    /// Full dataset mean channels with solid zero and finite clamp.
+    /// Additive export for the native dataset runner. Returns
+    /// (mean_u, mean_v, mean_p, tke, mean_omega, recirc_mask).
+    /// mean_omega is the central difference vorticity of the mean field
+    /// with the same stencil as the snapshot path. Zero samples returns
+    /// six full length zero arrays. Solid cells read 0 on every channel.
+    pub fn fields_or_zeros_full(
+        &self,
+        solid: &[u8],
+        nx: usize,
+        ny: usize,
+        dx: f64,
+        dy: f64,
+    ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+        let cells = self.cells;
+        assert!(
+            solid.len() == cells,
+            "stats: solid len {} must equal cells {cells}",
+            solid.len()
+        );
+        assert!(
+            nx * ny == cells,
+            "stats: nx*ny must equal cells {cells}"
+        );
+        if self.samples == 0 {
+            return (
+                vec![0.0; cells],
+                vec![0.0; cells],
+                vec![0.0; cells],
+                vec![0.0; cells],
+                vec![0.0; cells],
+                vec![0.0; cells],
+            );
+        }
+        let fin = match self.finalise() {
+            Ok(f) => f,
+            Err(_) => {
+                return (
+                    vec![0.0; cells],
+                    vec![0.0; cells],
+                    vec![0.0; cells],
+                    vec![0.0; cells],
+                    vec![0.0; cells],
+                    vec![0.0; cells],
+                );
+            }
+        };
+        let mut mean_u = fin.mean_u;
+        let mut mean_v = fin.mean_v;
+        let mut mean_p = fin.mean_p;
+        let mut tke = fin.tke;
+        let mut mask = fin.recirc_mask;
+        for k in 0..cells {
+            if solid[k] != 0 {
+                mean_u[k] = 0.0;
+                mean_v[k] = 0.0;
+                mean_p[k] = 0.0;
+                tke[k] = 0.0;
+                mask[k] = 0.0;
+                continue;
+            }
+            if !mean_u[k].is_finite() {
+                mean_u[k] = 0.0;
+            }
+            if !mean_v[k].is_finite() {
+                mean_v[k] = 0.0;
+            }
+            if !mean_p[k].is_finite() {
+                mean_p[k] = 0.0;
+            }
+            if !tke[k].is_finite() || tke[k] < 0.0 {
+                tke[k] = 0.0;
+            }
+            if !mask[k].is_finite() {
+                mask[k] = 0.0;
+            } else if mask[k] != 0.0 && mask[k] != 1.0 {
+                mask[k] = if mask[k] > 0.5 { 1.0 } else { 0.0 };
+            }
+        }
+        let mut mean_omega = vorticity_from_means(&mean_u, &mean_v, solid, nx, ny, dx, dy);
+        for k in 0..cells {
+            if solid[k] != 0 {
+                mean_omega[k] = 0.0;
+                continue;
+            }
+            if !mean_omega[k].is_finite() {
+                mean_omega[k] = 0.0;
+            }
+        }
+        (mean_u, mean_v, mean_p, tke, mean_omega, mask)
+    }
+
     /// Global recirculation fraction for the stats report: fluid cells with
     /// time mean u < 0 divided by fluid cell count. Zero when there are no
     /// samples or no fluid cells. Pure and host testable.
@@ -244,6 +336,47 @@ impl StatsAccumulator {
             recirc_mask,
         })
     }
+}
+
+/// Central difference vorticity of a mean velocity field.
+/// Same stencil as the snapshot path: one sided at domain edges,
+/// physical dx and dy denominators, solid cells forced to 0.
+pub fn vorticity_from_means(
+    mean_u: &[f32],
+    mean_v: &[f32],
+    solid: &[u8],
+    nx: usize,
+    ny: usize,
+    dx: f64,
+    dy: f64,
+) -> Vec<f32> {
+    let n = nx * ny;
+    assert!(mean_u.len() == n, "stats: mean_u len must equal nx*ny");
+    assert!(mean_v.len() == n, "stats: mean_v len must equal nx*ny");
+    assert!(solid.len() == n, "stats: solid len must equal nx*ny");
+    let mut omega = vec![0.0f32; n];
+    for j in 0..ny {
+        for i in 0..nx {
+            let k = j * nx + i;
+            if solid[k] != 0 {
+                omega[k] = 0.0;
+                continue;
+            }
+            let i_l = if i > 0 { i - 1 } else { i };
+            let i_r = if i + 1 < nx { i + 1 } else { i };
+            let j_b = if j > 0 { j - 1 } else { j };
+            let j_t = if j + 1 < ny { j + 1 } else { j };
+            let denom_x = (i_r - i_l) as f64 * dx;
+            let denom_y = (j_t - j_b) as f64 * dy;
+            let denom_x = if denom_x == 0.0 { 1.0 } else { denom_x };
+            let denom_y = if denom_y == 0.0 { 1.0 } else { denom_y };
+            let dvdx = (mean_v[j * nx + i_r] as f64 - mean_v[j * nx + i_l] as f64) / denom_x;
+            let dudy = (mean_u[j_t * nx + i] as f64 - mean_u[j_b * nx + i] as f64) / denom_y;
+            let w = dvdx - dudy;
+            omega[k] = if w.is_finite() { w as f32 } else { 0.0 };
+        }
+    }
+    omega
 }
 
 /// Time mean fields plus fluctuation energy and recirculation maps.
@@ -410,5 +543,89 @@ mod tests {
         assert!((fin.rms_u[2] as f64 - 0.05).abs() < 1e-6);
         assert!((fin.recirc_fraction[2] as f64 - 1.0).abs() < 1e-6);
         assert_eq!(fin.recirc_mask[2], 1.0);
+    }
+
+    #[test]
+    fn full_export_carries_mean_p_channel() {
+        let mut acc = StatsAccumulator::new(4, 4, 0, 1).unwrap();
+        let n = 16;
+        let solid = vec![0u8; n];
+        let mut rho0 = vec![1.0f32; n];
+        let mut u0 = vec![0.0f32; n];
+        let mut v0 = vec![0.0f32; n];
+        rho0[0] = 1.0;
+        u0[0] = 0.1;
+        let mut rho1 = vec![1.0f32; n];
+        let mut u1 = vec![0.0f32; n];
+        let mut v1 = vec![0.0f32; n];
+        rho1[0] = 1.06;
+        u1[0] = 0.3;
+        v1[0] = 0.2;
+        let _ = v0;
+        acc.sample(0, &rho0, &u0, &v0, &solid);
+        acc.sample(1, &rho1, &u1, &v1, &solid);
+        let (_mu, _mv, mp, _k, _w, _m) = acc.fields_or_zeros_full(&solid, 4, 4, 0.02, 0.02);
+        assert!((mp[0] as f64 - 0.01).abs() < 1e-6, "mean_p = {}", mp[0]);
+    }
+
+    #[test]
+    fn full_export_omega_matches_shear() {
+        // Solid body rotation style shear: u = a*y gives omega = -a.
+        let nx = 8usize;
+        let ny = 8usize;
+        let n = nx * ny;
+        let dx = 0.02;
+        let dy = 0.02;
+        let solid = vec![0u8; n];
+        let mut mu = vec![0.0f32; n];
+        let mv = vec![0.0f32; n];
+        for j in 0..ny {
+            for i in 0..nx {
+                mu[j * nx + i] = (j as f32) * (dx as f32) * 2.0;
+            }
+        }
+        let w = vorticity_from_means(&mu, &mv, &solid, nx, ny, dx, dy);
+        assert_eq!(w.len(), n);
+        // Interior cells see the exact shear, edges use one sided stencils
+        // with the same spacing, so the whole field reads -2 within float
+        // tolerance.
+        for j in 1..(ny - 1) {
+            for i in 1..(nx - 1) {
+                let k = j * nx + i;
+                assert!((w[k] as f64 + 2.0).abs() < 1e-4, "w = {} at {k}", w[k]);
+            }
+        }
+    }
+
+    #[test]
+    fn full_export_solid_zero_and_zero_sample_zeros() {
+        let mut acc = StatsAccumulator::new(4, 4, 0, 1).unwrap();
+        let n = 16;
+        let rho = vec![1.1f32; n];
+        let u = vec![0.2f32; n];
+        let v = vec![0.1f32; n];
+        let mut solid = vec![0u8; n];
+        solid[0] = 1;
+        solid[5] = 1;
+        acc.sample(0, &rho, &u, &v, &solid);
+        let (mu, mv, mp, k, w, m) = acc.fields_or_zeros_full(&solid, 4, 4, 0.02, 0.02);
+        for kdx in [0, 5] {
+            assert_eq!(mu[kdx], 0.0);
+            assert_eq!(mv[kdx], 0.0);
+            assert_eq!(mp[kdx], 0.0);
+            assert_eq!(k[kdx], 0.0);
+            assert_eq!(w[kdx], 0.0);
+            assert_eq!(m[kdx], 0.0);
+        }
+        assert!(mu[1].is_finite());
+        assert!(w[1].is_finite());
+        let fresh = StatsAccumulator::new(4, 4, 0, 1).unwrap();
+        let (a, b, c, d, e, f) = fresh.fields_or_zeros_full(&solid, 4, 4, 0.02, 0.02);
+        for arr in [&a, &b, &c, &d, &e, &f] {
+            assert_eq!(arr.len(), n);
+            for val in arr {
+                assert_eq!(*val, 0.0);
+            }
+        }
     }
 }
