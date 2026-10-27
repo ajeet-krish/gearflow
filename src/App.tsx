@@ -8,6 +8,7 @@ import EvalLogPanel from "@/ui/EvalLogPanel";
 import SettingsModal from "@/ui/SettingsModal";
 import TopNav, { type NavId } from "@/ui/TopNav";
 import SolverBar from "@/ui/SolverBar";
+import LbmSetupRow, { LbmEntryNotice, LbmFailoverNotice } from "@/ui/LbmSetupRow";
 import FieldBar, { fallbackVariableFor } from "@/ui/FieldBar";
 import TelemetryBar from "@/ui/TelemetryBar";
 import AnalysisPanel from "@/ui/AnalysisPanel";
@@ -19,6 +20,19 @@ import { AnalyticFlowProvider, type FrameSource } from "@/flow/frameSource";
 import { createFlowProvider } from "@/flow/createFlowProvider";
 import { readEngineMode, lbmGridFor, blockageForGeometry, type EngineMode } from "@/flow/engineMode";
 import { LbmClient, type LbmProgress } from "@/flow/lbmClient";
+import {
+    LBM_DEFAULT_TARGET_STEPS,
+    LBM_DEFAULT_U_LATTICE,
+    LBM_MAX_RE,
+    LBM_PARAM_CAP_NOTICE,
+    clampLbmTargetSteps,
+    clampLbmULattice,
+    clampReForEngine,
+    lbmEntryTransition,
+    lbmLesEnabled,
+    lbmRecoveryRe,
+    withLbmTauGuidance,
+} from "@/flow/lbmRunConfig";
 import { LbmFlowProvider, type LbmProviderStatus } from "@/flow/lbmFlowProvider";
 import { SurrogateFlowProvider } from "@/flow/surrogate";
 import { useResolution } from "@/flow/gridController";
@@ -391,10 +405,15 @@ export default function App() {
         [offline]
     );
 
-    const applyParametric = (next: ParametricSpec) => {
+    // Parametric applies (MetaPanel, agent set_spec) share the LBM Re ceiling
+    // with the bars. The capped value is returned so the caller can note it.
+    const applyParametric = (next: ParametricSpec): { reynolds: number; capped: boolean } => {
         setSpec(next.geometry);
-        setReynolds(next.reynolds);
+        const { reynolds: cappedRe, capped } = clampReForEngine(next.reynolds, lbmActive);
+        setReynolds(cappedRe);
+        if (capped) setLbmNotice(LBM_PARAM_CAP_NOTICE);
         if (next.geometry.kind === "custom") setMode("analytic");
+        return { reynolds: cappedRe, capped };
     };
 
     // Long lived analytic frame source. Geometry changes re-resolve panels,
@@ -534,10 +553,35 @@ export default function App() {
     const [lbmHasSnapshot, setLbmHasSnapshot] = useState(false);
     const lbmClientRef = useRef<LbmClient | null>(null);
     const lbmProviderRef = useRef<LbmFlowProvider | null>(null);
-    const lbmGenKeyRef = useRef("");
     const lbmLastSnapAtRef = useRef(0);
     const lbmFailedRef = useRef<string | null>(null);
     lbmFailedRef.current = lbmFailed;
+
+    // Configurable LBM run state. uLattice and targetSteps flow into
+    // client.init; LES auto derives from the debounced Re, the manual
+    // toggle only matters while Auto is off.
+    const [lbmULattice, setLbmULattice] = useState(LBM_DEFAULT_U_LATTICE);
+    const [lbmTargetSteps, setLbmTargetSteps] = useState(LBM_DEFAULT_TARGET_STEPS);
+    const [lbmLesAuto, setLbmLesAuto] = useState(true);
+    const [lbmLesManual, setLbmLesManual] = useState(false);
+    const [lbmNotice, setLbmNotice] = useState<string | null>(null);
+    const lbmLesEffective = lbmLesEnabled(lbmLesAuto, lbmLesManual, debouncedRe);
+    // Keyed on the mode transition so entering LBM resets a high Re once,
+    // without looping and without clobbering a deliberate low Re.
+    const lbmEnterSeenRef = useRef<EngineMode | null>(null);
+    useEffect(() => {
+        if (engineMode !== "lbm") {
+            lbmEnterSeenRef.current = engineMode;
+            setLbmNotice(null);
+            return;
+        }
+        const transition = lbmEntryTransition(engineMode, reynolds, lbmEnterSeenRef.current);
+        lbmEnterSeenRef.current = "lbm";
+        if (transition !== null) {
+            setReynolds(transition.reynolds);
+            setLbmNotice(transition.notice);
+        }
+    }, [engineMode, reynolds]);
 
     const lbmGrid = useMemo(() => lbmGridFor(DEFAULT_DOMAIN, activeGrid), [activeGrid]);
 
@@ -548,7 +592,9 @@ export default function App() {
 
     const lbmFailover = useCallback((message: string) => {
         if (lbmFailedRef.current !== null) return;
-        setLbmFailed(message);
+        // Tau and floor faults carry the measured stability guidance so the
+        // notice is actionable. The latch and the honest fallback stay put.
+        setLbmFailed(withLbmTauGuidance(message));
         setLbmHasSnapshot(false);
         setLbmProgress({ step: 0, targetSteps: 0, cd: NaN, cl: NaN });
         setLbmStatus("idle");
@@ -660,13 +706,14 @@ export default function App() {
             domain: { ...DEFAULT_DOMAIN },
             geomJson: JSON.stringify(debouncedSpec),
             re: debouncedRe,
-            uLattice: 0.05,
-            lesEnabled: debouncedRe > 500,
-            targetSteps: 40000,
+            uLattice: lbmULattice,
+            lesEnabled: lbmLesEffective,
+            targetSteps: lbmTargetSteps,
             batchSteps: 512,
             statsStartStep: 8000,
         });
-        lbmGenKeyRef.current = `${lbmGrid.nx}x${lbmGrid.ny}|${JSON.stringify(debouncedSpec)}|${debouncedRe}`;
+        // The effect deps array above is the canonical re-init trigger. A fresh
+        // run is fully described by grid, spec, Re, and run settings.
         return () => {
             disposed = true;
             try {
@@ -682,7 +729,7 @@ export default function App() {
                 // Disposal must never break teardown.
             }
         };
-    }, [lbmActive, lbmGrid.nx, lbmGrid.ny, lbmGrid.reason, debouncedSpec, debouncedRe, lbmFailover]);
+    }, [lbmActive, lbmGrid.nx, lbmGrid.ny, lbmGrid.reason, debouncedSpec, debouncedRe, lbmULattice, lbmTargetSteps, lbmLesEffective, lbmFailover]);
 
     const solved = useMemo<{ frame: SolvedFrame; error: string | null }>(() => {
         try {
@@ -919,7 +966,17 @@ export default function App() {
             // Cancel must never throw out of the button handler.
         }
     }, []);
-    const lbmTarget = lbmProgress.targetSteps > 0 ? lbmProgress.targetSteps : 40000;
+    // Recover clears the failover latch in step with the Re change so the
+    // fresh init at Re 200 can go live instead of staying failed.
+    const onLbmRecoverRe = useCallback(() => {
+        setLbmFailed(null);
+        setReynolds(lbmRecoveryRe);
+        setLbmNotice(null);
+    }, []);
+    const onLbmDismissNotice = useCallback(() => {
+        setLbmNotice(null);
+    }, []);
+    const lbmTarget = lbmProgress.targetSteps > 0 ? lbmProgress.targetSteps : lbmTargetSteps;
     const lbmPct = Math.min(100, Math.max(0, Math.round((lbmProgress.step / lbmTarget) * 100)));
     const lbmProgressText = `step ${lbmProgress.step} of ${lbmTarget} (${lbmPct} percent)`;
 
@@ -978,7 +1035,9 @@ export default function App() {
     };
     const onReynoldsBar = (next: number) => {
         if (!Number.isFinite(next)) return;
-        setReynolds(Math.min(1_000_000, Math.max(100, Math.round(next))));
+        // LBM needs low Re for a stable solve, other backends keep full range.
+        const cap = lbmActive ? LBM_MAX_RE : 1_000_000;
+        setReynolds(Math.min(cap, Math.max(100, Math.round(next))));
     };
 
     // Phase B2 agent executor. Setup actions apply directly through the
@@ -1167,6 +1226,7 @@ export default function App() {
                                 reynolds={reynolds}
                                 onReynolds={onReynoldsBar}
                                 live={solveError === null}
+                                maxRe={lbmActive ? LBM_MAX_RE : 1000000}
                             />
                             <FieldBar
                                 variable={effectiveVariable}
@@ -1174,6 +1234,22 @@ export default function App() {
                                 hasTke={hasTke}
                                 hasRecirc={hasRecirc}
                             />
+                            {lbmActive && (
+                                <LbmSetupRow
+                                    uLattice={lbmULattice}
+                                    onULattice={(v) => setLbmULattice(clampLbmULattice(v))}
+                                    targetSteps={lbmTargetSteps}
+                                    onTargetSteps={(v) => setLbmTargetSteps(clampLbmTargetSteps(v))}
+                                    lesAuto={lbmLesAuto}
+                                    onLesAuto={(v) => setLbmLesAuto(v)}
+                                    lesManual={lbmLesManual}
+                                    onLesManual={(v) => setLbmLesManual(v)}
+                                    status={lbmStatus}
+                                    onRun={onLbmRun}
+                                    onCancel={onLbmCancel}
+                                    progressText={lbmProgressText}
+                                />
+                            )}
                         </div>
                     </SceneBars>
                     <TelemetryBar
@@ -1191,36 +1267,6 @@ export default function App() {
                         fail={valSummary.fail}
                         isFixture={isFixture}
                     />
-                    {lbmEffective && (
-                        <div className="sceneBar" role="toolbar" aria-label="LBM run controls">
-                            <span className="barLabel">LBM</span>
-                            <div className="chipGroup" role="group" aria-label="LBM run control">
-                                <button
-                                    type="button"
-                                    className="chip"
-                                    onClick={onLbmRun}
-                                    disabled={lbmStatus === "running"}
-                                    aria-label="Run LBM solve"
-                                >
-                                    Run
-                                </button>
-                                <button
-                                    type="button"
-                                    className="chip"
-                                    onClick={onLbmCancel}
-                                    disabled={lbmStatus !== "running"}
-                                    aria-label="Cancel LBM solve"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                            <span className="divider" aria-hidden="true" />
-                            <span className="teleGroup">
-                                <span className="barLabel">PROGRESS</span>
-                                <span className="teleValue mono" role="status">{lbmProgressText}</span>
-                            </span>
-                        </div>
-                    )}
                     <div className="tunnel" id="tunnel">
                         {layoutPrefs.focusMode && (
                             <button
@@ -1249,8 +1295,16 @@ export default function App() {
                             />
                         </ErrorBoundary>
                         <div className="noticeStack" aria-label="Solver notices">
-                            {lbmFailedActive && (
-                                <p className="fallbackNote notice" role="status">{lbmFailed}, analytic fallback serving frames. No LBM numbers shown.</p>
+                            {lbmFailedActive && lbmFailed !== null && (
+                                <LbmFailoverNotice
+                                    message={lbmFailed}
+                                    onRecover={onLbmRecoverRe}
+                                    suffix="analytic fallback serving frames. No LBM numbers shown."
+                                    recoverLabel="Recover at Re 200"
+                                />
+                            )}
+                            {lbmActive && lbmNotice !== null && (
+                                <LbmEntryNotice message={lbmNotice} onDismiss={onLbmDismissNotice} />
                             )}
                             {lbmEffective && !lbmHasSnapshot && lbmFailed === null && (
                                 <p className="loading notice" role="status">LBM ready at {lbmGrid.nx} x {lbmGrid.ny}, placeholder preview, not physics. Press Run to start the viscous solve.</p>
@@ -1345,7 +1399,7 @@ export default function App() {
                                             reynolds={reynolds}
                                             mode={mode}
                                             onSpecChange={setSpec}
-                                            onReynoldsChange={setReynolds}
+                                            onReynoldsChange={onReynoldsBar}
                                             onModeChange={setMode}
                                         />
                                     ),

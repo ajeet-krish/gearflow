@@ -209,3 +209,10 @@ Append only. Add new entries at bottom with date. Never rewrite history.
 * Options considered: Recirc fraction as mean of per cell hit rate versus share of fluid cells with negative time mean u. Strouhal as zero or NaN versus null when unmeasurable.
 * Decision: Recirc fraction is the share of fluid cells with time mean u below zero. Strouhal is null when the peak counter errors, force means use the retained history window from stats start, new WASM keys are uMean, vMean, k, recirc, stats.
 * Impact (judging link): Technical Depth (honest turbulence labels with finite guarantees) and Demo (new field modes without breaking existing views).
+
+### 2026-10-27 LBM interactive Reynolds ceiling
+* Date: 2026-10-27
+* Context: Default app Re 50000 versus LBM tau floor 0.505 with fixed u 0.05, tau equals 0.5 plus 3uD/Re so Re 50000 gives tau about 0.50006 and configure rejects with analytic fallback.
+* Options considered: Leave default Re open with silent analytic fallback versus clamp tau with a viscosity floor versus cap LBM Re with explicit failover UI.
+* Decision: LBM mode defaults entry Re to 200 above 2000, caps Re controls and parametric applies at 2000 while LBM active, exposes U plus STEPS plus LES controls in a scene setup row, tau failover shows fault lamp with Recover at Re 200 which clears the latch, LES stays auto above 500 and modeled.
+* Impact (judging link): Judging demo runs LBM at Re 100 to 480 stable band on the default grid, honest modeled labeling above 500, no solver maths change.

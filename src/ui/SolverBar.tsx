@@ -13,6 +13,7 @@ export interface SolverBarProps {
     reynolds: number;
     onReynolds: (next: number) => void;
     live: boolean;
+    maxRe?: number;
 }
 
 const MODES: Array<{ value: FlowMode; label: string }> = [
@@ -40,6 +41,7 @@ export default function SolverBar({
     reynolds,
     onReynolds,
     live,
+    maxRe = 1000000,
 }: SolverBarProps) {
     return (
         <div className="sceneBar solverBar" role="toolbar" aria-label="Solver controls">
@@ -98,11 +100,11 @@ export default function SolverBar({
                     className="barInput barInputWide"
                     type="number"
                     min={100}
-                    max={1000000}
+                    max={maxRe}
                     step={1000}
                     value={Math.round(reynolds)}
                     onChange={(e) => onReynolds(Number(e.target.value))}
-                    aria-label="Reynolds number, 100 to 1 million"
+                    aria-label={`Reynolds number, 100 to ${maxRe.toLocaleString("en-US")}`}
                 />
             </label>
             <span className="spacer" aria-hidden="true" />

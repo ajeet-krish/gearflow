@@ -921,3 +921,46 @@ Verdict: PASS
 Checks: localReply PASS (explain cites Cl, CpMin, Re, regime with Suggested change plus Caveat analytic estimate only at localAssistant.ts:130-154; tool help names solver, field, telemetry bars plus SOLVER, FIELD, TELEMETRY, GEOMETRY, DISPLAY at 156-163; setup parse plus schema clamp with notice at 209-250; ambiguous setup defaults to current body at 253-258; gated fields and run rejections flow through validateAgentAction at 195-202,265-289; never throws and zero network at 179-301). Cache PASS with Minors above (buildCacheKey deterministic at agentCache.ts:94-99, TTL 24 h at 20,148-158, fresh hit zero marginal cost at 275-288, stale on failure and failures never cached at 317-334, corrupt JSON dropped at 165-188, no key material in key or entry at 38-47,94-99). Kill switch PASS (exact true only at basetenGate.ts:31-37, proxy 503 after path and same origin checks and before limiter, key, and upstream at vite.config.ts:188-219, client maps 503 to offline at basetenClient.ts:262-268, documented at .env.example:7-9). Spend PASS (five dollar cap at sessionSpend.ts:6, NaN safe addSpend and isSoftStopped at 39-66, console delegates at AgentConsole.tsx:60,119-121,312-317). Console delegation PASS (SPEND_SOFT_STOP_USD, spendExceeded, localOfflineReply, validationContextFor, and contract strings Baseten unreachable, local mode. Canvas unchanged. and paths preserved at AgentConsole.tsx:57-60,119-202,409-447,643-652). Tests PASS behavioural (counting fake ports, fake stores, real basetenProxy middleware, rendered console helpers, no source string assertions in the new B3 suites, with the two Minor weak assertions above).
 
 Note recurring pattern: none new. Tests inspected, not executed (reviewer has no shell tool in this session).
+
+## 2026-10-27 - LBM Setup Work Review (uncommitted, HEAD 29ad412)
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Scope: Uncommitted LBM setup (src/flow/lbmRunConfig.ts, lbmRunConfig.test.ts, src/ui/LbmSetupRow.tsx, lbmSetupRow.test.tsx, src/App.tsx, src/ui/SolverBar.tsx, src/styles.css, src/flow/lbmAppWiring.test.ts)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major | src/App.tsx:1391-1395, src/ui/FlowControls.tsx:171-179 | Re cap bypass: the rail FlowControls log slider calls raw setReynolds up to 1e6 while LBM is active, so the LBM Re 2000 ceiling is not an invariant | frontend-dev: route it through onReynoldsBar or pass a capped handler/max while lbmActive, add a behavioural test |
+| Major | src/App.tsx:408-412,1076-1078 | Re cap bypass: applyParametric sets next.reynolds uncapped and is reachable via MetaPanel applies and the agent set_spec action | frontend-dev/backend-dev: clamp through the same LBM cap helper in applyParametric when lbmActive |
+| Major | src/App.tsx:589-593,610-616,964-966 | Recover at Re 200 sets Re but never clears lbmFailed (no setLbmFailed(null) anywhere), so the fault lamp stays latched, lbmEffective stays false, and the re-inited worker at Re 200 can never surface LBM frames | frontend-dev: on recover, clear lbmFailed/lbmFailedRef latch in step with the Re change so the fresh init can become effective, add a recovery behavioural test |
+| Major | src/flow/lbmAppWiring.test.ts:48-81, src/ui/lbmSetupRow.test.tsx:178-194,221-231 | Entry reset, cap, dismiss, and recover are certified only by source string matches. Removing the transition guard while keeping the strings, or breaking dismiss/recover wiring semantics, would still pass, so the suite would not fail if reset looped | tester: add a component or hook level behavioural test driving mode transitions, dismiss, and recover against a fake client |
+
+Checks: 1 entry reset PASS in code (App.tsx:567-580 guard, lbmRunConfig.ts:44-47), test gap in the Major table. 2 Re cap FAIL (bypasses above; SolverBar typing and agent set_reynolds through onReynoldsBar at App.tsx:1028-1033,1048-1050 and recovery 200 do cap). 3 init and gen key PASS (App.tsx:699-711,727, lbmClient.ts:222-236; gen key ref is write only, effect deps are the real re-init mechanism). 4 LES effective PASS (lbmRunConfig.ts:40-42, App.tsx:564, LbmSetupRow.tsx:109-121; boundary at exactly 500 untested). 5 fault detector PASS with recovery FAIL above (lbmRunConfig.ts:50-60, LbmSetupRow.tsx:141-157; real non tau messages such as worker stalled do not match, guidance qualified at lbmRunConfig.ts:26-27). 6 setup row placement PASS (App.tsx:1204-1246,1229-1244, single scene Run, existing client handlers App.tsx:950-963). 7 honesty PASS (LbmSetupRow.tsx:127-129, App.tsx:866-885 snapshot gating, 1290-1303). 8 tests FAIL per Major table (pure config and fake port init tests at lbmRunConfig.test.ts:65-93,104-120 are behavioural, App level contracts are not).
+
+Note recurring pattern: App level contracts certified by source strings while component and pure function tests are behavioural, the isolated pass pattern flagged in earlier phases. Tests inspected, not executed (reviewer has no shell tool in this session).
+
+## 2026-10-27 - LBM Setup Fixes Re-review (uncommitted)
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Scope: Re-review of the four prior LBM setup Majors (rail Re cap bypass, parametric Re cap bypass, failover recover latch, source string only tests), plus lbmGenKeyRef removal and regression spot checks on prior PASS items
+Verdict: PASS
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| 1 Rail log slider cap | PASS | src/App.tsx:1402 routes FlowControls onReynoldsChange through onReynoldsBar; src/App.tsx:1036-1041 caps at LBM_MAX_RE while lbmActive and 1000000 otherwise, so analytic keeps the full range; rail slider itself at src/ui/FlowControls.tsx:171-180 |
+| 2 Parametric cap | PASS | src/App.tsx:410-416 applyParametric clamps via clampReForEngine at src/flow/lbmRunConfig.ts:54-58, sets the capped Reynolds, posts LBM_PARAM_CAP_NOTICE at src/flow/lbmRunConfig.ts:26 when capped, and returns { reynolds: cappedRe, capped }; callers at src/App.tsx:1085 (agent set_spec) and src/App.tsx:1189 (MetaPanel) |
+| 3 Failover recover | PASS | src/App.tsx:971-975 onLbmRecoverRe clears lbmFailed (setLbmFailed(null)), sets Reynolds to lbmRecoveryRe 200 (src/flow/lbmRunConfig.ts:20), and clears the notice in the same handler; lamp unlatches because lbmFailedActive at src/App.tsx:862 and the notice render at src/App.tsx:1298-1305 key off lbmFailed; fresh init re-runs through the init effect deps at src/App.tsx:732 when the debounced Re changes to 200, posting init with all fields at src/App.tsx:703-714; no loop because the entry effect seen guard at src/App.tsx:571-584 stays on lbm; no stale flash because failover cleared the snapshot at src/App.tsx:598-605 and the placeholder path at src/App.tsx:871-889 shows no LBM numbers before a new snapshot |
+| 4 Behavioural tests | PASS | src/flow/lbmModeBehavior.test.ts drives the real lbmRunConfig helpers plus a real LbmClient over a fake port: entry reset once with no loop at lines 50-79, deliberate low Re survives at 81-89, dismissed notice persists at 91-102, cap matrix at 105-116, latch plus recover plus fresh init at Re 200 asserting one init post with re 200 at 126-163; source string assertions in src/flow/lbmAppWiring.test.ts:71-94 and src/ui/lbmSetupRow.test.tsx:178-194,221-231 are now supplemented, not the only coverage; fault lamp button behaviour at src/ui/lbmSetupRow.test.tsx:178-194 |
+| 5 lbmGenKeyRef removal | PASS | No lbmGenKeyRef in src/App.tsx; only the negative assertion remains at src/flow/lbmAppWiring.test.ts:44, with the deps comment at src/App.tsx:715-716 |
+| 6 No regressions | PASS | Init still carries nx, ny, domain, geomJson, re, uLattice, lesEnabled, targetSteps, batchSteps, statsStartStep at src/App.tsx:703-714 and client passthrough pin at src/flow/lbmRunConfig.test.ts:104-120; LES logic unchanged at src/flow/lbmRunConfig.ts:42-45 (auto above Re 500); fault detector accuracy unchanged at src/flow/lbmRunConfig.ts:74-85 with non tau messages unappended, pinned at src/flow/lbmRunConfig.test.ts:83-93; honesty gating unchanged at src/App.tsx:871-889 (placeholder provenance and NaN Cl before first snapshot) and src/App.tsx:941-945 (stats gating) |
+
+Residual non blocking note: recovery re-init is triggered by the debounced Re change to 200, so a tau fault that already occurred at exactly Re 200 relies on the same path the entry and run settings changes use; the behavioural recovery pin at lbmModeBehavior.test.ts:126-163 covers the latch clear plus a fresh init at Re 200 through a real client. Tests and builds were reported by the implementer (npm test 72 files, 841 tests PASS, builds clean) and were inspected, not rerun, in this reviewer session (no shell tool available).
+
+### Verification Checklist
+- [x] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
