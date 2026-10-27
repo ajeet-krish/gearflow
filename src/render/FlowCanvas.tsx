@@ -1,14 +1,27 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
-import type { FlowField } from "@/contracts/types";
+import type { FieldMode, FlowField } from "@/contracts/types";
 import type { Point } from "@/geometry/parametric";
 import { createParticles, advectParticles, mulberry32, type ParticleSet } from "./particles";
-import { sampleColormap, buildLut, type ColormapName } from "@/flow/colormap";
+import { sampleColormap, buildLut, readQuantity, variableRange, type ColormapName } from "@/flow/colormap";
+import {
+    createFieldTextures,
+    updateFieldTextures,
+    disposeFieldTextures,
+    type FieldTextures,
+} from "./fieldTexture";
+import { createFieldShaderMaterial, updateFieldShaderMaterial } from "./fieldShader";
 
 interface Props {
     flow: FlowField;
     airfoil: Point[] | Point[][];
     colormap?: ColormapName;
+    fieldMode?: FieldMode;
+    lineColor?: string;
+    fieldVisible?: boolean;
+    useShader?: boolean;
+    particleCount?: number;
+    showContours?: boolean;
 }
 
 export interface FlowCanvasHandle {
@@ -30,8 +43,10 @@ function speedMaxOf(flow: FlowField): number {
 function fieldUsable(flow: FlowField): boolean {
     const n = flow.nx * flow.ny;
     if (flow.u.length !== n || flow.v.length !== n) return false;
+    if (flow.p.length !== n || flow.omega.length !== n || flow.obstacle.length !== n) return false;
     for (let k = 0; k < n; k++) {
         if (!Number.isFinite(flow.u[k]) || !Number.isFinite(flow.v[k])) return false;
+        if (!Number.isFinite(flow.p[k]) || !Number.isFinite(flow.omega[k])) return false;
     }
     return true;
 }
@@ -67,27 +82,58 @@ const SLOW_FRAMES = 60;
  * FlowCanvas with split effects plus a Phase 5 export handle.
  * Effect 1 (mount once): renderer, scene, camera, plane shell, particle store,
  * RAF loop with adaptive density and hidden plus offscreen pause.
- * Effect 2 (flow/airfoil/colormap): rewrite field vertex colors and swap the
- * outline line in place. Particle positions persist across field swaps.
+ * Effect 2 (flow/airfoil/display): rebuilds plane geometry on grid change
+ * (keyed on nx x ny), repaints via the GPU shader path with a vertex color
+ * fallback, and swaps the outline line in place.
  * Only replaced line geometry is disposed. Reduced motion renders one frame.
  * The per frame particle painter inlines bilinear sampling and a LUT lookup
  * with reused arrays only, so the hot loop performs no allocations.
  */
-const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas({ flow, airfoil, colormap = "viridis" }, ref) {
+const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
+    {
+        flow,
+        airfoil,
+        colormap = "viridis",
+        fieldMode = "speed",
+        lineColor = "#f5f2e9",
+        fieldVisible = true,
+        useShader = true,
+        particleCount = 3000,
+        showContours = false,
+    },
+    ref
+) {
     const mountRef = useRef<HTMLDivElement>(null);
 
     // Mutable render state owned by effect 1, read by effect 2.
     const flowRef = useRef(flow);
     const airfoilRef = useRef(airfoil);
     const colormapRef = useRef<ColormapName>(colormap);
+    const fieldModeRef = useRef<FieldMode>(fieldMode);
+    const lineColorRef = useRef(lineColor);
+    const fieldVisibleRef = useRef(fieldVisible);
+    const useShaderRef = useRef(useShader);
+    const particleCountRef = useRef(particleCount);
+    const showContoursRef = useRef(showContours);
     flowRef.current = flow;
     airfoilRef.current = airfoil;
     colormapRef.current = colormap;
+    fieldModeRef.current = fieldMode;
+    lineColorRef.current = lineColor;
+    fieldVisibleRef.current = fieldVisible;
+    useShaderRef.current = useShader;
+    particleCountRef.current = particleCount;
+    showContoursRef.current = showContours;
 
     const sceneRef = useRef<THREE.Scene | null>(null);
     const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
     const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+    const meshRef = useRef<THREE.Mesh | null>(null);
     const planeGeoRef = useRef<THREE.PlaneGeometry | null>(null);
+    const vertexMatRef = useRef<THREE.MeshBasicMaterial | null>(null);
+    const shaderMatRef = useRef<THREE.ShaderMaterial | null>(null);
+    const texturesRef = useRef<FieldTextures | null>(null);
+    const gridKeyRef = useRef("");
     const linesRef = useRef<THREE.Line[]>([]);
     const lineMatRef = useRef<THREE.LineBasicMaterial | null>(null);
     const pointsRef = useRef<THREE.Points | null>(null);
@@ -121,41 +167,112 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas({ flo
         },
     }), []);
 
-    // Effect 2 helper: repaint field colors plus swap outline.
+    // Effect 2 helper: rebuild plane on grid change, repaint field, swap outline.
     const repaintRef = useRef(() => {});
     repaintRef.current = () => {
         const scene = sceneRef.current;
-        const planeGeo = planeGeoRef.current;
-        if (!scene || !planeGeo || !readyRef.current) return;
+        const mesh = meshRef.current;
+        let planeGeo = planeGeoRef.current;
+        if (!scene || !mesh || !planeGeo || !readyRef.current) return;
         const f = flowRef.current;
         const cm = colormapRef.current;
+        const variable = fieldModeRef.current;
         // Poisoned frame guard: keep the last painted pixels instead of
         // smearing NaN colors or throwing inside the render loop.
         if (!fieldUsable(f)) {
             console.error("FlowCanvas: skipping repaint of non-finite field, holding last frame");
             return;
         }
+        // Grid change: rebuild plane geometry in place, keyed on nx x ny.
+        const gridKey = `${f.nx}x${f.ny}`;
+        if (gridKeyRef.current !== gridKey) {
+            const { domain } = f;
+            const dw = domain.xMax - domain.xMin;
+            const dh = domain.yMax - domain.yMin;
+            const nextGeo = new THREE.PlaneGeometry(dw, dh, f.nx - 1, f.ny - 1);
+            nextGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(nextGeo.getAttribute("position").count * 3), 3));
+            mesh.geometry.dispose();
+            mesh.geometry = nextGeo;
+            planeGeoRef.current = nextGeo;
+            planeGeo = nextGeo;
+            gridKeyRef.current = gridKey;
+            // Textures pack per cell, so a grid change forces recreation.
+            if (texturesRef.current !== null) {
+                disposeFieldTextures(texturesRef.current);
+                texturesRef.current = null;
+            }
+        }
         lutRef.current = buildLut(cm);
         const sm = speedMaxOf(f);
         speedMaxRef.current = sm;
-        const pos = planeGeo.getAttribute("position");
-        const colorAttr = planeGeo.getAttribute("color") as THREE.BufferAttribute;
-        const segX = f.nx;
-        const segY = f.ny;
-        const n = Math.min(pos.count, segX * segY);
-        for (let k = 0; k < n; k++) {
-            const ix = k % segX;
-            const iy = Math.floor(k / segX);
-            const j = segY - 1 - iy;
-            const idx = j * segX + ix;
-            if (idx < 0 || idx >= f.nx * f.ny) continue;
-            const speed = Math.sqrt(f.u[idx] * f.u[idx] + f.v[idx] * f.v[idx]);
-            const t = Math.min(1, speed / (sm || 1));
-            const [r, g, b] = sampleColormap(cm, t);
-            const dim = f.obstacle[idx] > 0.5 ? 0.25 : 1;
-            colorAttr.setXYZ(k, ((r / 255) * dim), ((g / 255) * dim), ((b / 255) * dim));
+        mesh.visible = fieldVisibleRef.current;
+
+        // Shader path with vertex color fallback.
+        let shaderOk = false;
+        if (useShaderRef.current) {
+            try {
+                const prev = texturesRef.current;
+                const next = updateFieldTextures(prev, f, cm, variable);
+                texturesRef.current = next;
+                let mat = shaderMatRef.current;
+                if (mat === null) {
+                    mat = createFieldShaderMaterial({
+                        field: next.field,
+                        lut: next.lut,
+                        vMin: 0,
+                        vMax: 1,
+                        dimObstacle: 0.25,
+                        showContours: showContoursRef.current,
+                    });
+                    shaderMatRef.current = mat;
+                } else {
+                    updateFieldShaderMaterial(mat, {
+                        field: next.field,
+                        lut: next.lut,
+                        showContours: showContoursRef.current,
+                    });
+                }
+                if (mesh.material !== mat) mesh.material = mat;
+                shaderOk = true;
+            } catch (e) {
+                console.error("FlowCanvas: shader path failed, falling back to vertex colors", e instanceof Error ? e.message : String(e));
+                shaderOk = false;
+            }
         }
-        colorAttr.needsUpdate = true;
+        if (!shaderOk) {
+            if (vertexMatRef.current !== null && mesh.material !== vertexMatRef.current) {
+                mesh.material = vertexMatRef.current;
+            }
+            const pos = planeGeo.getAttribute("position");
+            const colorAttr = planeGeo.getAttribute("color") as THREE.BufferAttribute;
+            const segX = f.nx;
+            const segY = f.ny;
+            const n = Math.min(pos.count, segX * segY);
+            const { min, max } = variableRange(variable, f);
+            const span = max - min || 1;
+            for (let k = 0; k < n; k++) {
+                const ix = k % segX;
+                const iy = Math.floor(k / segX);
+                const j = segY - 1 - iy;
+                const idx = j * segX + ix;
+                if (idx < 0 || idx >= f.nx * f.ny) continue;
+                const q = readQuantity(variable, f, idx);
+                const t = Math.min(1, Math.max(0, (q - min) / span));
+                const [r, g, b] = sampleColormap(cm, t);
+                const dim = f.obstacle[idx] > 0.5 ? 0.25 : 1;
+                colorAttr.setXYZ(k, ((r / 255) * dim), ((g / 255) * dim), ((b / 255) * dim));
+            }
+            colorAttr.needsUpdate = true;
+        }
+
+        // Outline color follows the lineColor prop.
+        if (lineMatRef.current !== null) {
+            try {
+                lineMatRef.current.color.set(lineColorRef.current);
+            } catch {
+                // Invalid color strings keep the previous outline color.
+            }
+        }
 
         // Swap outlines: one line per polygon, dispose replaced line geometries only.
         const polys = toPolygons(airfoilRef.current);
@@ -215,12 +332,15 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas({ flo
 
         const segX = f0.nx;
         const segY = f0.ny;
+        gridKeyRef.current = `${segX}x${segY}`;
         const planeGeo = new THREE.PlaneGeometry(dw, dh, segX - 1, segY - 1);
         planeGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(planeGeo.getAttribute("position").count * 3), 3));
         planeGeoRef.current = planeGeo;
-        const planeMat = new THREE.MeshBasicMaterial({ vertexColors: true });
-        const plane = new THREE.Mesh(planeGeo, planeMat);
+        const vertexMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+        vertexMatRef.current = vertexMat;
+        const plane = new THREE.Mesh(planeGeo, vertexMat);
         plane.position.set((domain.xMin + domain.xMax) / 2, (domain.yMin + domain.yMax) / 2, -1);
+        meshRef.current = plane;
         scene.add(plane);
 
         const lineMat = new THREE.LineBasicMaterial({ color: 0xf5f2e9 });
@@ -393,6 +513,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas({ flo
         };
         if (!reduced) raf = requestAnimationFrame(tick);
 
+        // ResizeObserver keeps the canvas matched to its card on rail drags.
         const onResize = () => {
             const nw = mount.clientWidth || w;
             const availH = mount.clientHeight || 0;
@@ -413,7 +534,12 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas({ flo
             if (observer) observer.disconnect();
             readyRef.current = false;
             planeGeo.dispose();
-            planeMat.dispose();
+            if (vertexMatRef.current) vertexMatRef.current.dispose();
+            if (shaderMatRef.current) shaderMatRef.current.dispose();
+            if (texturesRef.current) disposeFieldTextures(texturesRef.current);
+            texturesRef.current = null;
+            shaderMatRef.current = null;
+            vertexMatRef.current = null;
             for (const line of linesRef.current) {
                 line.geometry.dispose();
                 scene.remove(line);
@@ -427,6 +553,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas({ flo
             sceneRef.current = null;
             cameraRef.current = null;
             rendererRef.current = null;
+            meshRef.current = null;
             planeGeoRef.current = null;
             linesRef.current = [];
             lineMatRef.current = null;
@@ -436,10 +563,23 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas({ flo
         };
     }, []);
 
-    // Effect 2: field colors plus line update on flow or airfoil change.
+    // Effect 2: field colors plus line update on flow, airfoil, or display change.
     useEffect(() => {
         repaintRef.current();
-    }, [flow, airfoil, colormap]);
+    }, [flow, airfoil, colormap, fieldMode, lineColor, fieldVisible, useShader, showContours]);
+
+    // Effect 3: particle density follows the display control.
+    useEffect(() => {
+        const next = Math.max(0, Math.min(PARTICLE_STEPS[0], Math.round(particleCount)));
+        activeRef.current = next;
+        tierRef.current = 0;
+        const store = psRef.current;
+        if (store) store.count = Math.min(next, store.x.length);
+        const pg = pGeoRef.current;
+        if (pg) pg.setDrawRange(0, Math.min(next, store?.x.length ?? next));
+        const points = pointsRef.current;
+        if (points) points.visible = next > 0;
+    }, [particleCount]);
 
     return <div ref={mountRef} className="flowcanvas" role="img" aria-label="Live particle flow canvas over analytic field" />;
 });

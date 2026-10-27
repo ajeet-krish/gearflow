@@ -1,0 +1,18 @@
+[package]
+name = "gearflow-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "GearFlow analytic potential flow solver ported from TypeScript for WASM"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+js-sys = "0.3"
+
+[profile.release]
+opt-level = "s"
+lto = true

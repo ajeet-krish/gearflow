@@ -1,6 +1,8 @@
 // GearFlow Phase 1 contracts. Single source of truth for geometry, grid, flow, provenance.
 // Conventions: chord 1, LE at (0,0), TE at (1,0). World is y-up. Grid row-major idx = j * nx + i, j = 0 is bottom.
 
+import type { ColormapName } from "@/flow/colormap";
+
 export type GeometryKind = "naca4" | "cylinder" | "block" | "duct" | "custom";
 
 export interface Naca4Params {
@@ -201,6 +203,55 @@ export const DEFAULT_DOMAIN: Domain = { xMin: -0.5, xMax: 2.0, yMin: -1.0, yMax:
 
 /** Default Phase 1 grid: 128 x 128 per researcher note. */
 export const DEFAULT_GRID: GridSpec = { nx: 128, ny: 128, domain: DEFAULT_DOMAIN };
+
+/** Phase 6 conversational agent, display, and resolution contracts. */
+
+/** One chat transcript row in the agent console. */
+export interface ChatTurn {
+    id: string;
+    role: "user" | "assistant";
+    text: string;
+    at: string;
+    tool?: "spark-spec" | "spark-engineer" | "sam" | "poster" | "chat";
+    status?: "live" | "cached" | "fallback" | "offline";
+    applied?: boolean;
+    specSnapshot?: ParametricSpec;
+}
+
+/** Structured action the agent can take on a turn. */
+export interface ChatAction {
+    kind: "spec" | "explain" | "sam" | "poster";
+    spec?: ParametricSpec;
+    engineer?: RaceEngineerResult;
+    sam?: SamResult;
+    posterUrl?: string;
+}
+
+/** Selectable field quantity rendered on the tunnel canvas. */
+export type FieldMode = "speed" | "cp" | "omega" | "u" | "v";
+
+/** Supported solve grid sizes. Surrogate stays at 128, analytic may use 256. */
+export type GridSize = 128 | 256;
+
+export const GRID_128: GridSize = 128;
+export const GRID_256: GridSize = 256;
+export const GRID_OPTIONS: GridSize[] = [GRID_128, GRID_256];
+
+/** User controlled display preferences, persisted to localStorage. */
+export interface DisplayPrefs {
+    colormap: ColormapName;
+    variable: FieldMode;
+    theme: "dark" | "light";
+    showLegend: boolean;
+}
+
+/** Default Phase 6 display preferences. Dark is the default; the theme toggle also offers light. */
+export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
+    colormap: "viridis",
+    variable: "speed",
+    theme: "dark",
+    showLegend: true,
+};
 
 /** Binary LBM1 frame spec (parser deferred to Phase 2). Documented here so Phase 1 fixtures stay compatible. */
 export const LBM1_SPEC = {

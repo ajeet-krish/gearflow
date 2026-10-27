@@ -16,7 +16,11 @@
     "gen:dataset": "npx tsx training/gen_dataset.mjs",
     "train": "uv run --project training python training/train.py",
     "train:test": "uv run --project training pytest training/tests",
-    "export": "uv run --project training python training/export_onnx.py"
+    "export": "uv run --project training python training/export_onnx.py",
+    "wasm:build": "cd rust/gearflow-wasm && wasm-pack build --target web --release && cp -r pkg ../../src/wasm/pkg",
+    "wasm:dev": "cd rust/gearflow-wasm && wasm-pack build --target web --dev && cp -r pkg ../../src/wasm/pkg",
+    "wasm:test": "cd rust/gearflow-wasm && cargo test",
+    "gen:wasm-golden": "node --import tsx/esm scripts/gen-wasm-golden.mjs"
   },
   "dependencies": {
     "jspdf": "^4.2.1",
