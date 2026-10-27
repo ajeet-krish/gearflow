@@ -34,6 +34,8 @@ Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKAT
 | Phase 6 | UI/backend overhaul (C-1, C-3, C-4) | Complete |
 | Phase 7 | Rust + WASM solver (parity, production bundle) | Complete |
 | Phase 8 | Zenith instrument shell (navbar, rails, bars, vertical colorbar) | Complete |
+| Phase 9 | Settings modal, particle color, streamlines, bar cleanup | Complete |
+| Phase 10 | Rust LBM core (D2Q9, boundaries, forces, stats) | In Progress |
 
 ## Deep Docs
 * Rules: docs/HACKATHON_RULES.md

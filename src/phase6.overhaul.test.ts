@@ -107,12 +107,12 @@ describe("phase6 display prefs and theme", () => {
     });
 
     it("defaults to viridis, speed, dark, legend on", () => {
-        expect(DEFAULT_DISPLAY_PREFS).toEqual({ colormap: "viridis", variable: "speed", theme: "dark", showLegend: true });
+        expect(DEFAULT_DISPLAY_PREFS).toEqual({ colormap: "viridis", variable: "speed", theme: "dark", showLegend: true, fieldVisible: true, contours: false, particleCount: 3000, particleColor: "auto", showStreamlines: false });
         expect(loadDisplayPrefs()).toEqual(DEFAULT_DISPLAY_PREFS);
     });
 
     it("round trips prefs and sanitizes bad values", () => {
-        storeDisplayPrefs({ colormap: "turbo", variable: "cp", theme: "light", showLegend: false });
+        storeDisplayPrefs({ ...DEFAULT_DISPLAY_PREFS, colormap: "turbo", variable: "cp", theme: "light", showLegend: false });
         expect(loadDisplayPrefs().colormap).toBe("turbo");
         localStorage.setItem("gearflow:display:v1", JSON.stringify({ version: 1, prefs: { colormap: "nope", variable: "nope", theme: "nope" } }));
         const prefs = loadDisplayPrefs();

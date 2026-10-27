@@ -3,6 +3,9 @@ import * as THREE from "three";
 import type { FieldMode, FlowField } from "@/contracts/types";
 import type { Point } from "@/geometry/parametric";
 import { createParticles, advectParticles, mulberry32, type ParticleSet } from "./particles";
+import { particleRgb } from "./particleColor";
+import type { ParticleColorMode } from "@/contracts/types";
+import { buildStreamlines } from "./streamlines";
 import { sampleColormap, buildLut, readQuantity, variableRange, type ColormapName } from "@/flow/colormap";
 import {
     createFieldTextures,
@@ -21,7 +24,10 @@ interface Props {
     fieldVisible?: boolean;
     useShader?: boolean;
     particleCount?: number;
+    particleColor?: ParticleColorMode;
     showContours?: boolean;
+    showStreamlines?: boolean;
+    streamlineColormap?: ColormapName;
 }
 
 export interface FlowCanvasHandle {
@@ -99,7 +105,10 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         fieldVisible = true,
         useShader = true,
         particleCount = 3000,
+        particleColor = "auto",
         showContours = false,
+        showStreamlines = false,
+        streamlineColormap,
     },
     ref
 ) {
@@ -114,7 +123,10 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     const fieldVisibleRef = useRef(fieldVisible);
     const useShaderRef = useRef(useShader);
     const particleCountRef = useRef(particleCount);
+    const particleColorRef = useRef<ParticleColorMode>(particleColor);
     const showContoursRef = useRef(showContours);
+    const showStreamlinesRef = useRef(showStreamlines);
+    const streamlineColormapRef = useRef<ColormapName>(streamlineColormap ?? colormap);
     flowRef.current = flow;
     airfoilRef.current = airfoil;
     colormapRef.current = colormap;
@@ -123,7 +135,10 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     fieldVisibleRef.current = fieldVisible;
     useShaderRef.current = useShader;
     particleCountRef.current = particleCount;
+    particleColorRef.current = particleColor;
     showContoursRef.current = showContours;
+    showStreamlinesRef.current = showStreamlines;
+    streamlineColormapRef.current = streamlineColormap ?? colormap;
 
     const sceneRef = useRef<THREE.Scene | null>(null);
     const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
@@ -139,6 +154,11 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     const pointsRef = useRef<THREE.Points | null>(null);
     const pGeoRef = useRef<THREE.BufferGeometry | null>(null);
     const psRef = useRef<ParticleSet | null>(null);
+    const streamlinesRef = useRef<THREE.LineSegments | null>(null);
+    const streamMatRef = useRef<THREE.LineBasicMaterial | null>(null);
+    const streamKeyRef = useRef("");
+    // Cache assumes each solve returns a new FlowField object (App solved memo guarantees it).
+    const streamFlowRef = useRef<FlowField | null>(null);
     const speedMaxRef = useRef(1);
     const readyRef = useRef(false);
 
@@ -299,10 +319,62 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
             line.geometry = nextGeo;
         });
 
+        rebuildStreamlines();
+
         // Single frame repaint for reduced motion, RAF loop covers the rest.
         if (rendererRef.current && sceneRef.current && cameraRef.current) {
             const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
             if (reduced) rendererRef.current.render(sceneRef.current, cameraRef.current);
+        }
+    };
+
+    // Streamline rebuild: runs only when the flow object, colormap, or
+    // visibility changes, never per animation frame.
+    const rebuildStreamlines = () => {
+        const lines = streamlinesRef.current;
+        if (!lines || !readyRef.current) return;
+        const f = flowRef.current;
+        const visible = showStreamlinesRef.current;
+        const key = `${f.nx}x${f.ny}|${streamlineColormapRef.current}|${visible ? "on" : "off"}`;
+        if (streamKeyRef.current === key && streamFlowRef.current === f) {
+            lines.visible = visible;
+            return;
+        }
+        if (!visible) {
+            lines.visible = false;
+            lines.geometry.dispose();
+            lines.geometry = new THREE.BufferGeometry();
+            lines.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3));
+            lines.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(0), 3));
+            streamKeyRef.current = key;
+            streamFlowRef.current = f;
+            return;
+        }
+        if (!fieldUsable(f)) {
+            lines.geometry.dispose();
+            lines.geometry = new THREE.BufferGeometry();
+            lines.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3));
+            lines.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(0), 3));
+            lines.visible = false;
+            return;
+        }
+        try {
+            const built = buildStreamlines(f, { colormap: streamlineColormapRef.current, wakeHint: null });
+            const nextGeo = new THREE.BufferGeometry();
+            nextGeo.setAttribute("position", new THREE.BufferAttribute(built.positions, 3));
+            nextGeo.setAttribute("color", new THREE.BufferAttribute(built.colors, 3));
+            lines.geometry.dispose();
+            lines.geometry = nextGeo;
+            lines.visible = true;
+            streamKeyRef.current = key;
+            streamFlowRef.current = f;
+        } catch (e) {
+            console.error("FlowCanvas: streamline build failed", e instanceof Error ? e.message : String(e));
+            lines.geometry.dispose();
+            lines.geometry = new THREE.BufferGeometry();
+            lines.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3));
+            lines.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(0), 3));
+            lines.visible = false;
         }
     };
 
@@ -367,7 +439,20 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         const pMat = new THREE.PointsMaterial({ size: 0.018, vertexColors: true, transparent: true, opacity: 0.9, sizeAttenuation: true });
         const points = new THREE.Points(pGeo, pMat);
         pointsRef.current = points;
+        points.position.z = 0.2;
         scene.add(points);
+
+        // Streamline overlay, above the field plane, below particles.
+        const streamMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85 });
+        streamMatRef.current = streamMat;
+        const streamGeo = new THREE.BufferGeometry();
+        streamGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3));
+        streamGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(0), 3));
+        const streamLines = new THREE.LineSegments(streamGeo, streamMat);
+        streamLines.position.z = 0.05;
+        streamLines.visible = showStreamlinesRef.current;
+        streamlinesRef.current = streamLines;
+        scene.add(streamLines);
 
         readyRef.current = true;
         repaintRef.current();
@@ -387,6 +472,10 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
             const colAttr = pg.getAttribute("color") as THREE.BufferAttribute;
             const arr = posAttr.array as Float32Array;
             const carr = colAttr.array as Float32Array;
+            const fixed = particleRgb(particleColorRef.current);
+            const fr = fixed !== null ? fixed[0] : 0;
+            const fg = fixed !== null ? fixed[1] : 0;
+            const fb = fixed !== null ? fixed[2] : 0;
             const nx = f.nx;
             const xMin = f.domain.xMin;
             const xMax = f.domain.xMax;
@@ -407,6 +496,12 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
                 arr[i3] = px;
                 arr[i3 + 1] = py;
                 arr[i3 + 2] = 0.1;
+                if (fixed !== null) {
+                    carr[i3] = fr;
+                    carr[i3 + 1] = fg;
+                    carr[i3 + 2] = fb;
+                    continue;
+                }
                 let su = 0;
                 let sv = 0;
                 if (xRange > 0 && yRange > 0 && Number.isFinite(px) && Number.isFinite(py)) {
@@ -547,6 +642,15 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
             }
             linesRef.current = [];
             lineMat.dispose();
+            if (streamlinesRef.current) {
+                streamlinesRef.current.geometry.dispose();
+                scene.remove(streamlinesRef.current);
+            }
+            streamlinesRef.current = null;
+            if (streamMatRef.current) streamMatRef.current.dispose();
+            streamMatRef.current = null;
+            streamKeyRef.current = "";
+            streamFlowRef.current = null;
             pGeo.dispose();
             pMat.dispose();
             renderer.dispose();
@@ -567,7 +671,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     // Effect 2: field colors plus line update on flow, airfoil, or display change.
     useEffect(() => {
         repaintRef.current();
-    }, [flow, airfoil, colormap, fieldMode, lineColor, fieldVisible, useShader, showContours]);
+    }, [flow, airfoil, colormap, fieldMode, lineColor, fieldVisible, useShader, showContours, showStreamlines, streamlineColormap]);
 
     // Effect 3: particle density follows the display control.
     useEffect(() => {

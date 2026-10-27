@@ -5,8 +5,7 @@ import ErrorBoundary from "@/ui/ErrorBoundary";
 import ResizeHandle from "@/components/ui/ResizeHandle";
 import AgentConsole from "@/ui/AgentConsole";
 import EvalLogPanel from "@/ui/EvalLogPanel";
-import DisplayControls from "@/ui/DisplayControls";
-import ThemeToggle from "@/ui/ThemeToggle";
+import SettingsModal from "@/ui/SettingsModal";
 import TopNav, { type NavId } from "@/ui/TopNav";
 import SolverBar from "@/ui/SolverBar";
 import FieldBar from "@/ui/FieldBar";
@@ -151,9 +150,7 @@ export default function App() {
     // Phase 6 display and resolution state. Dark theme default, persisted.
     const { prefs, patch } = useDisplayPrefs();
     const { state: gridState, recordSolveMs, setMode: setGridMode, clearNotice } = useResolution();
-    const [fieldVisible, setFieldVisible] = useState(true);
-    const [contours, setContours] = useState(false);
-    const [particleCount, setParticleCount] = useState(3000);
+    const [settingsOpen, setSettingsOpen] = useState(false);
 
     useEffect(() => {
         applyTheme(prefs.theme);
@@ -635,12 +632,14 @@ export default function App() {
         return buildAppExportData(base, isFixture, isFixture && pack ? pack.provenance : null);
     }, [debouncedSpec, debouncedRe, regime, frame, backendName, provenanceLabel, flow, valSummary, isFixture, pack]);
 
-    const onColormap = (next: ColormapName) => patch({ colormap: next });
     const onVariable = (next: typeof prefs.variable) => patch({ variable: next });
-    const onTheme = (next: typeof prefs.theme) => {
-        storeTheme(next);
-        patch({ theme: next });
-    };
+    const handlePatch = useCallback((next: Partial<typeof prefs>) => {
+        if (next.theme !== undefined) storeTheme(next.theme);
+        patch(next);
+    }, [patch]);
+    const handleCloseSettings = useCallback(() => {
+        setSettingsOpen(false);
+    }, []);
 
     // Solver bar BODY select. NACA presets set exact m, p, t triples, other
     // kinds follow the same object rules FlowControls.setKind uses. A NACA
@@ -688,8 +687,8 @@ export default function App() {
                 offline={offline}
                 active={navActive}
                 onNav={handleNav}
-                theme={prefs.theme}
-                onTheme={onTheme}
+                settingsOpen={settingsOpen}
+                onOpenSettings={() => setSettingsOpen(true)}
                 wasmActive={isWasmActive}
             />
 
@@ -745,20 +744,11 @@ export default function App() {
                         onAlpha={onAlphaBar}
                         reynolds={reynolds}
                         onReynolds={onReynoldsBar}
-                        gridMode={gridState.mode}
-                        onGridMode={setGridMode}
                         live={solveError === null}
                     />
                     <FieldBar
                         variable={prefs.variable}
                         onVariable={onVariable}
-                        fieldVisible={fieldVisible}
-                        onFieldVisible={setFieldVisible}
-                        contours={contours}
-                        onContours={setContours}
-                        particleCount={particleCount}
-                        onParticles={setParticleCount}
-                        colormapName={prefs.colormap}
                     />
                     <TelemetryBar
                         engine={engineLabel}
@@ -783,9 +773,12 @@ export default function App() {
                                 airfoil={airfoil}
                                 colormap={prefs.colormap}
                                 fieldMode={prefs.variable}
-                                fieldVisible={fieldVisible}
-                                particleCount={particleCount}
-                                showContours={contours}
+                                fieldVisible={prefs.fieldVisible}
+                                particleCount={prefs.particleCount}
+                                particleColor={prefs.particleColor}
+                                showContours={prefs.contours}
+                                showStreamlines={prefs.showStreamlines}
+                                streamlineColormap={prefs.colormap}
                             />
                         </ErrorBoundary>
                         <div className="noticeStack" aria-label="Solver notices">
@@ -874,25 +867,21 @@ export default function App() {
                                     label: "DISPLAY",
                                     content: (
                                         <div>
-                                            <DisplayControls
-                                                colormap={prefs.colormap}
-                                                onColormap={onColormap}
-                                                variable={prefs.variable}
-                                                onVariable={onVariable}
-                                                gridMode={gridState.mode}
-                                                activeGrid={solveGrid.nx === 256 ? 256 : 128}
-                                                onGridMode={setGridMode}
-                                                particles={particleCount}
-                                                onParticles={setParticleCount}
-                                                fieldVisible={fieldVisible}
-                                                onFieldVisible={setFieldVisible}
-                                                contours={contours}
-                                                onContours={setContours}
-                                                showLegend={prefs.showLegend}
-                                                onShowLegend={(next) => patch({ showLegend: next })}
-                                            />
-                                            <div className="themeRow">
-                                                <ThemeToggle theme={prefs.theme} onTheme={onTheme} />
+                                            <div className="displaySummary">
+                                                <p className="mono displaySummaryLine">
+                                                    {prefs.colormap} field {prefs.fieldVisible ? "on" : "off"}, contours {prefs.contours ? "on" : "off"}, streamlines {prefs.showStreamlines ? "on" : "off"}
+                                                </p>
+                                                <p className="mono displaySummaryLine">
+                                                    {prefs.particleCount === 0 ? "particles off" : `${prefs.particleCount} particles`} in {prefs.particleColor}
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    className="mBtn displaySettingsBtn"
+                                                    onClick={() => setSettingsOpen(true)}
+                                                    aria-label="Open settings"
+                                                >
+                                                    Open settings
+                                                </button>
                                             </div>
                                             <p className="hint mono">
                                                 Honest Re note: Re shades the wake deficit only, the potential core stays inviscid.
@@ -929,6 +918,15 @@ export default function App() {
                     </ErrorBoundary>
                 </aside>
             </main>
+            <SettingsModal
+                open={settingsOpen}
+                onClose={handleCloseSettings}
+                prefs={prefs}
+                onPatch={handlePatch}
+                gridMode={gridState.mode}
+                activeGrid={solveGrid.nx === 256 ? 256 : 128}
+                onGridMode={setGridMode}
+            />
         </div>
     );
 }

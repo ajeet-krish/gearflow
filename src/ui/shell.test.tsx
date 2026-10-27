@@ -19,8 +19,8 @@ describe("GearFlow shell", () => {
                 offline={false}
                 active="studio"
                 onNav={noop}
-                theme="dark"
-                onTheme={noop}
+                settingsOpen={false}
+                onOpenSettings={noop}
                 wasmActive={false}
             />
         );
@@ -28,6 +28,22 @@ describe("GearFlow shell", () => {
         expect(html).toContain("STUDIO");
         expect(html).toContain("VALIDATE");
         expect(html).toContain("EXPORT");
+    });
+
+    it("top navbar renders a Settings button bound to the dialog", () => {
+        const html = renderToStaticMarkup(
+            <TopNav
+                offline={false}
+                active="studio"
+                onNav={noop}
+                settingsOpen={true}
+                onOpenSettings={noop}
+                wasmActive={false}
+            />
+        );
+        expect(html).toContain("Open settings");
+        expect(html).toContain('aria-haspopup="dialog"');
+        expect(html).toContain('aria-expanded="true"');
     });
 
     it("solver bar contains both a BODY control and an RE control", () => {
@@ -41,8 +57,6 @@ describe("GearFlow shell", () => {
                 onAlpha={noop}
                 reynolds={50000}
                 onReynolds={noop}
-                gridMode="auto"
-                onGridMode={noop}
                 live={true}
             />
         );
@@ -51,23 +65,49 @@ describe("GearFlow shell", () => {
         expect(html).toContain("NACA 2412");
     });
 
+    it("solver bar has no GRID chips", () => {
+        const html = renderToStaticMarkup(
+            <SolverBar
+                mode="analytic"
+                onMode={noop}
+                body="naca2412"
+                onBody={noop}
+                alpha={6}
+                onAlpha={noop}
+                reynolds={50000}
+                onReynolds={noop}
+                live={true}
+            />
+        );
+        expect(html).not.toContain("GRID");
+        expect(html).not.toContain(">256<");
+        expect(html).not.toContain(">128<");
+    });
+
     it("field bar contains SPEED, PRESSURE, VORTICITY", () => {
         const html = renderToStaticMarkup(
             <FieldBar
                 variable="speed"
                 onVariable={noop}
-                fieldVisible={true}
-                onFieldVisible={noop}
-                contours={false}
-                onContours={noop}
-                particleCount={3000}
-                onParticles={noop}
-                colormapName="viridis"
             />
         );
         expect(html).toContain("SPEED");
         expect(html).toContain("PRESSURE");
         expect(html).toContain("VORTICITY");
+    });
+
+    it("field bar has no particle chips", () => {
+        const html = renderToStaticMarkup(
+            <FieldBar
+                variable="speed"
+                onVariable={noop}
+            />
+        );
+        expect(html).not.toContain("1200");
+        expect(html).not.toContain("2000");
+        expect(html).not.toContain("3000");
+        expect(html).not.toContain("CONTOURS");
+        expect(html).not.toContain("Field layers");
     });
 
     it("right panel renders all five section labels", () => {

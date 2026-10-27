@@ -466,7 +466,7 @@ describe("phase6 hardening colormap LUT", () => {
     expect(sampleColormap("nope" as unknown as ColormapName, 0.5)).toEqual(fallback);
     const lutBad = buildLut("nope" as unknown as ColormapName, 8);
     expect(lutBad).toEqual(buildLut("viridis", 8));
-    storeDisplayPrefs({ colormap: "nope" as unknown as ColormapName, variable: "nope" as never, theme: "nope" as never, showLegend: true });
+    storeDisplayPrefs({ ...DEFAULT_DISPLAY_PREFS, colormap: "nope" as unknown as ColormapName, variable: "nope" as never, theme: "nope" as never, showLegend: true });
     const prefs = loadDisplayPrefs();
     expect(prefs).toEqual(DEFAULT_DISPLAY_PREFS);
   });
@@ -508,7 +508,7 @@ describe("phase6 hardening colormap LUT", () => {
   });
 });
 
-describe("phase6 hardening theme toggle", () => {
+describe("phase6 hardening theme preference", () => {
   beforeEach(() => {
     installMemoryStorage();
   });
@@ -528,7 +528,7 @@ describe("phase6 hardening theme toggle", () => {
     expect(() => storeTheme("light")).not.toThrow();
   });
 
-  it("computes the toggle next label the way ThemeToggle does", () => {
+  it("computes the settings theme next label the way the settings dialog does", () => {
     const nextFor = (theme: "dark" | "light"): "dark" | "light" => (theme === "dark" ? "light" : "dark");
     expect(nextFor("dark")).toBe("light");
     expect(nextFor("light")).toBe("dark");

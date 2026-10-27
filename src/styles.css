@@ -132,7 +132,7 @@ html, body, #root {
   cursor: pointer;
 }
 .navExport:hover { color: var(--text); background: rgba(255, 255, 255, 0.1); }
-.navTheme {
+.navIcon {
   min-height: 44px;
   min-width: 44px;
   display: inline-flex;
@@ -144,7 +144,7 @@ html, body, #root {
   border-radius: 4px;
   cursor: pointer;
 }
-.navTheme:hover { color: var(--text); background: rgba(255, 255, 255, 0.1); }
+.navIcon:hover { color: var(--text); background: rgba(255, 255, 255, 0.1); }
 .wasmBadge {
   font-size: 10px;
   color: var(--cyan);
@@ -729,8 +729,146 @@ html, body, #root {
   padding: 0.5em 1.2em;
   font-family: var(--mono);
 }
-.themeRow { margin-top: 10px; display: grid; }
-.displayControls { display: grid; gap: 4px; }
+.displaySummary { display: grid; gap: 8px; }
+.displaySummaryLine { margin: 0; color: var(--comment); font-size: 11px; }
+.displaySummary .displaySettingsBtn { width: 100%; min-height: 44px; }
+/* Settings modal: centered dialog over a dimmed backdrop. */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.settingsModal {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(84vh, 720px);
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--dust);
+  border-radius: 4px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dust) transparent;
+}
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--dust);
+  padding-bottom: 8px;
+}
+.settingsTitle {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--comment);
+  font-weight: 700;
+}
+.settingsClose {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 2px 12px;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--comment);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.settingsClose:hover { color: var(--text); background: rgba(255, 255, 255, 0.1); }
+.settingsBody { display: grid; gap: 12px; }
+.settingsSection {
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px dashed var(--dust);
+  padding-bottom: 12px;
+}
+.settingsSection:last-child { border-bottom: 0; padding-bottom: 0; }
+.settingsSection h3 {
+  margin: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--comment);
+  font-weight: 600;
+}
+.settingsRow { display: grid; gap: 6px; }
+.settingsLabel { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--comment); }
+.settingsSection .barSelect { width: 100%; }
+.segRow { display: flex; gap: 8px; }
+.segBtn {
+  flex: 1;
+  min-height: 30px;
+  padding: 2px 12px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--comment);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.segBtn:hover { color: var(--text); }
+.segBtn.active { background: rgba(189, 147, 249, 0.3); color: var(--purple); border-color: var(--purple); }
+.swatchRow { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatch {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  min-height: 30px;
+  min-width: 44px;
+  padding: 6px 8px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--comment);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.swatch:hover { color: var(--text); }
+.swatch.active { border-color: var(--purple); color: var(--text); }
+.swatchChip {
+  display: block;
+  width: 28px;
+  height: 16px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.swatchLabel { line-height: 1.2; }
+.settingsFooter {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--dust);
+  padding-top: 12px;
+}
+.settingsFooter .hint { margin: 0; }
+.settingsReset {
+  min-height: 44px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--comment);
+  background: transparent;
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.settingsReset:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+
+@media (max-width: 560px) {
+  .modalBackdrop { padding: 12px; }
+  .settingsModal { width: 100%; max-height: 90vh; }
+}
+
 .noticeDismiss {
   margin-left: 12px;
   min-height: 30px;
@@ -776,6 +914,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* Touch: raise compact controls to 44px without changing desktop density. */
 @media (pointer: coarse) {
   .chip, .barSelect, .barInput, .navLink, .navExport, .asecBtn { min-height: 44px; }
+  .segBtn, .swatch { min-height: 44px; }
 }
 
 /* Print: clean report sheet. Rails and nav hide, tunnel expands. */

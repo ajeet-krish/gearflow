@@ -1,8 +1,7 @@
 // SolverBar: pinned scene bar over the tunnel. Engine chips, body select,
-// alpha and Re inputs, grid chips, live state. Pure presentational props.
+// alpha and Re inputs, live state. Pure presentational props.
 
 import type { FlowMode } from "./FlowControls";
-import type { GridMode } from "@/flow/gridController";
 
 export interface SolverBarProps {
     mode: FlowMode;
@@ -13,8 +12,6 @@ export interface SolverBarProps {
     onAlpha: (next: number) => void;
     reynolds: number;
     onReynolds: (next: number) => void;
-    gridMode: GridMode;
-    onGridMode: (next: GridMode) => void;
     live: boolean;
 }
 
@@ -33,12 +30,6 @@ const BODIES: Array<{ value: string; label: string }> = [
     { value: "block", label: "BLOCK" },
 ];
 
-const GRIDS: Array<{ value: GridMode; label: string }> = [
-    { value: "auto", label: "AUTO" },
-    { value: "256", label: "256" },
-    { value: "128", label: "128" },
-];
-
 export default function SolverBar({
     mode,
     onMode,
@@ -48,8 +39,6 @@ export default function SolverBar({
     onAlpha,
     reynolds,
     onReynolds,
-    gridMode,
-    onGridMode,
     live,
 }: SolverBarProps) {
     return (
@@ -116,21 +105,6 @@ export default function SolverBar({
                     aria-label="Reynolds number, 100 to 1 million"
                 />
             </label>
-            <span className="divider" aria-hidden="true" />
-            <span className="barLabel" id="solverGridLabel">GRID</span>
-            <div className="chipGroup" role="group" aria-labelledby="solverGridLabel">
-                {GRIDS.map((g) => (
-                    <button
-                        key={g.value}
-                        type="button"
-                        className={gridMode === g.value ? "chip active" : "chip"}
-                        aria-pressed={gridMode === g.value}
-                        onClick={() => onGridMode(g.value)}
-                    >
-                        {g.label}
-                    </button>
-                ))}
-            </div>
             <span className="spacer" aria-hidden="true" />
             <span className="liveState" role="status">
                 <span className={live ? "dot on" : "dot held"} aria-hidden="true" />

@@ -238,11 +238,18 @@ export const GRID_256: GridSize = 256;
 export const GRID_OPTIONS: GridSize[] = [GRID_128, GRID_256];
 
 /** User controlled display preferences, persisted to localStorage. */
+export type ParticleColorMode = "auto" | "white" | "black" | "cyan" | "magenta" | "orange";
+
 export interface DisplayPrefs {
     colormap: ColormapName;
     variable: FieldMode;
     theme: "dark" | "light";
     showLegend: boolean;
+    fieldVisible: boolean;
+    contours: boolean;
+    particleCount: number;
+    particleColor: ParticleColorMode;
+    showStreamlines: boolean;
 }
 
 /** Default Phase 6 display preferences. Dark is the default; the theme toggle also offers light. */
@@ -251,6 +258,11 @@ export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
     variable: "speed",
     theme: "dark",
     showLegend: true,
+    fieldVisible: true,
+    contours: false,
+    particleCount: 3000,
+    particleColor: "auto",
+    showStreamlines: false,
 };
 
 /** Binary LBM1 frame spec (parser deferred to Phase 2). Documented here so Phase 1 fixtures stay compatible. */
