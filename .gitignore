@@ -24,3 +24,7 @@ training/checkpoints/
 training/.venv/
 __pycache__/
 *.pyc
+
+# Rust build
+rust/**/target/
+*.zip
