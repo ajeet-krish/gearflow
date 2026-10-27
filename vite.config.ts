@@ -127,6 +127,17 @@ function metaProxy() {
 
 export default defineConfig({
     plugins: [react(), metaProxy()],
+    build: {
+        chunkSizeWarningLimit: 900,
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    three: ["three"],
+                    react: ["react", "react-dom"],
+                },
+            },
+        },
+    },
     resolve: {
         alias: {
             "@": path.resolve(__dirname, "src"),

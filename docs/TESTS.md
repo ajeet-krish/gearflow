@@ -1,5 +1,5 @@
 # GearFlow Test Results
-Last updated: 2026-10-26
+Last updated: 2026-10-27
 
 ## 2026-10-26 - Phase 1: Test Report (contracts+skeleton Vite shell, NACA kernel, fake flow, fixtures, particles, textures, loader hardened)
 
@@ -307,3 +307,149 @@ Phase tests integrate with prior phase tests (all 285 prior Node tests still pas
 | Test | Root Cause | Suggested Fix |
 |------|-----------|---------------|
 | (none) | Full suite green on this run, 308 Node passed plus 11 Python passed with 0 skips | No fix needed |
+
+## 2026-10-26 - Phase 5: Test Report (polish, export, submission)
+
+### Test Results
+npm test: 25 files, 346 tests, all passed. Baseline before hardening was 24 files, 318 tests, all passed.
+npm run build: tsc noEmit plus vite build succeeded. dist index.html 0.81 kB, CSS 13.07 kB, JS split into three, jspdf, html2canvas, and purify chunks plus react and flow chunks (three.js chunk, chunk size warning only, pre-existing pattern).
+
+New coverage in src/phase5.hardening.test.ts (28 tests):
+happy path exportFilename canonical plus fractional alpha p separator plus negative fractional free of double hyphens plus NaN alpha and Re tokens plus label and extension normalization,
+happy path buildReportData twelve rows in stable order plus all NaN guards plus copy hygiene,
+happy path composePng smoke with header plus image plus rows and 760px minimum width and bitmap close,
+happy path exportPdf save through the lazy jspdf chunk plus snapshot decode fallback text,
+edge adaptive particle tiers 3000 plus 2000 plus 1200 with slow frame guard plus deterministic tier counts plus large dt hold without tunneling,
+edge capture null blob rejects instead of hanging plus missing canvas ref returns null plus not ready message plus ExportBar and App contract pins,
+edge print stylesheet with print media query hiding rail plus footer plus export controls on a white sheet,
+error 2d context unavailable plus canvas encode failure plus jsPDF construction failure with print fallback plus ExportBar print path pin,
+error state export with NaN held frame keeps stable filenames plus n/a rows plus PDF still saves.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| phase5.hardening.test.ts (28) | PASS | Filename, NaN guard, rows, composePng, PDF mock, adaptive particles, null blob, print sheet, jsPDF fail, error frame |
+| exportReport.test.ts (10) | PASS | Pre-existing Phase 5 export coverage still green |
+| all other Phase 1 to 4 suites (308) | PASS | No regressions, 346 total |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+
+### Coverage Summary
+Happy path covered (export filename canonical and fractional, NaN guard to n/a, twelve report rows, composePng smoke, PDF mock save).
+Edge cases covered (adaptive particle tiers with slow frame guard and large dt hold, capture null blob with missing ref, print stylesheet hiding rail and controls).
+Error conditions covered (jsPDF construction failure falls back to print, missing canvas ref, null 2d context, canvas encode failure, export during held error frame with NaN metrics).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 318 pre-existing tests still pass, 346 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| phase5 null snapshot reject (initial run) | Stubbed createImageBitmap ignored its argument, so composePng(null) resolved instead of rejecting like a real browser | Stub throws TypeError on null or undefined blob; fixed, now passes |
+| phase5 ExportBar contract pin (initial run) | Assertion looked for the App side missing handle guard inside ExportBar, which checks the snapshot instead | Pin if (!snap) throw in ExportBar and if (!handle) return null in App; fixed, now passes |
+
+## 2026-10-27 - Phase 5 Final Verification: Test Report (355 Node plus 11 Python, review and security fixes included)
+
+### Test Results
+npm test: 25 files, 355 tests, all passed. Prior Phase 5 entry was 25 files, 346 tests. Delta is review and security fixes (phase5.hardening 28 to 29, exportReport 10 to 18).
+npm run build: tsc noEmit plus vite build succeeded. dist index.html 1.33 kB, CSS 13.42 kB, JS split into purify 30.47 kB plus react 141.00 kB plus index.es 150.93 kB plus index 169.05 kB plus html2canvas 201.42 kB plus jspdf 390.50 kB plus three 464.29 kB (chunk size warning only, pre existing pattern).
+Python training suite via training project runner: 11 collected, 11 passed, 0 skipped. Root pytest has no runner, training project runner is canonical.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| schema.test.ts (22) | PASS | Contracts plus caps plus finiteness |
+| phase5.hardening.test.ts (29) | PASS | Filename, NaN guard, rows, composePng, PDF mock, adaptive particles, null blob, print sheet, jsPDF fail, error frame |
+| phase3.review-fixes.test.ts (21) | PASS | Review follow ups, all green |
+| exportReport.test.ts (18) | PASS | Phase 5 export coverage with review fixes, still green |
+| phase3.hardening.test.ts (28) | PASS | D exponents, Lednicer vs Selig, shifted header, Re 100k WARN, NaN, oversize, corrupt weights, non finite output, panel anchors, App backends |
+| surrogate.test.ts (14) | PASS | Tiny weights forward plus fallback plus export contract |
+| phase4.fixes.test.ts (23) | PASS | Proxy gate, eval log hash, SAM byte hash, custom airfoil lift, offline pack bundle, cache LRU, poster URL, schema caps |
+| parsePolars.test.ts (14) | PASS | Real fixture CSV plus TXT plus TMR plus coords |
+| meta.test.ts (11) | PASS | Spark cache, TTL, offline gate, SAM fallback, poster guard, custom polygon |
+| potential.test.ts (13) | PASS | Cylinder oracle plus far field plus RMS plus caps |
+| parametric.test.ts (11) | PASS | Thickness peak plus camber plus closed TE |
+| metrics.test.ts (9) | PASS | Known value slopes plus stagnation plus CpMin |
+| sdf.test.ts (9) | PASS | Sign plus circle plus duct union plus caps |
+| phase1.hardening.test.ts (25) | PASS | Phase 1 regression green, mocked offline pack stderr noise only (expected error path logging) |
+| fixtures.parity.test.ts (8) | PASS | Manifest plus 5 flows within 1e-4 plus 2 geometries exact |
+| particles.test.ts (4) | PASS | Edge sampling plus determinism plus anti tunneling |
+| fieldTexture.test.ts (4) | PASS | Packing plus extremes plus caps plus non finite reject |
+| samMask.test.ts (6) | PASS | Rect trace, empty fallback, dims, IoU |
+| tiers.test.ts (7) | PASS | Tier boundary pins |
+| wake.test.ts (2) | PASS | Grid guards plus upstream untouched |
+| frameSource.test.ts (11) | PASS | Cache plus alpha and Re semantics plus envelope guard |
+| fakeFlow.test.ts (4) | PASS | Finite plus deterministic plus wake deflection |
+| phase2.hardening.test.ts (18) | PASS | Cl oracle 0.974988 plus CpMin minus 2.487990 plus cache plus sliders plus boundary |
+| phase4.hardening.test.ts (36) | PASS | Happy path, TTL, bbox, poster guard, presets, schema reject, offline no fetch, empty mask, bad Re, oversize, pack failures |
+| analyticFlow.test.ts (8) | PASS | Analytic oracle coverage |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+| training test_export.py (2) | PASS | Flat params roundtrip plus safe load with weights only |
+| training test_model.py (4) | PASS | Forward shapes plus param count TS contract plus base arg build plus reject out of range |
+| training test_reserved.py (3) | PASS | Reserved kinds and alphas plus anchor combo plus non anchor combos |
+| training test_dataset.py (1) | PASS | Shards exist locally, green |
+| training test_leakage.py (1) | PASS | Splits disjoint, green |
+
+### Coverage Summary
+Happy path covered (export filename canonical and fractional, NaN guard to n/a, twelve report rows, composePng smoke, PDF mock save, Spark spec parse plus validate, SAM mask to polygon, parsers on all four real polars, surrogate forward shapes, export roundtrip).
+Edge cases covered (adaptive particle tiers with slow frame guard and large dt hold, capture null blob with missing ref, print stylesheet hiding rail and controls, cache TTL expiry with LRU cap, Re 100k bubble WARN only).
+Error conditions covered (jsPDF construction failure falls back to print, missing canvas ref, null 2d context, canvas encode failure, export during held error frame with NaN metrics, NaN and Infinity polar cells rejected, corrupt weights fall back to finite analytic).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 346 prior Node tests still pass plus 9 new, 355 total Node plus 11 passed Python with 0 skips).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full suite green on this run, 355 Node passed plus 11 Python passed with 0 skips | No fix needed |
+
+## 2026-10-27 - Phase 5 Final Verification Rerun: Test Report (355 Node plus 11 Python, review and security fixes confirmed)
+
+### Test Results
+npm test: 25 files, 355 tests, all passed. Confirms prior Phase 5 final count of 355 with no drift.
+npm run build: tsc noEmit plus vite build succeeded. dist index.html 1.03 kB, CSS 13.42 kB, JS split into purify 30.47 kB plus react 141.00 kB plus index.es 150.93 kB plus index 169.05 kB plus html2canvas 201.42 kB plus jspdf 390.50 kB plus three 464.29 kB (chunk size warning only, pre existing pattern).
+Python training suite via training project runner: 11 collected, 11 passed, 0 skipped. Root pytest has no runner, training project runner is canonical.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| schema.test.ts (22) | PASS | Contracts plus caps plus finiteness |
+| phase5.hardening.test.ts (29) | PASS | Filename, NaN guard, rows, composePng, PDF mock, adaptive particles, null blob, print sheet, jsPDF fail, error frame |
+| phase3.review-fixes.test.ts (21) | PASS | Review follow ups, all green |
+| exportReport.test.ts (18) | PASS | Phase 5 export coverage with review fixes, still green |
+| phase3.hardening.test.ts (28) | PASS | D exponents, Lednicer vs Selig, shifted header, Re 100k WARN, NaN, oversize, corrupt weights, non finite output, panel anchors, App backends |
+| surrogate.test.ts (14) | PASS | Tiny weights forward plus fallback plus export contract |
+| phase4.fixes.test.ts (23) | PASS | Proxy gate, eval log hash, SAM byte hash, custom airfoil lift, offline pack bundle, cache LRU, poster URL, schema caps |
+| parsePolars.test.ts (14) | PASS | Real fixture CSV plus TXT plus TMR plus coords |
+| meta.test.ts (11) | PASS | Spark cache, TTL, offline gate, SAM fallback, poster guard, custom polygon |
+| potential.test.ts (13) | PASS | Cylinder oracle plus far field plus RMS plus caps |
+| parametric.test.ts (11) | PASS | Thickness peak plus camber plus closed TE |
+| metrics.test.ts (9) | PASS | Known value slopes plus stagnation plus CpMin |
+| sdf.test.ts (9) | PASS | Sign plus circle plus duct union plus caps |
+| phase1.hardening.test.ts (25) | PASS | Phase 1 regression green, mocked offline pack stderr noise only (expected error path logging) |
+| fixtures.parity.test.ts (8) | PASS | Manifest plus 5 flows within 1e-4 plus 2 geometries exact |
+| particles.test.ts (4) | PASS | Edge sampling plus determinism plus anti tunneling |
+| fieldTexture.test.ts (4) | PASS | Packing plus extremes plus caps plus non finite reject |
+| samMask.test.ts (6) | PASS | Rect trace, empty fallback, dims, IoU |
+| tiers.test.ts (7) | PASS | Tier boundary pins |
+| wake.test.ts (2) | PASS | Grid guards plus upstream untouched |
+| frameSource.test.ts (11) | PASS | Cache plus alpha and Re semantics plus envelope guard |
+| fakeFlow.test.ts (4) | PASS | Finite plus deterministic plus wake deflection |
+| phase2.hardening.test.ts (18) | PASS | Cl oracle 0.974988 plus CpMin minus 2.487990 plus cache plus sliders plus boundary |
+| phase4.hardening.test.ts (36) | PASS | Happy path, TTL, bbox, poster guard, presets, schema reject, offline no fetch, empty mask, bad Re, oversize, pack failures |
+| analyticFlow.test.ts (8) | PASS | Analytic oracle coverage |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+| training test_export.py (2) | PASS | Flat params roundtrip plus safe load with weights only |
+| training test_model.py (4) | PASS | Forward shapes plus param count TS contract plus base arg build plus reject out of range |
+| training test_reserved.py (3) | PASS | Reserved kinds and alphas plus anchor combo plus non anchor combos |
+| training test_dataset.py (1) | PASS | Shards exist locally, green |
+| training test_leakage.py (1) | PASS | Splits disjoint, green |
+
+### Coverage Summary
+Happy path covered (export filename canonical and fractional, NaN guard to n/a, twelve report rows, composePng smoke, PDF mock save, Spark spec parse plus validate, SAM mask to polygon, parsers on all four real polars, surrogate forward shapes, export roundtrip).
+Edge cases covered (adaptive particle tiers with slow frame guard and large dt hold, capture null blob with missing ref, print stylesheet hiding rail and controls, cache TTL expiry with LRU cap, Re 100k bubble WARN only).
+Error conditions covered (jsPDF construction failure falls back to print, missing canvas ref, null 2d context, canvas encode failure, export during held error frame with NaN metrics, NaN and Infinity polar cells rejected, corrupt weights fall back to finite analytic).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (full 355 Node plus 11 Python green, matches prior final verification with zero drift).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full suite green on this rerun, 355 Node passed plus 11 Python passed with 0 skips | No fix needed |

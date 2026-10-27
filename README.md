@@ -34,3 +34,21 @@ Start here: AGENTS.md plus docs/AGENTS.md, then docs/DESIGN.md and docs/ARCHITEC
 
 ## Status
 Phase 0 Complete. Idea selection in progress for solo indie frontier entry. Come back for live demo and video.
+
+## Offline pack
+Build then pack the judged demo booth copy:
+
+```sh
+npm run build
+npm run pack:offline
+```
+
+Serve from unzip directory root via `npx serve` or any static server. `file://` will not load assets due to absolute URLs.
+
+For a relative base (for example serving from a subpath), either pack with a rewrite:
+
+```sh
+node scripts/make-offline-pack.mjs --base=./
+```
+
+or rebuild permanently with `vite build --base=./` before packing.

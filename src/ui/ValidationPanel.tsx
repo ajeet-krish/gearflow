@@ -3,7 +3,7 @@
 // Renders the 9 architecture rows: expected, got, tolerance, source, tier,
 // status. Only a fail on a PASS tier row blocks the demo.
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { generateAnalyticFlow } from "@/flow/analyticFlow";
 import { alphaZero, fitSlope } from "@/validation/metrics";
 import { TIER_TABLE, evaluateTier, isBlocking } from "@/validation/tiers";
@@ -160,7 +160,19 @@ function buildRows(): ValidationRow[] {
     return rows;
 }
 
-export default function ValidationPanel() {
+export interface ValidationSummary {
+    pass: number;
+    warn: number;
+    fail: number;
+    info: number;
+    blocking: number;
+}
+
+export interface ValidationPanelProps {
+    onSummary?: (summary: ValidationSummary) => void;
+}
+
+export default function ValidationPanel({ onSummary }: ValidationPanelProps = {}) {
     const rows = useMemo(() => {
         try {
             return buildRows();
@@ -176,6 +188,9 @@ export default function ValidationPanel() {
     }, [rows]);
     const blocking = rows.filter((r) => isBlocking(r.tier, r.status));
     const allClear = blocking.length === 0;
+    useEffect(() => {
+        onSummary?.({ ...counts, blocking: blocking.length });
+    }, [counts.pass, counts.warn, counts.fail, counts.info, blocking.length, onSummary]);
     if (rows.length === 0) {
         return <p className="mono" role="status">Validation unavailable (solve failure). Adjust controls and retry.</p>;
     }

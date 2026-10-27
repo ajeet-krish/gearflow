@@ -336,7 +336,7 @@ export default function MetaPanel({
                 {posterError !== null && <p className="mError" role="alert">{posterError}</p>}
                 {posterUrl !== null && (
                     <figure className="mPoster">
-                        <img src={posterUrl} alt="Labeled illustrative poster of the current wing study" loading="lazy" />
+                        <img src={posterUrl} alt="Labeled illustrative poster of the current wing study, decorative aerodynamics illustration" loading="lazy" decoding="async" />
                         <figcaption className="mono">
                             Illustrative render, not physics.{posterCached ? " Reused session url." : ""}
                         </figcaption>

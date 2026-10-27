@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import FlowCanvas from "@/render/FlowCanvas";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import FlowCanvas, { type FlowCanvasHandle } from "@/render/FlowCanvas";
 import FlowControls, { type FlowMode } from "@/ui/FlowControls";
 import ErrorBoundary from "@/ui/ErrorBoundary";
 import MetaPanel from "@/ui/MetaPanel";
@@ -7,7 +7,9 @@ import EvalLogPanel from "@/ui/EvalLogPanel";
 import { buildPolygons } from "@/geometry/parametric";
 import { AnalyticFlowProvider } from "@/flow/frameSource";
 import { SurrogateFlowProvider } from "@/flow/surrogate";
-import ValidationPanel from "@/ui/ValidationPanel";
+import ValidationPanel, { type ValidationSummary } from "@/ui/ValidationPanel";
+import ExportBar from "@/ui/ExportBar";
+import { asFixtureExport, type ExportData } from "@/export/exportReport";
 import { loadOfflinePack } from "@/meta/offlinePack";
 import { loadDemoPack, type LoadedPack } from "@/meta/fixtures";
 import { HashCache } from "@/meta/cache";
@@ -32,6 +34,12 @@ function regimeLabel(reynolds: number): string {
     if (reynolds < 20_000) return "laminar, attached";
     if (reynolds < 200_000) return "transitional wake";
     return "turbulent, potential model omits separation";
+}
+
+/** Short label for file names and report titles, derived from the solved spec. */
+function specLabelFor(spec: GeometrySpec): string {
+    if (spec.kind === "naca4" && spec.naca) return `naca${spec.naca.code}`;
+    return spec.kind;
 }
 
 interface SolvedFrame {
@@ -92,6 +100,20 @@ function emptyFrame(): SolvedFrame {
     };
 }
 
+/** Phase 5 export sheet: fixture preview carries no solved numbers, so its
+ *  cl, cpMin, and solveMs stay NaN and the sheet renders n/a. Exported for
+ *  tests so the fixture branch cannot silently regress to analytic numbers. */
+export function buildAppExportData(
+    base: ExportData,
+    isFixture: boolean,
+    packProvenance: Provenance | null,
+): ExportData {
+    if (isFixture && packProvenance !== null) {
+        return asFixtureExport(base, packProvenance.label, packProvenance.generatedAt);
+    }
+    return base;
+}
+
 /**
  * GearFlow Phase 4 shell. Analytic path computes locally with zero fetch on the
  * critical path. The demo pack loads lazily only in fixture fallback mode.
@@ -124,6 +146,11 @@ export default function App() {
     const [posterUrl, setPosterUrl] = useState<string | null>(null);
     const [offlineCases, setOfflineCases] = useState<OfflineCase[] | null>(null);
     const [offlinePackError, setOfflinePackError] = useState<string | null>(null);
+    // Phase 5 export: validation summary mirrors the ledger counts for the
+    // export sheet, the canvas handle feeds PNG snapshots. Styling stays in
+    // the panels, this is wiring only.
+    const [valSummary, setValSummary] = useState<ValidationSummary>({ pass: 0, warn: 0, fail: 0, info: 0, blocking: 0 });
+    const canvasRef = useRef<FlowCanvasHandle | null>(null);
 
     useEffect(() => {
         if (!offline) {
@@ -347,16 +374,50 @@ export default function App() {
     const regime = regimeLabel(debouncedRe);
     const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${mode}`;
 
+    const getSnapshot = useCallback(async (): Promise<Blob | null> => {
+        const handle = canvasRef.current;
+        if (!handle) return null;
+        try {
+            return await handle.capturePng();
+        } catch (e) {
+            console.error("Snapshot capture failed:", e instanceof Error ? e.message : String(e));
+            return null;
+        }
+    }, []);
+
+    // Phase 5 export sheet: assembled from the solved frame plus the ledger
+    // counts, so PNG and PDF carry the same numbers as the live UI. Fixture
+    // mode carries no solved numbers, so it exports pack provenance with
+    // cl, cpMin, and solveMs as NaN and the sheet renders n/a.
+    const exportData = useMemo<ExportData>(() => {
+        const base: ExportData = {
+            specLabel: specLabelFor(debouncedSpec),
+            alphaDeg: debouncedSpec.alphaDeg,
+            reynolds: debouncedRe,
+            regime,
+            cl: frame.cl,
+            cpMin: frame.cpMin,
+            solveMs: frame.solveMs,
+            backend: backendName,
+            provenance: provenanceLabel,
+            gridLabel: `${flow.nx}x${flow.ny}`,
+            validation: { pass: valSummary.pass, warn: valSummary.warn, fail: valSummary.fail, info: valSummary.info },
+            generatedAt: frame.provenance.generatedAt,
+        };
+        return buildAppExportData(base, isFixture, isFixture && pack ? pack.provenance : null);
+    }, [debouncedSpec, debouncedRe, regime, frame, backendName, provenanceLabel, flow, valSummary, isFixture, pack]);
+
     return (
         <div className="page">
             <a className="skip" href="#flow">Skip to flow canvas</a>
             <header className="masthead">
                 <div>
-                    <p className="eyebrow">GearFlow: Phase 4, Meta orchestration</p>
+                    <p className="eyebrow">GearFlow: Phase 5, polish and submission</p>
                     <h1 className="display">Wind over a wing, live in the browser</h1>
                     <p className="lede">
                         Shape the body and the Reynolds number, the field recomputes locally
                         in milliseconds. The badge below always says what the pixels are.
+                        Export the run as PNG or a clean printed sheet.
                     </p>
                 </div>
                 <div className="provenance" role="status" aria-label={`Data provenance, ${backendName}`}>
@@ -385,7 +446,7 @@ export default function App() {
                         </p>
                     )}
                     <ErrorBoundary resetKey={boundaryKey} label="flow canvas">
-                        <FlowCanvas flow={flow} airfoil={airfoil} colormap="viridis" />
+                        <FlowCanvas ref={canvasRef} flow={flow} airfoil={airfoil} colormap="viridis" />
                     </ErrorBoundary>
                     <div className="canvasFoot">
                         <span className="mono">{`${flow.nx} x ${flow.ny} grid, x [-0.5, 2.0] y [-1.0, 1.0]`}</span>
@@ -408,6 +469,12 @@ export default function App() {
                     {!isFixture && (
                         <p className="reNote">Honest Re note: Re shades the wake deficit only, the potential core stays inviscid.</p>
                     )}
+                    <p className="printValidation mono" role="note" aria-label="Validation summary for print">
+                        Validation ledger (print): {valSummary.pass} pass, {valSummary.warn} warn, {valSummary.fail} fail,{" "}
+                        {valSummary.info} info. {valSummary.blocking === 0 ? "No blocking failures." : `${valSummary.blocking} blocking failures, demo hold.`}{" "}
+                        Full 9 row ledger lives in the app side panel. PDF export carries the same counts plus report rows.
+                    </p>
+                    <ExportBar getSnapshot={getSnapshot} data={exportData} />
                 </section>
 
                 <aside className="side" aria-label="Controls, Meta, and eval panels">
@@ -426,8 +493,11 @@ export default function App() {
                     <section className="card validationCard" aria-label="Validation panel">
                         <h2>Validation ledger</h2>
                         <ErrorBoundary resetKey="validation" label="validation panel">
-                            <ValidationPanel />
+                            <ValidationPanel onSummary={setValSummary} />
                         </ErrorBoundary>
+                        <p className="visuallyHidden" role="status">
+                            {valSummary.blocking === 0 ? "No blocking validation failures." : `${valSummary.blocking} blocking validation failures.`}
+                        </p>
                     </section>
 
                     <section className="card meta" aria-label="Meta orchestration">
@@ -466,7 +536,7 @@ export default function App() {
             </main>
 
             <footer className="foot">
-                <span className="mono">GearFlow 0.4.0, Phase 4 Meta orchestration. Commas and colons only.</span>
+                <span className="mono">GearFlow 1.0.0, Phase 5 polish and submission. Commas and colons only.</span>
             </footer>
         </div>
     );
