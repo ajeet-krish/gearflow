@@ -8,7 +8,7 @@ import type { Domain } from "@/contracts/types";
 import { particleRgb } from "./particleColor";
 import type { ParticleColorMode } from "@/contracts/types";
 import { buildStreamlines } from "./streamlines";
-import { sampleColormap, buildLut, readQuantity, variableRange, type ColormapName } from "@/flow/colormap";
+import { sampleColormap, buildLut, readQuantity, variableRange, kLogScaleFor, normalizeKLogValue, normalizeRecircValue, type KLogScale, type ColormapName } from "@/flow/colormap";
 import {
     createFieldTextures,
     updateFieldTextures,
@@ -22,6 +22,7 @@ interface Props {
     airfoil: Point[] | Point[][];
     colormap?: ColormapName;
     fieldMode?: FieldMode;
+    meanFields?: boolean;
     lineColor?: string;
     fieldVisible?: boolean;
     useShader?: boolean;
@@ -37,6 +38,35 @@ export interface FlowCanvasHandle {
     // Pause is visibility only: the RAF loop pauses on tab hide and when the
     // canvas scrolls offscreen. There is no manual pause control on purpose,
     // the field stays live while visible.
+}
+
+// Pure display helpers for the two LBM mean channels. TKE spans decades,
+// so it maps through log10(max(k, floor)) with floor at a small fraction
+// of the field maximum, normalised over the observed log range. The
+// recirculation mask is binary: reverse flow reads as 1, attached as 0.
+// Exported for direct unit tests. Solid cells are dimmed by the caller to
+// the obstacle colour; these helpers only normalise the fluid value.
+
+/** Log scale descriptor for the TKE display path. Null means no usable data. */
+export type KDisplayScale = KLogScale;
+
+export function kDisplayScaleFor(k: Float32Array | undefined): KDisplayScale | null {
+    if (k === undefined) return null;
+    const flow = { k } as FlowField;
+    return kLogScaleFor(flow);
+}
+
+/** Normalise one TKE sample into [0, 1] through a log scale. A null scale
+ *  (all zero or missing field) reads as 0. Non-finite input reads as 0. */
+export function normalizeKDisplay(q: number, scale: KDisplayScale | null): number {
+    if (scale === null) return 0;
+    return normalizeKLogValue(q, scale);
+}
+
+/** Map one recirculation mask sample to the display fraction. Reverse flow
+ *  (value at or above 0.5) reads as 1, attached or non-finite as 0. */
+export function normalizeRecircDisplay(q: number): number {
+    return normalizeRecircValue(q);
 }
 
 function speedMaxOf(flow: FlowField): number {
@@ -103,6 +133,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         airfoil,
         colormap = "viridis",
         fieldMode = "speed",
+        meanFields = false,
         lineColor = "#f5f2e9",
         fieldVisible = true,
         useShader = true,
@@ -121,6 +152,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     const airfoilRef = useRef(airfoil);
     const colormapRef = useRef<ColormapName>(colormap);
     const fieldModeRef = useRef<FieldMode>(fieldMode);
+    const meanFieldsRef = useRef(meanFields);
     const lineColorRef = useRef(lineColor);
     const fieldVisibleRef = useRef(fieldVisible);
     const useShaderRef = useRef(useShader);
@@ -133,6 +165,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     airfoilRef.current = airfoil;
     colormapRef.current = colormap;
     fieldModeRef.current = fieldMode;
+    meanFieldsRef.current = meanFields;
     lineColorRef.current = lineColor;
     fieldVisibleRef.current = fieldVisible;
     useShaderRef.current = useShader;
@@ -203,6 +236,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         const f = flowRef.current;
         const cm = colormapRef.current;
         const variable = fieldModeRef.current;
+        const meanOn = meanFieldsRef.current;
         // Poisoned frame guard: keep the last painted pixels instead of
         // smearing NaN colors or throwing inside the render loop.
         if (!fieldUsable(f)) {
@@ -248,7 +282,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         if (useShaderRef.current) {
             try {
                 const prev = texturesRef.current;
-                const next = updateFieldTextures(prev, f, cm, variable);
+                const next = updateFieldTextures(prev, f, cm, variable, meanOn);
                 texturesRef.current = next;
                 let mat = shaderMatRef.current;
                 if (mat === null) {
@@ -284,16 +318,24 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
             const segX = f.nx;
             const segY = f.ny;
             const n = Math.min(pos.count, segX * segY);
-            const { min, max } = variableRange(variable, f);
+            const { min, max } = variableRange(variable, f, meanOn);
             const span = max - min || 1;
+            const kScale = variable === "k" ? kLogScaleFor(f) : null;
             for (let k = 0; k < n; k++) {
                 const ix = k % segX;
                 const iy = Math.floor(k / segX);
                 const j = segY - 1 - iy;
                 const idx = j * segX + ix;
                 if (idx < 0 || idx >= f.nx * f.ny) continue;
-                const q = readQuantity(variable, f, idx);
-                const t = Math.min(1, Math.max(0, (q - min) / span));
+                const q = readQuantity(variable, f, idx, meanOn);
+                let t: number;
+                if (variable === "k") {
+                    t = kScale === null ? 0 : normalizeKLogValue(q, kScale);
+                } else if (variable === "recirc") {
+                    t = normalizeRecircValue(q);
+                } else {
+                    t = Math.min(1, Math.max(0, (q - min) / span));
+                }
                 const [r, g, b] = sampleColormap(cm, t);
                 const dim = f.obstacle[idx] > 0.5 ? 0.25 : 1;
                 colorAttr.setXYZ(k, ((r / 255) * dim), ((g / 255) * dim), ((b / 255) * dim));
@@ -709,7 +751,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     // Effect 2: field colors plus line update on flow, airfoil, or display change.
     useEffect(() => {
         repaintRef.current();
-    }, [flow, airfoil, colormap, fieldMode, lineColor, fieldVisible, useShader, showContours, showStreamlines, streamlineColormap]);
+    }, [flow, airfoil, colormap, fieldMode, meanFields, lineColor, fieldVisible, useShader, showContours, showStreamlines, streamlineColormap]);
 
     // Effect 3: particle density follows the display control.
     useEffect(() => {

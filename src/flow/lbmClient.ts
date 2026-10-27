@@ -5,7 +5,7 @@
 // an init that never posts ready to error as well.
 
 import { isLbmWorkerMessage, MAX_BATCH_STEPS, MAX_TARGET_STEPS, type LbmMainMessage, type LbmSnapshotMessage } from "./lbmProtocol";
-import type { Domain } from "@/contracts/types";
+import type { Domain, LbmStats } from "@/contracts/types";
 
 export type LbmClientState = "idle" | "running" | "done" | "cancelled" | "error" | "disposed";
 
@@ -19,6 +19,7 @@ export interface LbmInitConfig {
     lesEnabled: boolean;
     targetSteps: number;
     batchSteps: number;
+    statsStartStep?: number;
 }
 
 export interface LbmProgress {
@@ -40,6 +41,11 @@ export interface LbmSnapshot {
     p: Float32Array;
     omega: Float32Array;
     obstacle: Float32Array;
+    uMean?: Float32Array;
+    vMean?: Float32Array;
+    k?: Float32Array;
+    recirc?: Float32Array;
+    stats?: LbmStats;
 }
 
 export interface LbmWorkerPort {
@@ -57,7 +63,7 @@ export interface LbmClientCallbacks {
 }
 
 function toSnapshot(msg: LbmSnapshotMessage): LbmSnapshot {
-    return {
+    const out: LbmSnapshot = {
         step: msg.step,
         cd: msg.cd,
         cl: msg.cl,
@@ -70,6 +76,12 @@ function toSnapshot(msg: LbmSnapshotMessage): LbmSnapshot {
         omega: msg.omega,
         obstacle: msg.obstacle,
     };
+    if (msg.uMean !== undefined) out.uMean = msg.uMean;
+    if (msg.vMean !== undefined) out.vMean = msg.vMean;
+    if (msg.k !== undefined) out.k = msg.k;
+    if (msg.recirc !== undefined) out.recirc = msg.recirc;
+    if (msg.stats !== undefined) out.stats = msg.stats;
+    return out;
 }
 
 function timeoutLabel(timeoutMs: number): string {
@@ -217,6 +229,7 @@ export class LbmClient {
             lesEnabled: config.lesEnabled,
             targetSteps: config.targetSteps,
             batchSteps: config.batchSteps,
+            ...(config.statsStartStep !== undefined ? { statsStartStep: config.statsStartStep } : null),
         };
         this.setState("idle");
         this.armReadyWatchdog();
@@ -298,6 +311,9 @@ export class LbmClient {
                 lesEnabled: (full as LbmInitConfig).lesEnabled,
                 targetSteps: (full as LbmInitConfig).targetSteps,
                 batchSteps: (full as LbmInitConfig).batchSteps,
+                ...((full as LbmInitConfig).statsStartStep !== undefined
+                    ? { statsStartStep: (full as LbmInitConfig).statsStartStep }
+                    : null),
             };
         }
         const msg: LbmMainMessage = { type: "reset", gen: this.gen, ...full };

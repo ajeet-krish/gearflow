@@ -63,4 +63,36 @@ describe("LbmFlowProvider", () => {
         expect(p.forces().cd).toBeNull();
         expect(p.getProvenanceLabel()).toBe(PROVENANCE_LBM_PLACEHOLDER);
     });
+
+    it("placeholder carries no stats and reports not ready", () => {
+        const p = new LbmFlowProvider(grid(), geom(), { Re: 100 });
+        expect(p.stats()).toBeNull();
+        expect(p.statsReady()).toBe(false);
+        expect(p.getFrame().lbmStats).toBeUndefined();
+    });
+
+    it("returns the real stats after a snapshot", () => {
+        const p = new LbmFlowProvider(grid(), geom(), { Re: 100 });
+        const stats = {
+            samples: 120, startStep: 8000, step: 20000, recircFraction: 0.1,
+            cdMean: 1.4, clMean: 0.3, clRms: 0.05, strouhal: null as number | null,
+        };
+        const f = { ...frame(), uMean: new Float32Array(64).fill(0.5), lbmStats: stats };
+        p.setSnapshot(f, 20000, 1.4, 0.3);
+        expect(p.stats()).toBe(stats);
+        expect(p.statsReady()).toBe(true);
+        expect(p.getFrame().lbmStats).toBe(stats);
+        expect(p.getFrame().uMean).toBe(f.uMean);
+    });
+
+    it("a snapshot with zero samples reports not ready", () => {
+        const p = new LbmFlowProvider(grid(), geom(), { Re: 100 });
+        const stats = {
+            samples: 0, startStep: 8000, step: 100, recircFraction: 0,
+            cdMean: 0, clMean: 0, clRms: 0, strouhal: null as number | null,
+        };
+        p.setSnapshot({ ...frame(), lbmStats: stats }, 100, 1.4, 0.3);
+        expect(p.stats()).toBe(stats);
+        expect(p.statsReady()).toBe(false);
+    });
 });

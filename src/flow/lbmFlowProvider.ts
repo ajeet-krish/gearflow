@@ -3,12 +3,9 @@
 // until the first snapshot arrives so the canvas never blanks. The
 // placeholder provenance says so and never claims LBM numbers.
 
-import type { FlowField, GeometrySpec, GridSpec } from "@/contracts/types";
+import type { FlowField, GeometrySpec, GridSpec, LbmStats } from "@/contracts/types";
 import { validateGeometrySpec, validateGridSpec } from "@/contracts/schema";
 import { cloneGeometry, type FrameSource } from "./frameSource";
-
-export const PROVENANCE_LBM =
-    "LBM viscous (D2Q9 BGK, halfway bounce back, momentum exchange forces): Cd and Cl computed, not validated above Re 500. Re above 500 uses Smagorinsky LES and is modelled. Potential preview is inviscid and instant.";
 
 export function provenanceLbmShort(re: number): string {
     const tag = Number.isFinite(re) ? `at Re ${Math.round(re)}` : "at Re n/a";
@@ -112,6 +109,18 @@ export class LbmFlowProvider implements FrameSource {
     forces(): { cd: number | null; cl: number | null; step: number } {
         if (this.field === null) return { cd: null, cl: null, step: this.step };
         return { cd: this.cd, cl: this.cl, step: this.step };
+    }
+
+    /** Latest turbulence statistics, or null before the first snapshot. */
+    stats(): LbmStats | null {
+        const s = this.field?.lbmStats;
+        return s ?? null;
+    }
+
+    /** True only once the accumulator holds at least one sample. */
+    statsReady(): boolean {
+        const s = this.field?.lbmStats;
+        return s !== undefined && s !== null && s.samples > 0;
     }
 
     geometry(): GeometrySpec {

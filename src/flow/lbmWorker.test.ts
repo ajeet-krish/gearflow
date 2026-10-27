@@ -203,6 +203,72 @@ describe("lbmWorker dispatch with a fake solver", () => {
         expect(posted.some((p) => p.msg.type === "done" && p.msg.gen === 4)).toBe(false);
     });
 
+    it("snapshot carries the new channels and stats with copied buffers", async () => {
+        installSelf();
+        __resetWorkerForTest();
+        const n = 16;
+        const stats = {
+            samples: 120, startStep: 8000, step: 20000, recircFraction: 0.1,
+            cdMean: 1.4, clMean: 0.3, clRms: 0.05, strouhal: null as number | null,
+        };
+        const srcUMean = new Float32Array(n).fill(0.5);
+        const fake = new FakeSolver();
+        (fake as unknown as { field: () => unknown }).field = () => ({
+            nx: 4, ny: 4,
+            domain: { xMin: 0, xMax: 1, yMin: 0, yMax: 1 },
+            u: new Float32Array(n), v: new Float32Array(n), p: new Float32Array(n),
+            omega: new Float32Array(n), obstacle: new Float32Array(n),
+            uMean: srcUMean, vMean: new Float32Array(n), k: new Float32Array(n).fill(0.01), recirc: new Float32Array(n),
+            stats,
+        });
+        __setSolverFactoryForTest(async () => fake);
+        handleMainMessage(initMsg(1, "geom-A"));
+        await __drainQueueForTest();
+        await waitFor(() => posted.some((p) => p.msg.type === "ready"));
+        handleMainMessage({ type: "snapshot", gen: 1 });
+        await waitFor(() => posted.some((p) => p.msg.type === "snapshot"));
+        const snap = posted.filter((p) => p.msg.type === "snapshot")[0]?.msg as unknown as Record<string, unknown>;
+        expect(snap.uMean).toBeInstanceOf(Float32Array);
+        expect((snap.uMean as Float32Array).length).toBe(n);
+        expect(snap.uMean).not.toBe(srcUMean);
+        expect((snap.uMean as Float32Array).buffer).not.toBe(srcUMean.buffer);
+        expect(snap.stats).toBe(stats);
+        expect((snap.k as Float32Array).length).toBe(n);
+    });
+
+    it("snapshot without the new keys stays valid", async () => {
+        installSelf();
+        __resetWorkerForTest();
+        const fake = new FakeSolver();
+        __setSolverFactoryForTest(async () => fake);
+        handleMainMessage(initMsg(1, "geom-A"));
+        await __drainQueueForTest();
+        await waitFor(() => posted.some((p) => p.msg.type === "ready"));
+        handleMainMessage({ type: "snapshot", gen: 1 });
+        await waitFor(() => posted.some((p) => p.msg.type === "snapshot"));
+        const snap = posted.filter((p) => p.msg.type === "snapshot")[0]?.msg as unknown as Record<string, unknown>;
+        expect(snap.u).toBeInstanceOf(Float32Array);
+        expect("uMean" in snap).toBe(false);
+        expect("stats" in snap).toBe(false);
+    });
+
+    it("init forwards statsStartStep to configure", async () => {
+        installSelf();
+        __resetWorkerForTest();
+        const seen: unknown[][] = [];
+        const fake = new FakeSolver();
+        const orig = fake.configure.bind(fake);
+        (fake as unknown as { configure: (...args: unknown[]) => void }).configure = (...args: unknown[]) => {
+            seen.push(args);
+            orig(args[0] as string);
+        };
+        __setSolverFactoryForTest(async () => fake);
+        handleMainMessage({ ...initMsg(1, "geom-A"), statsStartStep: 8000 });
+        await __drainQueueForTest();
+        await waitFor(() => posted.some((p) => p.msg.type === "ready"));
+        expect(seen[0]?.[4]).toBe(8000);
+    });
+
     it("two racing inits configure only the newest and post ready once", async () => {
         installSelf();
         __resetWorkerForTest();

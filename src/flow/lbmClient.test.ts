@@ -380,6 +380,34 @@ describe("LbmClient", () => {
         client3.dispose();
     });
 
+    it("passes the stats object and new channels through untouched", () => {
+        const port = makePort();
+        const seen: Array<{ stats: unknown; uMean: unknown; k: unknown }> = [];
+        const client = new LbmClient(port);
+        client.onSnapshot = (s) => seen.push({ stats: s.stats, uMean: s.uMean, k: s.k });
+        client.init(initConfig());
+        client.run();
+        const stats = {
+            samples: 120, startStep: 8000, step: 20000, recircFraction: 0.1,
+            cdMean: 1.4, clMean: 0.3, clRms: 0.05, strouhal: null as number | null,
+        };
+        const uMean = new Float32Array(64).fill(0.5);
+        const k = new Float32Array(64).fill(0.01);
+        client.requestSnapshot();
+        emit(port, {
+            type: "snapshot", gen: client.generation(), step: 20000, cd: 1, cl: 0,
+            nx: 8, ny: 8, domain: { ...DEFAULT_DOMAIN },
+            u: new Float32Array(64), v: new Float32Array(64), p: new Float32Array(64),
+            omega: new Float32Array(64), obstacle: new Float32Array(64),
+            uMean, k, stats,
+        });
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.stats).toBe(stats);
+        expect(seen[0]?.uMean).toBe(uMean);
+        expect(seen[0]?.k).toBe(k);
+        client.dispose();
+    });
+
     it("a throwing port moves init, run, cancel, snapshot, and reset to error", () => {
         const throwing = (allow: string[]) => {
             const sent: LbmMainMessage[] = [];

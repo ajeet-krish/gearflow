@@ -767,3 +767,22 @@ Verdict: FAIL
 | 7 | regressions PASS (shortcuts, focus mode, Settings interplay, print styles unchanged in behavior) | PASS |
 
 Overall FAIL solely due to item 2. Tests: reported by orchestrator npm test 49 files 593 tests PASS and npm run build clean, not rerun in this review.
+
+## 2026-10-27 - Phase 12b: Turbulence UI and Stats Plumbing Review
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Scope: Phase 12b Turbulence UI and stats plumbing (App chips and fallback effect, VerticalColorbar log ticks, TurbulenceSection honesty note, lbmWorker and lbmProtocol comments, 12b tests)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+| - | - | - | - |
+| Major | src/App.tsx:882-885 | fallback effect self retriggers and paints unavailable mode for one commit | derive effective variable during render instead of effect driven fallback |
+| Major | src/ui/VerticalColorbar.tsx:46-62,127-133 | log ticks mismatch texture log mapping for non decade aligned and constant k | fix endpoint accurate ticks positioned by normalizeKLogValue |
+| Minor | src/App.tsx:874-876 | chips enable on zero sample channels before statsReady | gate chips on statsReady and non zero samples |
+| Minor | src/flow/lbmWorker.ts:1-4 and lbmProtocol.ts:1-4 | stale zero copy comments vs copyChannel at lbmWorker.ts:92-96 | update header comments to describe copyChannel behavior |
+| Minor | several 12b tests | markup only or assertion light | add behavioral assertions for fallback, ticks, and chip gating |
+
+Note honesty note at TurbulenceSection.tsx:51 accurate. Rust, protocol, migration, and regression checks pass. Orchestrator reported npm 654 pass, build clean, cargo 82 pass 2 ignored. Reviewer did not rerun tests.
+
+No em dashes.

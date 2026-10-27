@@ -1,19 +1,24 @@
 // LBM Web Worker. Owns one WasmLbmSolver, runs bounded batches, posts
 // progress after each batch, and yields between batches so cancel is
-// observed promptly. Snapshot buffers are transferred, never copied. On any
-// thrown error posts error and stops the loop. Never fabricates numbers.
+// observed promptly. Snapshot channels are copied, then the copies are
+// transferred. On any thrown error posts error and stops the loop. Never fabricates numbers.
 
 import { isLbmMainMessage, MAX_BATCH_STEPS, MAX_GEOM_JSON_BYTES, MAX_TARGET_STEPS, type LbmMainMessage, type LbmSnapshotMessage } from "./lbmProtocol";
 
 interface LbmSolverLike {
-    configure(geomJson: string, re: number, uLattice: number, lesEnabled: boolean): void;
+    configure(geomJson: string, re: number, uLattice: number, lesEnabled: boolean, statsStartStep?: number): void;
     run_steps(n: bigint): { stepsDone?: number; steps_done?: number; step: number; cd: number; cl: number; cancelled?: boolean };
     cancel(): void;
     resume?(): void;
     reset(): void;
     cd(): number;
     cl(): number;
-    field(): { nx: number; ny: number; domain: { xMin: number; xMax: number; yMin: number; yMax: number }; u: Float32Array; v: Float32Array; p: Float32Array; omega: Float32Array; obstacle: Float32Array };
+    field(): {
+        nx: number; ny: number; domain: { xMin: number; xMax: number; yMin: number; yMax: number };
+        u: Float32Array; v: Float32Array; p: Float32Array; omega: Float32Array; obstacle: Float32Array;
+        uMean?: Float32Array | null; vMean?: Float32Array | null; k?: Float32Array | null; recirc?: Float32Array | null;
+        stats?: { samples: number; startStep: number; step: number; recircFraction: number; cdMean: number; clMean: number; clRms: number; strouhal: number | null } | null;
+    };
     free?(): void;
 }
 
@@ -24,6 +29,7 @@ type WasmPkg = typeof import("@/wasm/pkg/gearflow_wasm") & {
 let solver: LbmSolverLike | null = null;
 let targetSteps = 0;
 let batchSteps = 512;
+let statsStartStep = 0;
 let currentGen = 0;
 let running = false;
 let cancelledFlag = false;
@@ -120,6 +126,7 @@ export function isCompleteReset(msg: unknown): boolean {
     if (!isFiniteNumberLocal(r.uLattice) || (r.uLattice as number) <= 0) return false;
     if (typeof r.lesEnabled !== "boolean") return false;
     if (checkRunLimits(r.targetSteps as number, r.batchSteps as number) !== null) return false;
+    if (r.statsStartStep !== undefined && (!Number.isInteger(r.statsStartStep) || (r.statsStartStep as number) < 0 || (r.statsStartStep as number) > MAX_TARGET_STEPS)) return false;
     return true;
 }
 
@@ -165,6 +172,7 @@ export function __resetWorkerForTest(): void {
     solver = null;
     targetSteps = 0;
     batchSteps = 512;
+    statsStartStep = 0;
     currentGen = 0;
     running = false;
     cancelledFlag = false;
@@ -266,7 +274,33 @@ function takeSnapshot(gen: number): void {
             domain: { ...f.domain },
             u, v, p, omega, obstacle,
         };
-        post(msg, [u.buffer as ArrayBuffer, v.buffer as ArrayBuffer, p.buffer as ArrayBuffer, omega.buffer as ArrayBuffer, obstacle.buffer as ArrayBuffer] as unknown as Transferable[]);
+        const transfer: ArrayBuffer[] = [u.buffer as ArrayBuffer, v.buffer as ArrayBuffer, p.buffer as ArrayBuffer, omega.buffer as ArrayBuffer, obstacle.buffer as ArrayBuffer];
+        const extra = f as { uMean?: unknown; vMean?: unknown; k?: unknown; recirc?: unknown };
+        if (extra.uMean !== undefined && extra.uMean !== null) {
+            const ch = copyChannel(extra.uMean as Float32Array, n, "uMean");
+            msg.uMean = ch;
+            transfer.push(ch.buffer as ArrayBuffer);
+        }
+        if (extra.vMean !== undefined && extra.vMean !== null) {
+            const ch = copyChannel(extra.vMean as Float32Array, n, "vMean");
+            msg.vMean = ch;
+            transfer.push(ch.buffer as ArrayBuffer);
+        }
+        if (extra.k !== undefined && extra.k !== null) {
+            const ch = copyChannel(extra.k as Float32Array, n, "k");
+            msg.k = ch;
+            transfer.push(ch.buffer as ArrayBuffer);
+        }
+        if (extra.recirc !== undefined && extra.recirc !== null) {
+            const ch = copyChannel(extra.recirc as Float32Array, n, "recirc");
+            msg.recirc = ch;
+            transfer.push(ch.buffer as ArrayBuffer);
+        }
+        const withStats = f as { stats?: unknown };
+        if (withStats.stats !== undefined && withStats.stats !== null) {
+            msg.stats = withStats.stats as LbmSnapshotMessage["stats"];
+        }
+        post(msg, transfer as unknown as Transferable[]);
     } catch (e: unknown) {
         fail(gen, e instanceof Error ? e.message : String(e));
     }
@@ -295,6 +329,7 @@ export function handleMainMessage(msg: LbmMainMessage): void {
                     const wanted = msg.targetSteps;
                     const batch = clampBatchSteps(msg.batchSteps);
                     const { nx, ny, domain, geomJson, re, uLattice, lesEnabled } = msg;
+                    const wantedStatsStart = typeof msg.statsStartStep === "number" ? msg.statsStartStep : 0;
                     serializeConfig(async () => {
                         if (myGen !== currentGen) return;
                         try {
@@ -304,10 +339,11 @@ export function handleMainMessage(msg: LbmMainMessage): void {
                             // stale configuration before calling configure.
                             if (myGen !== currentGen) return;
                             solver = s;
-                            s.configure(geomJson, re, uLattice, lesEnabled);
+                            s.configure(geomJson, re, uLattice, lesEnabled, wantedStatsStart);
                             if (myGen !== currentGen) return;
                             targetSteps = wanted;
                             batchSteps = batch;
+                            statsStartStep = wantedStatsStart;
                             startStep = 0;
                             post({ type: "ready", gen: myGen });
                         } catch (e: unknown) {
@@ -354,18 +390,20 @@ export function handleMainMessage(msg: LbmMainMessage): void {
                         nx: number; ny: number;
                         domain: { xMin: number; xMax: number; yMin: number; yMax: number };
                         geomJson: string; re: number; uLattice: number; lesEnabled: boolean;
-                        targetSteps: number; batchSteps: number;
+                        targetSteps: number; batchSteps: number; statsStartStep?: number;
                     };
+                    const wantedStatsStart = typeof r.statsStartStep === "number" ? r.statsStartStep : 0;
                     serializeConfig(async () => {
                         if (myGen !== currentGen) return;
                         try {
                             const s = await solverFactory(r.nx, r.ny, r.domain.xMin, r.domain.xMax, r.domain.yMin, r.domain.yMax);
                             if (myGen !== currentGen) return;
                             solver = s;
-                            s.configure(r.geomJson, r.re, r.uLattice, r.lesEnabled);
+                            s.configure(r.geomJson, r.re, r.uLattice, r.lesEnabled, wantedStatsStart);
                             if (myGen !== currentGen) return;
                             targetSteps = r.targetSteps;
                             batchSteps = clampBatchSteps(r.batchSteps);
+                            statsStartStep = wantedStatsStart;
                             startStep = 0;
                             post({ type: "ready", gen: myGen });
                         } catch (e: unknown) {

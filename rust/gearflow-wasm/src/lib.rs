@@ -15,7 +15,7 @@ mod types;
 mod wake;
 
 use crate::field::{field_from_resolved, resolve_body, ResolvedBody};
-use crate::lbm::{LbmConfig, LbmState};
+use crate::lbm::{LbmConfig, LbmState, MAX_STATS_START_STEP};
 use crate::types::{Domain, GeometrySpec, GridSpec, ResolveSummary};
 use wasm_bindgen::prelude::*;
 
@@ -38,6 +38,22 @@ pub fn check_geom_json_len(len: usize) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Host testable statistics start step check used by WasmLbmSolver::configure.
+/// None means 0 (no transient cut, which preserves the previous four
+/// argument behaviour). Values above MAX_STATS_START_STEP are rejected.
+/// The binding never sees the run target, so a cut at or past the target
+/// is accepted here and simply yields few or no samples once the run
+/// passes it.
+pub fn resolve_stats_start_step(stats_start_step: Option<u32>) -> Result<u64, String> {
+    let start = stats_start_step.unwrap_or(0) as u64;
+    if start > MAX_STATS_START_STEP {
+        return Err(format!(
+            "WasmLbmSolver.configure: stats_start_step {start} exceeds cap {MAX_STATS_START_STEP}"
+        ));
+    }
+    Ok(start)
 }
 
 /// Cached solver holding the grid plus the last resolved body.
@@ -259,13 +275,20 @@ impl WasmLbmSolver {
 
     /// Configure geometry plus flow parameters. Picks inlet and outlet
     /// from the kind: duct uses parabolic plus zero gradient, else
-    /// uniform plus convective.
+    /// uniform plus convective. stats_start_step is the optional
+    /// transient cut for time statistics (None means 0, no cut).
+    /// Values above MAX_STATS_START_STEP are rejected. The binding does
+    /// not know the run target, so a cut at or past the target is not
+    /// rejected here (it yields few or no samples). Reconfigure rebuilds
+    /// the state, so the new cut replaces the old one. reset() keeps the
+    /// configured cut.
     pub fn configure(
         &mut self,
         geom_json: &str,
         re: f64,
         u_lattice: f64,
         les_enabled: bool,
+        stats_start_step: Option<u32>,
     ) -> Result<(), JsValue> {
         check_geom_json_len(geom_json.len())
             .map_err(|e| JsValue::from_str(&e))?;
@@ -282,12 +305,15 @@ impl WasmLbmSolver {
                 crate::boundaries::OutletKind::Convective,
             )
         };
+        let stats_start_step = resolve_stats_start_step(stats_start_step)
+            .map_err(|e| JsValue::from_str(&e))?;
         let cfg = LbmConfig {
             u_lattice,
             re,
             les_enabled,
             inlet,
             outlet,
+            stats_start_step,
             ..LbmConfig::default()
         };
         let state =
@@ -502,5 +528,128 @@ mod tests {
         let err = check_geom_json_len(MAX_GEOM_JSON_BYTES + 1).unwrap_err();
         assert!(err.contains("MAX_GEOM_JSON_BYTES"), "err = {err}");
         assert!(err.contains("65536"), "err = {err}");
+    }
+
+    fn stats_cut_test_grid() -> GridSpec {
+        GridSpec {
+            nx: 96,
+            ny: 48,
+            domain: Domain { x_min: 0.0, x_max: 1.9, y_min: -0.47, y_max: 0.47 },
+        }
+    }
+
+    fn stats_cut_test_geom_json() -> String {
+        "{\"kind\":\"cylinder\",\"chord\":1.0,\"alphaDeg\":0.0,\"nPoints\":64,\"radius\":0.12,\"center\":{\"x\":0.55,\"y\":0.0}}".to_string()
+    }
+
+    fn stats_cut_test_solver() -> WasmLbmSolver {
+        let grid = stats_cut_test_grid();
+        WasmLbmSolver::new(
+            grid.nx,
+            grid.ny,
+            grid.domain.x_min,
+            grid.domain.x_max,
+            grid.domain.y_min,
+            grid.domain.y_max,
+        )
+        .ok()
+        .unwrap()
+    }
+
+    #[test]
+    fn stats_start_step_helper_defaults_and_rejects() {
+        assert_eq!(resolve_stats_start_step(None).unwrap(), 0);
+        assert_eq!(resolve_stats_start_step(Some(8000)).unwrap(), 8000);
+        assert_eq!(resolve_stats_start_step(Some(2_000_000)).unwrap(), 2_000_000);
+        let err = resolve_stats_start_step(Some(2_000_001)).unwrap_err();
+        assert!(err.contains("exceeds cap"), "err = {err}");
+        assert!(err.contains("2000000"), "err = {err}");
+        // The full u32 range reaches the check without truncation, so the
+        // top of the range is rejected, never panics.
+        assert!(resolve_stats_start_step(Some(u32::MAX)).is_err());
+    }
+
+    #[test]
+    fn configure_without_stats_cut_reports_start_zero() {
+        let mut solver = stats_cut_test_solver();
+        assert!(solver
+            .configure(&stats_cut_test_geom_json(), 40.0, 0.06, false, None)
+            .is_ok());
+        let rep = solver.state.as_ref().unwrap().stats_report();
+        assert_eq!(rep.start_step, 0);
+        assert_eq!(rep.samples, 0);
+    }
+
+    #[test]
+    fn configure_with_stats_cut_gates_transient() {
+        let mut solver = stats_cut_test_solver();
+        assert!(solver
+            .configure(&stats_cut_test_geom_json(), 40.0, 0.06, false, Some(8000))
+            .is_ok());
+        let rep = solver.state.as_ref().unwrap().stats_report();
+        assert_eq!(rep.start_step, 8000);
+        assert_eq!(rep.samples, 0);
+        let st = solver.state.as_mut().unwrap();
+        while st.step < 8100 {
+            let want = (8100 - st.step).min(512);
+            st.run_steps(want).unwrap();
+        }
+        let rep = solver.state.as_ref().unwrap().stats_report();
+        assert_eq!(rep.step, 8100);
+        assert_eq!(rep.start_step, 8000);
+        // Steps 8000, 8010, up to 8100 sample once every 10 steps.
+        assert_eq!(rep.samples, 11);
+    }
+
+    #[test]
+    fn reconfigure_replaces_stats_cut() {
+        let mut solver = stats_cut_test_solver();
+        assert!(solver
+            .configure(&stats_cut_test_geom_json(), 40.0, 0.06, false, Some(8000))
+            .is_ok());
+        assert_eq!(solver.state.as_ref().unwrap().stats_report().start_step, 8000);
+        assert!(solver
+            .configure(&stats_cut_test_geom_json(), 40.0, 0.06, false, None)
+            .is_ok());
+        assert_eq!(solver.state.as_ref().unwrap().stats_report().start_step, 0);
+        assert!(solver
+            .configure(&stats_cut_test_geom_json(), 40.0, 0.06, false, Some(100))
+            .is_ok());
+        assert_eq!(solver.state.as_ref().unwrap().stats_report().start_step, 100);
+    }
+
+    #[test]
+    fn configure_rejects_stats_cut_above_cap() {
+        // The binding maps resolve_stats_start_step errors into JsValue,
+        // and JsValue construction aborts on the host (wasm-bindgen has
+        // no JS heap here), so host tests assert the helper plus the
+        // host core guard. The one line map_err between them is covered
+        // by compilation and the wasm-pack build.
+        let err = resolve_stats_start_step(Some(2_000_001)).unwrap_err();
+        assert!(err.contains("exceeds cap"), "err = {err}");
+        let mut cfg = LbmConfig::default();
+        cfg.stats_start_step = MAX_STATS_START_STEP + 1;
+        let grid = stats_cut_test_grid();
+        let geom: GeometrySpec = serde_json::from_str(&stats_cut_test_geom_json()).unwrap();
+        let err = LbmState::new(&grid, &geom, &cfg).unwrap_err();
+        assert!(err.contains("exceeds cap"), "err = {err}");
+    }
+
+    #[test]
+    fn reset_keeps_configured_stats_cut() {
+        let mut solver = stats_cut_test_solver();
+        assert!(solver
+            .configure(&stats_cut_test_geom_json(), 40.0, 0.06, false, Some(50))
+            .is_ok());
+        solver.state.as_mut().unwrap().run_steps(100).unwrap();
+        let rep = solver.state.as_ref().unwrap().stats_report();
+        assert_eq!(rep.start_step, 50);
+        // Steps 50, 60, 70, 80, 90, 100 sample once every 10 steps.
+        assert_eq!(rep.samples, 6);
+        solver.state.as_mut().unwrap().reset().unwrap();
+        let rep = solver.state.as_ref().unwrap().stats_report();
+        assert_eq!(rep.step, 0);
+        assert_eq!(rep.samples, 0);
+        assert_eq!(rep.start_step, 50);
     }
 }

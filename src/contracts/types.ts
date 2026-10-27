@@ -50,6 +50,17 @@ export interface GridSpec {
   domain: Domain;
 }
 
+export interface LbmStats {
+  samples: number;
+  startStep: number;
+  step: number;
+  recircFraction: number;
+  cdMean: number;
+  clMean: number;
+  clRms: number;
+  strouhal: number | null;
+}
+
 export interface FlowField {
   nx: number;
   ny: number;
@@ -60,6 +71,16 @@ export interface FlowField {
   p: Float32Array;
   omega: Float32Array;
   obstacle: Float32Array;
+  /** Time mean u from the LBM stats accumulator, absent before the first worker snapshot. */
+  uMean?: Float32Array;
+  /** Time mean v from the LBM stats accumulator, absent before the first worker snapshot. */
+  vMean?: Float32Array;
+  /** Turbulent kinetic energy from the LBM stats accumulator, absent before the first worker snapshot. */
+  k?: Float32Array;
+  /** Recirculation mask from the LBM stats accumulator, absent before the first worker snapshot. */
+  recirc?: Float32Array;
+  /** Turbulence statistics report, absent before the first worker snapshot. */
+  lbmStats?: LbmStats;
 }
 
 export type ProvenanceSource = "fake-fixture" | "analytic-potential" | "lbm-binary" | "surrogate" | "meta-sam" | "meta-spark" | "meta-image";
@@ -228,7 +249,7 @@ export interface ChatAction {
 }
 
 /** Selectable field quantity rendered on the tunnel canvas. */
-export type FieldMode = "speed" | "cp" | "omega" | "u" | "v";
+export type FieldMode = "speed" | "cp" | "omega" | "u" | "v" | "k" | "recirc";
 
 /** Supported solve grid sizes. Surrogate stays at 128, analytic may use 256. */
 export type GridSize = 128 | 256;
@@ -250,6 +271,7 @@ export interface DisplayPrefs {
     particleCount: number;
     particleColor: ParticleColorMode;
     showStreamlines: boolean;
+    meanFields: boolean;
 }
 
 /** Default Phase 6 display preferences. Dark is the default; the theme toggle also offers light. */
@@ -263,6 +285,7 @@ export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
     particleCount: 3000,
     particleColor: "auto",
     showStreamlines: false,
+    meanFields: false,
 };
 
 /** Binary LBM1 frame spec (parser deferred to Phase 2). Documented here so Phase 1 fixtures stay compatible. */

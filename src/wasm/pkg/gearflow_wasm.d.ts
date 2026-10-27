@@ -24,9 +24,15 @@ export class WasmLbmSolver {
     /**
      * Configure geometry plus flow parameters. Picks inlet and outlet
      * from the kind: duct uses parabolic plus zero gradient, else
-     * uniform plus convective.
+     * uniform plus convective. stats_start_step is the optional
+     * transient cut for time statistics (None means 0, no cut).
+     * Values above MAX_STATS_START_STEP are rejected. The binding does
+     * not know the run target, so a cut at or past the target is not
+     * rejected here (it yields few or no samples). Reconfigure rebuilds
+     * the state, so the new cut replaces the old one. reset() keeps the
+     * configured cut.
      */
-    configure(geom_json: string, re: number, u_lattice: number, les_enabled: boolean): void;
+    configure(geom_json: string, re: number, u_lattice: number, les_enabled: boolean, stats_start_step?: number | null): void;
     /**
      * Field snapshot with the same object shape as WasmSolver::field.
      */
@@ -94,7 +100,7 @@ export interface InitOutput {
     readonly wasmlbmsolver_cancel: (a: number) => void;
     readonly wasmlbmsolver_cd: (a: number) => number;
     readonly wasmlbmsolver_cl: (a: number) => number;
-    readonly wasmlbmsolver_configure: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly wasmlbmsolver_configure: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly wasmlbmsolver_field: (a: number) => [number, number, number];
     readonly wasmlbmsolver_new: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly wasmlbmsolver_reset: (a: number) => [number, number];

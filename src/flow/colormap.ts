@@ -193,13 +193,28 @@ export interface VariableRange {
     units: string;
 }
 
-/** Read one scalar quantity from a flow field at cell k. */
-export function readQuantity(variable: FieldMode, flow: FlowField, k: number): number {
+/** Read one scalar quantity from a flow field at cell k. When meanFields is
+ *  true and the flow carries a time mean channel, u and v resolve to the
+ *  time mean instead of the instantaneous field. All other variables,
+ *  including k and recirc, are unaffected by the flag. */
+export function readQuantity(variable: FieldMode, flow: FlowField, k: number, meanFields = false): number {
     switch (variable) {
-        case "u": return flow.u[k];
-        case "v": return flow.v[k];
+        case "u":
+            if (meanFields && flow.uMean !== undefined && k >= 0 && k < flow.uMean.length) {
+                const m = flow.uMean[k];
+                return Number.isFinite(m) ? m : flow.u[k];
+            }
+            return flow.u[k];
+        case "v":
+            if (meanFields && flow.vMean !== undefined && k >= 0 && k < flow.vMean.length) {
+                const m = flow.vMean[k];
+                return Number.isFinite(m) ? m : flow.v[k];
+            }
+            return flow.v[k];
         case "cp": return flow.p[k];
         case "omega": return flow.omega[k];
+        case "k": return flow.k !== undefined ? flow.k[k] : 0;
+        case "recirc": return flow.recirc !== undefined ? flow.recirc[k] : 0;
         case "speed":
         default: return Math.sqrt(flow.u[k] * flow.u[k] + flow.v[k] * flow.v[k]);
     }
@@ -211,15 +226,20 @@ const VARIABLE_LABELS: Record<FieldMode, { label: string; units: string }> = {
     omega: { label: "Vorticity", units: "1/s (nondim)" },
     u: { label: "u velocity", units: "U/Uinf" },
     v: { label: "v velocity", units: "U/Uinf" },
+    k: { label: "TKE", units: "Uinf2" },
+    recirc: { label: "Recirculation", units: "mask" },
 };
 
-/** Data range of a field variable over the grid, with label and units. */
-export function variableRange(variable: FieldMode, flow: FlowField): VariableRange {
+/** Data range of a field variable over the grid, with label and units.
+ *  When meanFields is true and a time mean channel exists for u or v, the
+ *  range covers the mean field and the label carries a mean suffix so the
+ *  legend and colorbar can tell the two apart. */
+export function variableRange(variable: FieldMode, flow: FlowField, meanFields = false): VariableRange {
     const n = flow.nx * flow.ny;
     let min = Infinity;
     let max = -Infinity;
     for (let k = 0; k < n; k++) {
-        const q = readQuantity(variable, flow, k);
+        const q = readQuantity(variable, flow, k, meanFields);
         if (!Number.isFinite(q)) continue;
         if (q < min) min = q;
         if (q > max) max = q;
@@ -232,5 +252,105 @@ export function variableRange(variable: FieldMode, flow: FlowField): VariableRan
         max = min + 1e-9;
     }
     const { label, units } = VARIABLE_LABELS[variable];
-    return { min, max, label, units };
+    const useMean = meanFields && (variable === "u" || variable === "v")
+        && ((variable === "u" ? flow.uMean : flow.vMean) !== undefined);
+    return { min, max, label: useMean ? `${label} (mean)` : label, units };
+}
+
+/** Log scale descriptor for TKE. TKE spans decades, so the field maps
+ *  log10(max(k, floor)) where floor is a small fraction of the field
+ *  maximum, then normalises over the observed log range. Returns null
+ *  when the field carries no usable positive value. */
+export interface KLogScale {
+    floor: number;
+    max: number;
+    logMin: number;
+    logMax: number;
+}
+
+export function kLogScaleFor(flow: FlowField): KLogScale | null {
+    const src = flow.k;
+    if (src === undefined || src.length === 0) return null;
+    let max = -Infinity;
+    for (let k = 0; k < src.length; k++) {
+        const v = src[k];
+        if (!Number.isFinite(v)) continue;
+        if (v > max) max = v;
+    }
+    if (!Number.isFinite(max) || max <= 0) return null;
+    const floor = max * 1e-4;
+    const logMax = Math.log10(max);
+    let logMin = Infinity;
+    for (let k = 0; k < src.length; k++) {
+        const v = src[k];
+        if (!Number.isFinite(v)) continue;
+        const clamped = Math.max(v, floor);
+        const lv = Math.log10(clamped);
+        if (lv < logMin) logMin = lv;
+    }
+    if (!Number.isFinite(logMin)) return null;
+    if (logMax - logMin < 1e-9) logMin = logMax - 1e-9;
+    return { floor, max, logMin, logMax };
+}
+
+/** Normalise one TKE sample through a log scale into [0, 1]. Guards
+ *  non-finite input by returning 0. */
+export function normalizeKLogValue(q: number, scale: KLogScale): number {
+    if (!Number.isFinite(q)) return 0;
+    const span = scale.logMax - scale.logMin || 1;
+    const lv = Math.log10(Math.max(q, scale.floor));
+    const t = (lv - scale.logMin) / span;
+    if (!(t >= 0)) return 0;
+    if (t > 1) return 1;
+    return t;
+}
+
+/** Map a recirculation mask sample to a display fraction. Values at or
+ *  above 0.5 read as reverse flow (1), anything else as attached (0).
+ *  Non-finite input reads as attached. */
+export function normalizeRecircValue(q: number): number {
+    if (!Number.isFinite(q)) return 0;
+    return q >= 0.5 ? 1 : 0;
+}
+
+/** Label one TKE colorbar tick. An exact decade uses the compact 1eN
+ *  form, anything else uses a two significant figure exponential so the
+ *  label never claims a rounded decade the field does not show. The snap
+ *  tolerance covers float32 channel rounding, which shifts an exact
+ *  decade by a few parts in 1e8. */
+export function formatKTick(v: number): string {
+    if (!Number.isFinite(v) || v <= 0) return "0";
+    const exp = Math.log10(v);
+    const nearest = Math.round(exp);
+    if (Math.abs(exp - nearest) < 1e-7) return `1e${nearest}`;
+    const floored = Math.floor(exp);
+    const mant = v / Math.pow(10, floored);
+    return `${mant.toPrecision(2)}e${floored}`;
+}
+
+export interface KColorTick {
+    value: number;
+    label: string;
+    position: number;
+}
+
+/** Endpoint accurate ticks for the TKE colorbar. The first tick is the
+ *  scale maximum and the last is the scale minimum, each positioned with
+ *  normalizeKLogValue exactly as the field maps them, with every interior
+ *  decade boundary in between. */
+export function kColorTicks(scale: KLogScale): KColorTick[] {
+    const ticks: KColorTick[] = [];
+    const push = (value: number): void => {
+        ticks.push({ value, label: formatKTick(value), position: normalizeKLogValue(value, scale) });
+    };
+    push(Math.pow(10, scale.logMax));
+    const lo = Math.ceil(scale.logMin + 1e-7);
+    const hi = Math.floor(scale.logMax - 1e-7);
+    for (let e = hi; e >= lo; e--) push(Math.pow(10, e));
+    const minValue = Math.pow(10, scale.logMin);
+    const last = ticks[ticks.length - 1];
+    if (last === undefined || Math.abs(last.value - minValue) / Math.max(minValue, 1e-300) > 1e-9) {
+        push(minValue);
+    }
+    return ticks;
 }

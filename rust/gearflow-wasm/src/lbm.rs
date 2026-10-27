@@ -17,6 +17,14 @@ use crate::sdf::build_sdf_grid;
 use crate::stats::{FinalStats, StatsAccumulator};
 use crate::types::{CircleDef, Domain, FlowField, GeometrySpec, GridSpec, Xy};
 
+/// Maximum accepted statistics transient cut in steps. Mirrors
+/// MAX_TARGET_STEPS in src/flow/lbmProtocol.ts so the Rust core and
+/// the TypeScript worker validate the same statsStartStep range
+/// (0 to 2000000 inclusive). The solver never sees the configured run
+/// target, so a cut at or past the target is not rejected here, it
+/// simply yields few or no samples once the run passes it.
+pub const MAX_STATS_START_STEP: u64 = 2_000_000;
+
 /// Batch run configuration.
 #[derive(Clone, Copy, Debug)]
 pub struct LbmConfig {
@@ -752,6 +760,12 @@ fn validate_lbm_inputs(cfg: &LbmConfig) -> Result<(), String> {
     }
     if cfg.sample_every == 0 {
         return Err("lbm: sample_every must be >= 1".to_string());
+    }
+    if cfg.stats_start_step > MAX_STATS_START_STEP {
+        return Err(format!(
+            "lbm: stats_start_step {} exceeds cap {MAX_STATS_START_STEP}",
+            cfg.stats_start_step
+        ));
     }
     Ok(())
 }

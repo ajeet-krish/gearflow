@@ -105,6 +105,7 @@ export default function SettingsModal({
             particleCount: DEFAULT_DISPLAY_PREFS.particleCount,
             particleColor: DEFAULT_DISPLAY_PREFS.particleColor,
             showStreamlines: DEFAULT_DISPLAY_PREFS.showStreamlines,
+            meanFields: DEFAULT_DISPLAY_PREFS.meanFields,
         });
         onGridMode("auto");
     };
@@ -209,6 +210,16 @@ export default function SettingsModal({
                             />
                             <label htmlFor="settingsStream">Streamlines</label>
                         </div>
+                        <div className="settingsRow toggleRow">
+                            <input
+                                id="settingsMeanFields"
+                                type="checkbox"
+                                checked={prefs.meanFields}
+                                onChange={(e) => onPatch({ meanFields: e.target.checked })}
+                            />
+                            <label htmlFor="settingsMeanFields">Time mean velocity fields</label>
+                        </div>
+                        <p className="hint mono">Mean plots the time averaged u and v once an LBM run samples them.</p>
                     </section>
                     <section className="settingsSection" aria-label="Particles">
                         <h3>PARTICLES</h3>

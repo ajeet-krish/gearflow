@@ -405,6 +405,14 @@ html, body, #root {
 .chip:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
 .chip.active { background: rgba(189, 147, 249, 0.3); color: var(--purple); }
 .chip.cyan.active { background: rgba(139, 233, 253, 0.2); color: var(--cyan); }
+.chip:disabled {
+  color: var(--comment);
+  opacity: 0.45;
+  cursor: not-allowed;
+  border: 1px dashed var(--dust);
+  background: transparent;
+}
+.chip:disabled:hover { color: var(--comment); background: transparent; }
 .barLabeled { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .barSelect, .barInput {
   min-height: 30px;
@@ -511,7 +519,9 @@ html, body, #root {
 .cbUnits { font-size: 9px; color: var(--comment); }
 .cbBody { display: flex; gap: 6px; align-items: stretch; }
 .cbStrip { width: 14px; height: 180px; flex: none; border: 1px solid rgba(255, 255, 255, 0.1); }
-.cbTicks { display: flex; flex-direction: column; justify-content: space-between; font-size: 9px; color: var(--text); }
+.cbTwoState { border-color: var(--yellow); box-shadow: 0 0 8px rgba(241, 250, 140, 0.35); }
+.cbTicks { display: flex; flex-direction: column; justify-content: space-between; font-size: 9px; color: var(--text); position: relative; }
+.cbTickPlaced { position: absolute; left: 0; transform: translateY(-50%); white-space: nowrap; }
 .cbFoot { font-size: 9px; color: var(--comment); text-transform: lowercase; }
 
 /* Analysis rail: stacked collapsible windows. */
@@ -843,6 +853,13 @@ html, body, #root {
 }
 .displaySummary { display: grid; gap: 8px; }
 .displaySummaryLine { margin: 0; color: var(--comment); font-size: 11px; }
+.turb { display: grid; gap: 8px; }
+.turbRows { margin: 0; display: grid; gap: 4px; }
+.turbRow { display: flex; justify-content: space-between; gap: 12px; }
+.turbRow dt { color: var(--comment); margin: 0; font-size: 10px; letter-spacing: 0.08em; }
+.turbRow dd { margin: 0; color: var(--text); font-size: 11px; }
+.turbEmpty { margin: 0; color: var(--comment); font-size: 11px; }
+.turbNote { margin: 4px 0 0; }
 .displaySummary .displaySettingsBtn { width: 100%; min-height: 44px; }
 /* Settings modal: centered dialog over a dimmed backdrop. */
 .modalBackdrop {

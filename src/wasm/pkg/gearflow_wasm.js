@@ -41,16 +41,23 @@ export class WasmLbmSolver {
     /**
      * Configure geometry plus flow parameters. Picks inlet and outlet
      * from the kind: duct uses parabolic plus zero gradient, else
-     * uniform plus convective.
+     * uniform plus convective. stats_start_step is the optional
+     * transient cut for time statistics (None means 0, no cut).
+     * Values above MAX_STATS_START_STEP are rejected. The binding does
+     * not know the run target, so a cut at or past the target is not
+     * rejected here (it yields few or no samples). Reconfigure rebuilds
+     * the state, so the new cut replaces the old one. reset() keeps the
+     * configured cut.
      * @param {string} geom_json
      * @param {number} re
      * @param {number} u_lattice
      * @param {boolean} les_enabled
+     * @param {number | null} [stats_start_step]
      */
-    configure(geom_json, re, u_lattice, les_enabled) {
+    configure(geom_json, re, u_lattice, les_enabled, stats_start_step) {
         const ptr0 = passStringToWasm0(geom_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.wasmlbmsolver_configure(this.__wbg_ptr, ptr0, len0, re, u_lattice, les_enabled);
+        const ret = wasm.wasmlbmsolver_configure(this.__wbg_ptr, ptr0, len0, re, u_lattice, les_enabled, isLikeNone(stats_start_step) ? Number.MAX_SAFE_INTEGER : (stats_start_step) >>> 0);
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }
@@ -307,6 +314,10 @@ function handleError(f, args) {
         const idx = addToExternrefTable0(e);
         wasm.__wbindgen_exn_store(idx);
     }
+}
+
+function isLikeNone(x) {
+    return x === undefined || x === null;
 }
 
 function passStringToWasm0(arg, malloc, realloc) {

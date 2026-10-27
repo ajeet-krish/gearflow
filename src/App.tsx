@@ -8,9 +8,10 @@ import EvalLogPanel from "@/ui/EvalLogPanel";
 import SettingsModal from "@/ui/SettingsModal";
 import TopNav, { type NavId } from "@/ui/TopNav";
 import SolverBar from "@/ui/SolverBar";
-import FieldBar from "@/ui/FieldBar";
+import FieldBar, { fallbackVariableFor } from "@/ui/FieldBar";
 import TelemetryBar from "@/ui/TelemetryBar";
 import AnalysisPanel from "@/ui/AnalysisPanel";
+import { turbulenceSectionDef } from "@/ui/TurbulenceSection";
 import VerticalColorbar from "@/ui/VerticalColorbar";
 import { buildPolygons } from "@/geometry/parametric";
 import { applyBodyPreset, bodySelectValue as bodySelectValueFor } from "@/geometry/bodyPresets";
@@ -616,7 +617,14 @@ export default function App() {
         client.onSnapshot = (s) => {
             if (disposed) return;
             provider.setSnapshot(
-                { nx: s.nx, ny: s.ny, domain: { ...s.domain }, u: s.u, v: s.v, p: s.p, omega: s.omega, obstacle: s.obstacle },
+                {
+                    nx: s.nx, ny: s.ny, domain: { ...s.domain }, u: s.u, v: s.v, p: s.p, omega: s.omega, obstacle: s.obstacle,
+                    ...(s.uMean !== undefined ? { uMean: s.uMean } : null),
+                    ...(s.vMean !== undefined ? { vMean: s.vMean } : null),
+                    ...(s.k !== undefined ? { k: s.k } : null),
+                    ...(s.recirc !== undefined ? { recirc: s.recirc } : null),
+                    ...(s.stats !== undefined ? { lbmStats: s.stats } : null),
+                },
                 s.step,
                 s.cd,
                 s.cl
@@ -636,8 +644,9 @@ export default function App() {
             re: debouncedRe,
             uLattice: 0.05,
             lesEnabled: debouncedRe > 500,
-            targetSteps: 8000,
+            targetSteps: 40000,
             batchSteps: 512,
+            statsStartStep: 8000,
         });
         lbmGenKeyRef.current = `${lbmGrid.nx}x${lbmGrid.ny}|${JSON.stringify(debouncedSpec)}|${debouncedRe}`;
         return () => {
@@ -859,6 +868,23 @@ export default function App() {
     const regime = regimeLabel(debouncedRe);
     const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${mode}|${lbmEffective ? `${lbmGrid.nx}x${lbmGrid.ny}` : solveGrid.nx}|${lbmTick}`;
 
+    // Honest gating: TKE and recirculation chips enable only when the live
+    // frame actually carries the channel and the first statistics sample
+    // exists. The worker always ships the channels (all zero before the
+    // first sampled step), so the channel alone never enables them.
+    // Placeholder and failover states never enable them.
+    const lbmStatsReady = lbmEffective && (lbmProviderLive?.statsReady() ?? false);
+    const hasTke = lbmEffective && lbmHasSnapshot && lbmStatsReady && flow.k !== undefined;
+    const hasRecirc = lbmEffective && lbmHasSnapshot && lbmStatsReady && flow.recirc !== undefined;
+    const lbmStats = lbmStatsReady ? (lbmProviderLive?.stats() ?? null) : null;
+    const turbulenceDef = turbulenceSectionDef(lbmEffective, lbmStatsReady, lbmStats);
+
+    // Effective field variable, derived during render: a selected channel
+    // the current frame does not carry paints speed on this very pass.
+    // The stored preference stays untouched, so returning to LBM mode
+    // restores the user's choice.
+    const effectiveVariable = fallbackVariableFor(prefs.variable, flow);
+
     // LBM run controls. Run starts the worker loop, Cancel latches the
     // current state and keeps the last snapshot on screen.
     const onLbmRun = useCallback(() => {
@@ -875,7 +901,7 @@ export default function App() {
             // Cancel must never throw out of the button handler.
         }
     }, []);
-    const lbmTarget = lbmProgress.targetSteps > 0 ? lbmProgress.targetSteps : 8000;
+    const lbmTarget = lbmProgress.targetSteps > 0 ? lbmProgress.targetSteps : 40000;
     const lbmPct = Math.min(100, Math.max(0, Math.round((lbmProgress.step / lbmTarget) * 100)));
     const lbmProgressText = `step ${lbmProgress.step} of ${lbmTarget} (${lbmPct} percent)`;
 
@@ -913,8 +939,7 @@ export default function App() {
     }, [debouncedSpec, debouncedRe, regime, frame, backendName, provenanceLabel, flow, valSummary, isFixture, pack]);
 
     const onVariable = (next: typeof prefs.variable) => patch({ variable: next });
-    const handlePatch = useCallback((next: Partial<typeof prefs>) => {
-        if (next.theme !== undefined) storeTheme(next.theme);
+    const handlePatch = useCallback((next: Partial<typeof prefs>) => {        if (next.theme !== undefined) storeTheme(next.theme);
         patch(next);
     }, [patch]);
     const handleCloseSettings = useCallback(() => {
@@ -1035,7 +1060,7 @@ export default function App() {
                     <SceneBars
                         bodyId="sceneBarsBody"
                         collapsed={shell.bars}
-                        summary={`FIELD ${prefs.variable.toUpperCase()} . ${engineLabel} . Re ${Math.round(debouncedRe)}`}
+                        summary={`FIELD ${effectiveVariable.toUpperCase()} . ${engineLabel} . Re ${Math.round(debouncedRe)}`}
                         onToggle={toggleBars}
                     >
                         <div>
@@ -1051,8 +1076,10 @@ export default function App() {
                                 live={solveError === null}
                             />
                             <FieldBar
-                                variable={prefs.variable}
+                                variable={effectiveVariable}
                                 onVariable={onVariable}
+                                hasTke={hasTke}
+                                hasRecirc={hasRecirc}
                             />
                         </div>
                     </SceneBars>
@@ -1118,7 +1145,8 @@ export default function App() {
                                 flow={flow}
                                 airfoil={airfoil}
                                 colormap={prefs.colormap}
-                                fieldMode={prefs.variable}
+                                fieldMode={effectiveVariable}
+                                meanFields={prefs.meanFields}
                                 fieldVisible={prefs.fieldVisible}
                                 particleCount={prefs.particleCount}
                                 particleColor={prefs.particleColor}
@@ -1178,9 +1206,10 @@ export default function App() {
                         </div>
                         <VerticalColorbar
                             flow={flow}
-                            variable={prefs.variable}
+                            variable={effectiveVariable}
                             colormap={prefs.colormap}
                             visible={prefs.showLegend}
+                            meanFields={prefs.meanFields}
                         />
                         <p className="printValidation mono" role="note" aria-label="Validation summary for print">
                             Validation ledger (print): {valSummary.pass} pass, {valSummary.warn} warn, {valSummary.fail} fail,{" "}
@@ -1240,6 +1269,9 @@ export default function App() {
                                                 <p className="mono displaySummaryLine">
                                                     {prefs.particleCount === 0 ? "particles off" : `${prefs.particleCount} particles`} in {prefs.particleColor}
                                                 </p>
+                                                <p className="mono displaySummaryLine">
+                                                    {prefs.meanFields ? "time mean u/v on" : "instantaneous u/v"}
+                                                </p>
                                                 <button
                                                     type="button"
                                                     className="mBtn displaySettingsBtn"
@@ -1255,6 +1287,7 @@ export default function App() {
                                         </div>
                                     ),
                                 },
+                                ...(turbulenceDef === null ? [] : [turbulenceDef]),
                                 {
                                     id: "validation",
                                     label: "VALIDATION",

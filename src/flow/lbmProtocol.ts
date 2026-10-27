@@ -1,9 +1,9 @@
 // Typed protocol between the main thread LbmClient and the LBM worker.
 // Both sides share these types plus a small runtime validator so a bad
 // payload never reaches the solver. Snapshot channels are Float32Array so
-// the worker can transfer the buffers with zero copy.
+// the worker copies each channel, then transfers the copies.
 
-import type { Domain } from "@/contracts/types";
+import type { Domain, LbmStats } from "@/contracts/types";
 
 /** Largest accepted run length. Mirrors the solver's bounded batches. */
 export const MAX_TARGET_STEPS = 2000000;
@@ -27,6 +27,7 @@ export interface LbmInitMessage {
     lesEnabled: boolean;
     targetSteps: number;
     batchSteps: number;
+    statsStartStep?: number;
 }
 
 export interface LbmRunMessage {
@@ -51,6 +52,7 @@ export interface LbmResetMessage {
     lesEnabled?: boolean;
     targetSteps?: number;
     batchSteps?: number;
+    statsStartStep?: number;
 }
 
 export interface LbmSnapshotRequestMessage {
@@ -99,6 +101,11 @@ export interface LbmSnapshotMessage {
     p: Float32Array;
     omega: Float32Array;
     obstacle: Float32Array;
+    uMean?: Float32Array;
+    vMean?: Float32Array;
+    k?: Float32Array;
+    recirc?: Float32Array;
+    stats?: LbmStats;
 }
 
 export interface LbmDoneMessage {
@@ -163,6 +170,31 @@ function isValidChannel(x: unknown, n: number): x is Float32Array {
     return true;
 }
 
+/** Optional stats start step: absent means the solver default (no transient cut). */
+function isValidStatsStartStep(x: unknown): boolean {
+    if (x === undefined) return true;
+    return Number.isInteger(x) && (x as number) >= 0 && (x as number) <= MAX_TARGET_STEPS;
+}
+
+const LBM_STATS_KEYS = ["samples", "startStep", "step", "recircFraction", "cdMean", "clMean", "clRms", "strouhal"] as const;
+
+/** True for a well formed turbulence statistics report. Never throws. */
+export function isValidLbmStats(x: unknown): x is LbmStats {
+    if (typeof x !== "object" || x === null) return false;
+    const r = x as Record<string, unknown>;
+    for (const k of Object.keys(r)) {
+        if (!(LBM_STATS_KEYS as readonly string[]).includes(k)) return false;
+    }
+    if (!Number.isInteger(r.samples) || (r.samples as number) < 0) return false;
+    if (!Number.isInteger(r.startStep) || (r.startStep as number) < 0) return false;
+    if (!Number.isInteger(r.step) || (r.step as number) < 0) return false;
+    for (const k of ["recircFraction", "cdMean", "clMean", "clRms"] as const) {
+        if (!isFiniteNumber(r[k])) return false;
+    }
+    if (r.strouhal !== null && !isFiniteNumber(r.strouhal)) return false;
+    return true;
+}
+
 /** True for any well formed main to worker message. Never throws. */
 export function isLbmMainMessage(msg: unknown): msg is LbmMainMessage {
     if (typeof msg !== "object" || msg === null) return false;
@@ -179,6 +211,7 @@ export function isLbmMainMessage(msg: unknown): msg is LbmMainMessage {
             if (typeof r.lesEnabled !== "boolean") return false;
             if (!isValidTargetSteps(r.targetSteps)) return false;
             if (!isValidBatchSteps(r.batchSteps)) return false;
+            if (!isValidStatsStartStep(r.statsStartStep)) return false;
             return true;
         }
         case "run":
@@ -196,6 +229,7 @@ export function isLbmMainMessage(msg: unknown): msg is LbmMainMessage {
             if (r.lesEnabled !== undefined && typeof r.lesEnabled !== "boolean") return false;
             if (r.targetSteps !== undefined && !isValidTargetSteps(r.targetSteps)) return false;
             if (r.batchSteps !== undefined && !isValidBatchSteps(r.batchSteps)) return false;
+            if (!isValidStatsStartStep(r.statsStartStep)) return false;
             return true;
         }
         default:
@@ -228,6 +262,10 @@ export function isLbmWorkerMessage(msg: unknown): msg is LbmWorkerMessage {
             for (const k of ["u", "v", "p", "omega", "obstacle"] as const) {
                 if (!isValidChannel(r[k], n)) return false;
             }
+            for (const k of ["uMean", "vMean", "k", "recirc"] as const) {
+                if (r[k] !== undefined && !isValidChannel(r[k], n)) return false;
+            }
+            if (r.stats !== undefined && !isValidLbmStats(r.stats)) return false;
             return true;
         }
         case "done": {

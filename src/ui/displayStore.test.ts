@@ -1,5 +1,5 @@
-// Display store versioning: v1 fills new defaults, v2 round trips,
-// corrupt payloads fall back per field. Key string stays unchanged.
+// Display store versioning: v1 fills new defaults, the current version
+// round trips, corrupt payloads fall back per field. Key string stays unchanged.
 
 import { describe, expect, it, beforeEach } from "vitest";
 import {
@@ -39,8 +39,8 @@ describe("display store phase 9", () => {
         expect(DISPLAY_STORAGE_KEY).toBe("gearflow:display:v1");
     });
 
-    it("bumps the payload version to 2", () => {
-        expect(DISPLAY_VERSION).toBe(2);
+    it("bumps the payload version to 3", () => {
+        expect(DISPLAY_VERSION).toBe(3);
     });
 
     it("fills v1 payloads with new defaults", () => {
@@ -61,9 +61,10 @@ describe("display store phase 9", () => {
         expect(prefs.particleCount).toBe(3000);
         expect(prefs.particleColor).toBe("auto");
         expect(prefs.showStreamlines).toBe(false);
+        expect(prefs.meanFields).toBe(false);
     });
 
-    it("round trips a v2 payload", () => {
+    it("round trips the current version payload", () => {
         const full = {
             ...DEFAULT_DISPLAY_PREFS,
             fieldVisible: false,
@@ -110,12 +111,13 @@ describe("display store phase 9", () => {
             DISPLAY_STORAGE_KEY,
             JSON.stringify({
                 version: 2,
-                prefs: { ...DEFAULT_DISPLAY_PREFS, fieldVisible: "yes", contours: 1, showStreamlines: null },
+                prefs: { ...DEFAULT_DISPLAY_PREFS, fieldVisible: "yes", contours: 1, showStreamlines: null, meanFields: "yes" },
             }),
         );
         const prefs = loadDisplayPrefs();
         expect(prefs.fieldVisible).toBe(true);
         expect(prefs.contours).toBe(false);
         expect(prefs.showStreamlines).toBe(false);
+        expect(prefs.meanFields).toBe(false);
     });
 });

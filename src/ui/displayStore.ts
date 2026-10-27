@@ -7,14 +7,14 @@ import type { ColormapName } from "@/flow/colormap";
 import type { FieldMode } from "@/contracts/types";
 
 // Renaming this key would orphan deployed payloads, so the v1 string stays
-// even though DISPLAY_VERSION is now 2.
+// even though DISPLAY_VERSION is now 3.
 export const DISPLAY_STORAGE_KEY = "gearflow:display:v1";
-export const DISPLAY_VERSION = 2;
+export const DISPLAY_VERSION = 3;
 
 const COLORMAPS: ColormapName[] = [
     "viridis", "turbo", "plasma", "inferno", "magma", "cividis", "jet", "rdbu", "coolwarm", "grayscale",
 ];
-const VARIABLES: FieldMode[] = ["speed", "cp", "omega", "u", "v"];
+const VARIABLES: FieldMode[] = ["speed", "cp", "omega", "u", "v", "k", "recirc"];
 const PARTICLE_COUNTS = [0, 1200, 2000, 3000];
 const PARTICLE_COLORS: ParticleColorMode[] = ["auto", "white", "black", "cyan", "magenta", "orange"];
 
@@ -31,13 +31,14 @@ function sanitize(raw: unknown): DisplayPrefs {
     const fieldVisible = typeof r.fieldVisible === "boolean" ? r.fieldVisible : DEFAULT_DISPLAY_PREFS.fieldVisible;
     const contours = typeof r.contours === "boolean" ? r.contours : DEFAULT_DISPLAY_PREFS.contours;
     const showStreamlines = typeof r.showStreamlines === "boolean" ? r.showStreamlines : DEFAULT_DISPLAY_PREFS.showStreamlines;
+    const meanFields = typeof r.meanFields === "boolean" ? r.meanFields : DEFAULT_DISPLAY_PREFS.meanFields;
     const particleCount = typeof r.particleCount === "number" && PARTICLE_COUNTS.includes(r.particleCount)
         ? r.particleCount
         : DEFAULT_DISPLAY_PREFS.particleCount;
     const particleColor: ParticleColorMode = typeof r.particleColor === "string" && (PARTICLE_COLORS as string[]).includes(r.particleColor)
         ? (r.particleColor as ParticleColorMode)
         : DEFAULT_DISPLAY_PREFS.particleColor;
-    return { colormap, variable, theme, showLegend, fieldVisible, contours, particleCount, particleColor, showStreamlines };
+    return { colormap, variable, theme, showLegend, fieldVisible, contours, particleCount, particleColor, showStreamlines, meanFields };
 }
 
 /** Load persisted display prefs, defaulting to viridis, speed, dark, legend on. */
@@ -47,7 +48,7 @@ export function loadDisplayPrefs(): DisplayPrefs {
         const raw = localStorage.getItem(DISPLAY_STORAGE_KEY);
         if (raw === null) return { ...DEFAULT_DISPLAY_PREFS };
         const parsed = JSON.parse(raw) as { version?: unknown; prefs?: unknown };
-        if (parsed.version !== 1 && parsed.version !== 2) return { ...DEFAULT_DISPLAY_PREFS };
+        if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3) return { ...DEFAULT_DISPLAY_PREFS };
         return sanitize(parsed.prefs);
     } catch {
         return { ...DEFAULT_DISPLAY_PREFS };
