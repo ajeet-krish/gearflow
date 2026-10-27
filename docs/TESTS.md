@@ -567,3 +567,43 @@ Phase tests integrate with prior phase tests (all 431 prior Node tests still pas
 | Test | Root Cause | Suggested Fix |
 |------|-----------|---------------|
 | (none) | Full suite green on this run, 447 Node passed plus 22 Rust passed plus 11 Python passed with 0 skips | No fix needed |
+
+## 2026-10-27 - Phase 10 and 11 Verification: Test Report (Rust LBM core plus worker transport, Re dependence gate added)
+
+### Test Results
+cargo test in release mode with manifest path rust/gearflow-wasm/Cargo.toml: 71 passed, 0 failed, 2 ignored, test time 36.06 s, wall 36 s. Baseline before this verification was 70 passed, 0 failed, 2 ignored. Delta is the new lbm::tests::re_dependence_bubble_grows_and_drag_falls (5.24 s pure test time, bitwise identical values across 3 repeat runs).
+npm test: 48 files, 561 tests, all passed, vitest duration 2.14 s, wall 2 s. Matches the claimed baseline exactly, no drift.
+npm run build: tsc plus vite build succeeded. Worker chunk dist/assets/lbmWorker-Dm1ag16k.js (5.85 kB) and dist/assets/gearflow_wasm_bg-BvmF0FY9.wasm (184.02 kB) both emitted. No other build output change of note.
+
+New coverage in rust/gearflow-wasm/src/lbm.rs (1 test plus 1 helper, no production code touched):
+Re 20 versus Re 30 small steady cylinder pair (151 by 76 square cells, D_lat 12, u_lattice 0.05, 6000 steps, stats from step 3000, seed 42). Measured: Re 20 recirc 1.0833 D, mean Cd 2.8881, Cl amp 0.00120; Re 30 recirc 1.7500 D, mean Cd 2.4321, Cl amp 0.00199. Gates: both Cl amps below 0.05 (steady comparison stays valid), Re 20 bubble above 0.5 D (measured 1.08), bubble growth gap at least 0.25 D (measured 0.67), Cd fall gap at least 0.15 (measured 0.46). A kernel that ignored Re would produce identical runs and fail both difference gates.
+
+Probe path that was rejected: Re 40 at D_lat 8 (tau 0.53) diverges near step 672, while Re 20 at D_lat 8 (tau 0.56) completes. Re 40 at D_lat 12 (tau 0.545) sits inside the observed BGK instability zone, so forcing the Re 40 pair would buy flakiness. Re 20 versus Re 30 at D_lat 12 keeps both runs above tau 0.55 with steady wakes and 2.7x or better margin on every gate. No order dependence observed: the new test passed 3 of 3 isolated runs plus the full suite run, no shared global state between Rust tests, vitest files run in isolated workers.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| lbm::tests::re_dependence_bubble_grows_and_drag_falls (new) | PASS | Bubble grows 1.0833 to 1.7500 D, Cd falls 2.8881 to 2.4321, both steady, 5.24 s, deterministic across 3 runs |
+| lbm::tests::re20_recirculation_bubble | PASS | Pre-existing, still green |
+| lbm::tests::cylinder_re100_confined_smoke | PASS | Pre-existing confined tunnel smoke, still green |
+| lbm::tests::poiseuille_recovers_parabola_and_viscosity | PASS | Pre-existing Mach convergence, still green |
+| lbm::tests::mass_drift_and_divergence_small | PASS | Pre-existing, still green |
+| All other Rust unit tests (lattice, boundaries, forces, stats, geometry, sdf, potential, wake, field, lib) | PASS | 71 total passed, 0 failed, 2 ignored |
+| Ignored: reference_cylinder_release_only, convergence_512x384_d16 | SKIP | By design, release only manual runs; rot risk noted below |
+| npm test, all 48 files (561 tests) | PASS | Includes lbmWorker, lbmClient, lbmProtocol, lbmFlowProvider, engineMode, lbmAppWiring, all green, 2.14 s |
+| npm run build | PASS | Worker chunk plus wasm asset emitted |
+
+### Coverage Summary
+Happy path covered (Re dependence: bubble growth plus Cd fall with direction gates; Poiseuille parabola plus viscosity recovery; cylinder shedding with St; mask parity bit identical to obstacle channel).
+Edge cases covered (square cell gate with corrected ny message, tau floor and warn band, D_lat floor, blockage warn, cancel then resume, poison then reset, racing inits newest wins, lost snapshot wedge timers, generation guards).
+Error conditions covered (absurd Re, non-finite u, u above cap, zero radius, diverged state refuses resume and steps, worker poisoned resume surfaces error not silent no-op, protocol validator rejects malformed messages and oversize payloads).
+Worker transport is unit tested only (fake solver factory, fake worker port, injected timers). Real browser worker execution with the compiled wasm package is a manual check and is not covered by any automated test.
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 70 pre-existing Rust tests and all 561 Node tests still pass).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| Probe Re 40 at D_lat 8 (temporary, removed) | BGK instability: tau 0.53 is inside the observed instability zone, diverged at step 672 | Use the Re 20 versus Re 30 pair at D_lat 12 (taus 0.59 and 0.56), which is what the committed test does; do not force Re 40 at coarse resolution |
+| Probe loop overshoot (temporary, fixed before commit) | Test looped run_steps(512) until done meets 6000, overshooting to 6144 since 6000 is not a multiple of 512 | Step with (remaining).min(512) like the other tests; fixed, now asserts step equals 6000 exactly |
+| Compiler warnings (pre-existing, not failures) | Unused p1, c1, p2, c2 bindings in the Poiseuille helper plus never read panels field plus never used generate_flow | Hygiene cleanup for the owning agent; no behavior change needed for tests to pass |

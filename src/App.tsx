@@ -16,6 +16,9 @@ import { buildPolygons } from "@/geometry/parametric";
 import { applyBodyPreset, bodySelectValue as bodySelectValueFor } from "@/geometry/bodyPresets";
 import { AnalyticFlowProvider, type FrameSource } from "@/flow/frameSource";
 import { createFlowProvider } from "@/flow/createFlowProvider";
+import { readEngineMode, lbmGridFor, blockageForGeometry, type EngineMode } from "@/flow/engineMode";
+import { LbmClient, type LbmProgress } from "@/flow/lbmClient";
+import { LbmFlowProvider, type LbmProviderStatus } from "@/flow/lbmFlowProvider";
 import { SurrogateFlowProvider } from "@/flow/surrogate";
 import { useResolution } from "@/flow/gridController";
 import { useDisplayPrefs } from "@/ui/displayStore";
@@ -156,11 +159,21 @@ export default function App() {
         applyTheme(prefs.theme);
     }, [prefs.theme]);
 
-    // WASM backend: when ?wasm=1 is present, createFlowProvider loads the
-    // Rust solver once and serves frames with analytic fallback. No flag
-    // means the analytic provider stays the only frame source.
+    // WASM backend: when ?wasm=1 (or ?engine=wasm) is present,
+    // createFlowProvider loads the Rust solver once and serves frames with
+    // analytic fallback. No flag means the analytic provider stays the only
+    // frame source. ?engine=lbm selects the worker LBM path instead.
     const [wasmSource, setWasmSource] = useState<FrameSource | null>(null);
     const [wasmNote, setWasmNote] = useState<string | null>(null);
+    const [engineMode] = useState<EngineMode>(() => {
+        try {
+            return readEngineMode(window.location.search);
+        } catch {
+            return "analytic";
+        }
+    });
+    const lbmActive = engineMode === "lbm";
+    const wasmEngine = engineMode === "wasm";
     // Latest solved inputs, read when constructing the provider so the
     // initial WASM solver is not stale. The provider itself stays alive
     // across slider moves and is updated via setters in the solved memo.
@@ -383,15 +396,16 @@ export default function App() {
     // this frame and reports the error inline instead of throwing.
     const lastGoodRef = useRef<SolvedFrame | null>(null);
 
-    // WASM provider load: only when ?wasm=1 is present. Created once per
-    // grid and kept alive across parameter changes; the solved memo drives
-    // it via setGeometry/setRe. Any fault falls back to analytic.
+    // WASM provider load: only when the wasm engine is selected (?wasm=1
+    // or ?engine=wasm). Created once per grid and kept alive across
+    // parameter changes; the solved memo drives it via setGeometry/setRe.
+    // Any fault falls back to analytic.
     useEffect(() => {
         let cancelled = false;
         let live: FrameSource | null = null;
+        if (!wasmEngine) return;
         try {
             if (typeof window === "undefined") return;
-            if (new URLSearchParams(window.location.search).get("wasm") !== "1") return;
         } catch {
             return;
         }
@@ -431,7 +445,161 @@ export default function App() {
                 live = null;
             }
         };
-    }, [solveGrid]);
+    }, [solveGrid, wasmEngine]);
+
+    // LBM engine (?engine=lbm): worker backed viscous solve. The worker
+    // owns one WasmLbmSolver; this component owns the client plus a passive
+    // LbmFlowProvider that serves the latest snapshot (or a labelled
+    // placeholder until the first snapshot). Any worker fault latches to
+    // the analytic provider and never shows LBM numbers.
+    const [lbmStatus, setLbmStatus] = useState<LbmProviderStatus>("idle");
+    const [lbmProgress, setLbmProgress] = useState<LbmProgress>({ step: 0, targetSteps: 0, cd: NaN, cl: NaN });
+    const [lbmTick, setLbmTick] = useState(0);
+    const [lbmFailed, setLbmFailed] = useState<string | null>(null);
+    const [lbmHasSnapshot, setLbmHasSnapshot] = useState(false);
+    const lbmClientRef = useRef<LbmClient | null>(null);
+    const lbmProviderRef = useRef<LbmFlowProvider | null>(null);
+    const lbmGenKeyRef = useRef("");
+    const lbmLastSnapAtRef = useRef(0);
+    const lbmFailedRef = useRef<string | null>(null);
+    lbmFailedRef.current = lbmFailed;
+
+    const lbmGrid = useMemo(() => lbmGridFor(DEFAULT_DOMAIN, activeGrid), [activeGrid]);
+
+    const lbmBlockage = useMemo(
+        () => blockageForGeometry(debouncedSpec, DEFAULT_DOMAIN),
+        [debouncedSpec]
+    );
+
+    const lbmFailover = useCallback((message: string) => {
+        if (lbmFailedRef.current !== null) return;
+        setLbmFailed(message);
+        setLbmHasSnapshot(false);
+        setLbmProgress({ step: 0, targetSteps: 0, cd: NaN, cl: NaN });
+        setLbmStatus("idle");
+        try {
+            lbmProviderRef.current?.clearSnapshot();
+        } catch {
+            // Clearing must never break failover.
+        }
+        try {
+            lbmClientRef.current?.dispose();
+        } catch {
+            // Disposal must never break failover.
+        }
+        lbmClientRef.current = null;
+    }, []);
+
+    useEffect(() => {
+        if (!lbmActive) return;
+        // Fresh run: drop stale snapshot, progress, and status so a
+        // placeholder is shown until the first snapshot of the new run.
+        setLbmHasSnapshot(false);
+        setLbmProgress({ step: 0, targetSteps: 0, cd: NaN, cl: NaN });
+        setLbmStatus("idle");
+        if (lbmGrid.reason !== null) {
+            setLbmFailed(`LBM grid unavailable (${lbmGrid.reason}), analytic fallback serving frames.`);
+            return;
+        }
+        let disposed = false;
+        let worker: Worker | null = null;
+        try {
+            if (typeof Worker === "undefined") {
+                setLbmFailed("LBM worker unavailable in this browser, analytic fallback serving frames.");
+                return;
+            }
+            worker = new Worker(new URL("./flow/lbmWorker.ts", import.meta.url), { type: "module" });
+        } catch {
+            setLbmFailed("LBM worker unavailable in this browser, analytic fallback serving frames.");
+            return;
+        }
+        const provider = new LbmFlowProvider(
+            { nx: lbmGrid.nx, ny: lbmGrid.ny, domain: { ...DEFAULT_DOMAIN } },
+            debouncedSpec,
+            { Re: debouncedRe }
+        );
+        lbmProviderRef.current = provider;
+        try {
+            provider.setBlockageNote(blockageForGeometry(debouncedSpec, DEFAULT_DOMAIN).warning);
+        } catch {
+            // Blockage note must never break provider setup.
+        }
+        const client = new LbmClient(worker as unknown as ConstructorParameters<typeof LbmClient>[0]);
+        lbmClientRef.current = client;
+        // A worker that errors at the port level uses the same failover as
+        // a client error state. Chain the client handler so both fire.
+        try {
+            const prevOnError = (worker as unknown as { onerror?: ((ev: unknown) => void) | null }).onerror;
+            (worker as unknown as { onerror?: ((ev: unknown) => void) | null }).onerror = (ev: unknown) => {
+                try {
+                    (prevOnError as ((ev: unknown) => void) | null)?.(ev);
+                } catch {
+                    // Client handler faults must never break failover.
+                }
+                lbmFailover("LBM worker error event, analytic fallback serving frames.");
+            };
+        } catch {
+            // Error slot wiring must never break setup.
+        }
+        client.onStatus = (s) => {
+            if (disposed) return;
+            if (s === "disposed") return;
+            setLbmStatus(s);
+            provider.setStatus(s);
+        };
+        client.onProgress = (p) => {
+            if (disposed) return;
+            setLbmProgress({ ...p });
+            provider.setProgress(p.step, p.targetSteps, p.cd, p.cl);
+            const now = Date.now();
+            if (now - lbmLastSnapAtRef.current >= 250) {
+                lbmLastSnapAtRef.current = now;
+                client.requestSnapshot();
+            }
+        };
+        client.onSnapshot = (s) => {
+            if (disposed) return;
+            provider.setSnapshot(
+                { nx: s.nx, ny: s.ny, domain: { ...s.domain }, u: s.u, v: s.v, p: s.p, omega: s.omega, obstacle: s.obstacle },
+                s.step,
+                s.cd,
+                s.cl
+            );
+            setLbmHasSnapshot(true);
+            setLbmTick((t) => t + 1);
+        };
+        client.onError = (message) => {
+            if (disposed) return;
+            lbmFailover(message);
+        };
+        client.init({
+            nx: lbmGrid.nx,
+            ny: lbmGrid.ny,
+            domain: { ...DEFAULT_DOMAIN },
+            geomJson: JSON.stringify(debouncedSpec),
+            re: debouncedRe,
+            uLattice: 0.05,
+            lesEnabled: debouncedRe > 500,
+            targetSteps: 8000,
+            batchSteps: 512,
+        });
+        lbmGenKeyRef.current = `${lbmGrid.nx}x${lbmGrid.ny}|${JSON.stringify(debouncedSpec)}|${debouncedRe}`;
+        return () => {
+            disposed = true;
+            try {
+                client.dispose();
+            } catch {
+                // Disposal must never break teardown.
+            }
+            if (lbmClientRef.current === client) lbmClientRef.current = null;
+            if (lbmProviderRef.current === provider) lbmProviderRef.current = null;
+            try {
+                worker?.terminate();
+            } catch {
+                // Disposal must never break teardown.
+            }
+        };
+    }, [lbmActive, lbmGrid.nx, lbmGrid.ny, lbmGrid.reason, debouncedSpec, debouncedRe, lbmFailover]);
 
     const solved = useMemo<{ frame: SolvedFrame; error: string | null }>(() => {
         try {
@@ -561,8 +729,36 @@ export default function App() {
     }, [mode, solved, solveGrid, recordSolveMs]);
 
     const isFixture = mode === "fixture" && pack !== null;
-    const frame = solved.frame;
-    const solveError = isFixture ? null : solved.error;
+    const lbmFailedActive = lbmActive && lbmFailed !== null;
+    const lbmEffective = lbmActive && mode === "analytic" && !lbmFailedActive;
+    // Read the passive LBM provider on every render when effective. lbmTick
+    // bumps on each worker snapshot so the canvas picks up new fields.
+    void lbmTick;
+    const lbmProviderLive = lbmEffective ? lbmProviderRef.current : null;
+    const lbmPolygons = lbmEffective ? buildPolygons(debouncedSpec) : null;
+    const lbmForces = lbmProviderLive?.forces() ?? null;
+    const lbmFlow = lbmProviderLive?.getFrame() ?? null;
+    const lbmSolved: SolvedFrame | null = lbmEffective && lbmProviderLive !== null && lbmFlow !== null && lbmPolygons !== null
+        ? {
+            flow: lbmFlow,
+            polygons: lbmPolygons,
+            cl: lbmHasSnapshot && lbmForces !== null && lbmForces.cl !== null ? lbmForces.cl : Number.NaN,
+            cpMin: Number.NaN,
+            solveMs: 0,
+            provenance: {
+                source: lbmHasSnapshot ? "lbm-binary" : "analytic-potential",
+                label: lbmProviderLive.getProvenanceLabel(),
+                generatedAt: new Date().toISOString(),
+                gridLabel: `${lbmGrid.nx}x${lbmGrid.ny}`,
+                geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
+                note: lbmHasSnapshot
+                    ? "Viscous LBM worker (D2Q9 BGK, momentum exchange forces). Cd and Cl computed."
+                    : "LBM pending, placeholder preview, not physics. Press Run to start the viscous solve.",
+            },
+        }
+        : null;
+    const frame = lbmSolved ?? solved.frame;
+    const solveError = isFixture ? null : lbmEffective ? null : solved.error;
     const wasmFaulted = mode === "analytic" && wasmSource !== null && (wasmSource as { wasmFailed?: boolean }).wasmFailed === true;
     const isWasmActive = mode === "analytic" && wasmSource !== null && !wasmFaulted && solveError === null && frame.provenance.label.startsWith("wasm-rust");
     const isSurrogatePending = mode === "surrogate" && !surrogateReady;
@@ -572,15 +768,20 @@ export default function App() {
     // Gated fallback keeps loaded weights that exceed the sync inference budget.
     // Missing or failed fallback has no weights. The badge color differs.
     const isSurrogateGated = isSurrogateFallback && (surrogateRef.current?.loaded === true);
-    const flow = isFixture && pack ? pack.flow : frame.flow;
+    const flow = isFixture && pack ? pack.flow : lbmEffective && lbmFlow !== null ? lbmFlow : frame.flow;
     const airfoil = isFixture && pack ? [pack.airfoilPoints] : frame.polygons;
     const provenanceLabel = isFixture && pack
         ? pack.provenance.label
-        : solveError !== null
-            ? `solve error, showing last good (${frame.provenance.geometryLabel}, ${frame.provenance.gridLabel})`
-            : frame.provenance.label;
+        : lbmEffective && lbmSolved !== null
+            ? lbmSolved.provenance.label
+            : solveError !== null
+                ? `solve error, showing last good (${frame.provenance.geometryLabel}, ${frame.provenance.gridLabel})`
+                : frame.provenance.label;
     const dotClass =
         solveError !== null ? "failed"
+        : lbmFailedActive ? "fallback"
+        : lbmEffective && !lbmHasSnapshot ? "pending"
+        : lbmEffective ? "analytic"
         : isSurrogatePending ? "pending"
         : isSurrogateActive ? "surrogate"
         : isSurrogateGated ? "gated"
@@ -589,6 +790,9 @@ export default function App() {
         : "analytic";
     const backendName =
         isFixture ? "fixture preview"
+        : lbmFailedActive ? "analytic fallback (lbm failover)"
+        : lbmEffective && !lbmHasSnapshot ? "lbm pending"
+        : lbmEffective ? "lbm live"
         : solveError !== null ? `${sourceIsSurrogate ? "surrogate" : isWasmActive ? "wasm-rust" : "analytic"} held`
         : isSurrogatePending ? "surrogate loading"
         : isSurrogateGated ? "analytic fallback (gated)"
@@ -597,7 +801,27 @@ export default function App() {
         : isWasmActive ? `wasm-rust live ${solveGrid.nx}`
         : `analytic live ${solveGrid.nx}`;
     const regime = regimeLabel(debouncedRe);
-    const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${mode}|${solveGrid.nx}`;
+    const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${mode}|${lbmEffective ? `${lbmGrid.nx}x${lbmGrid.ny}` : solveGrid.nx}|${lbmTick}`;
+
+    // LBM run controls. Run starts the worker loop, Cancel latches the
+    // current state and keeps the last snapshot on screen.
+    const onLbmRun = useCallback(() => {
+        try {
+            lbmClientRef.current?.run();
+        } catch {
+            // Run must never throw out of the button handler.
+        }
+    }, []);
+    const onLbmCancel = useCallback(() => {
+        try {
+            lbmClientRef.current?.cancel();
+        } catch {
+            // Cancel must never throw out of the button handler.
+        }
+    }, []);
+    const lbmTarget = lbmProgress.targetSteps > 0 ? lbmProgress.targetSteps : 8000;
+    const lbmPct = Math.min(100, Math.max(0, Math.round((lbmProgress.step / lbmTarget) * 100)));
+    const lbmProgressText = `step ${lbmProgress.step} of ${lbmTarget} (${lbmPct} percent)`;
 
     const getSnapshot = useCallback(async (): Promise<Blob | null> => {
         const handle = canvasRef.current;
@@ -659,19 +883,23 @@ export default function App() {
     };
 
     // Telemetry engine word. Short uppercase token for the status strip.
-    const engineLabel = isWasmActive
-        ? "WASM-RUST"
-        : isSurrogateActive
-            ? "SURROGATE"
-            : isSurrogatePending
-                ? "LOADING"
-                : isFixture
-                    ? "FIXTURE"
-                    : solveError !== null
-                        ? "HELD"
-                        : isSurrogateFallback
-                            ? "ANALYTIC-FB"
-                            : "ANALYTIC";
+    const engineLabel = lbmFailedActive
+        ? "ANALYTIC-FB"
+        : lbmEffective
+            ? "LBM"
+            : isWasmActive
+                ? "WASM-RUST"
+                : isSurrogateActive
+                    ? "SURROGATE"
+                    : isSurrogatePending
+                        ? "LOADING"
+                        : isFixture
+                            ? "FIXTURE"
+                            : solveError !== null
+                                ? "HELD"
+                                : isSurrogateFallback
+                                    ? "ANALYTIC-FB"
+                                    : "ANALYTIC";
     const bodyRowLabel = bodySelectValue === "naca0012"
         ? "NACA 0012"
         : bodySelectValue === "naca2412"
@@ -753,7 +981,7 @@ export default function App() {
                     <TelemetryBar
                         engine={engineLabel}
                         dotClass={dotClass}
-                        gridLabel={`${solveGrid.nx} x ${solveGrid.ny}`}
+                        gridLabel={lbmEffective ? `${lbmGrid.nx} x ${lbmGrid.ny}` : `${solveGrid.nx} x ${solveGrid.ny}`}
                         cells={flow.nx * flow.ny}
                         solveMs={frame.solveMs}
                         cl={frame.cl}
@@ -765,6 +993,36 @@ export default function App() {
                         fail={valSummary.fail}
                         isFixture={isFixture}
                     />
+                    {lbmEffective && (
+                        <div className="sceneBar" role="toolbar" aria-label="LBM run controls">
+                            <span className="barLabel">LBM</span>
+                            <div className="chipGroup" role="group" aria-label="LBM run control">
+                                <button
+                                    type="button"
+                                    className="chip"
+                                    onClick={onLbmRun}
+                                    disabled={lbmStatus === "running"}
+                                    aria-label="Run LBM solve"
+                                >
+                                    Run
+                                </button>
+                                <button
+                                    type="button"
+                                    className="chip"
+                                    onClick={onLbmCancel}
+                                    disabled={lbmStatus !== "running"}
+                                    aria-label="Cancel LBM solve"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                            <span className="divider" aria-hidden="true" />
+                            <span className="teleGroup">
+                                <span className="barLabel">PROGRESS</span>
+                                <span className="teleValue mono" role="status">{lbmProgressText}</span>
+                            </span>
+                        </div>
+                    )}
                     <div className="tunnel" id="tunnel">
                         <ErrorBoundary resetKey={boundaryKey} label="flow canvas">
                             <FlowCanvas
@@ -782,6 +1040,15 @@ export default function App() {
                             />
                         </ErrorBoundary>
                         <div className="noticeStack" aria-label="Solver notices">
+                            {lbmFailedActive && (
+                                <p className="fallbackNote notice" role="status">{lbmFailed}, analytic fallback serving frames. No LBM numbers shown.</p>
+                            )}
+                            {lbmEffective && !lbmHasSnapshot && lbmFailed === null && (
+                                <p className="loading notice" role="status">LBM ready at {lbmGrid.nx} x {lbmGrid.ny}, placeholder preview, not physics. Press Run to start the viscous solve.</p>
+                            )}
+                            {lbmEffective && lbmBlockage.warning !== null && (
+                                <p className="fallbackNote notice" role="status">{lbmBlockage.warning}</p>
+                            )}
                             {packError && mode === "fixture" && <p className="error notice" role="alert">{packError}</p>}
                             {packLoading && mode === "fixture" && !pack && <p className="loading notice" role="status">Loading fixture pack</p>}
                             {isSurrogatePending && (
@@ -817,7 +1084,7 @@ export default function App() {
                                 <div className="runRow"><dt>BODY</dt><dd className="mono">{bodyRowLabel}</dd></div>
                                 <div className="runRow"><dt>ALPHA</dt><dd className="mono">{spec.alphaDeg.toFixed(1)} deg</dd></div>
                                 <div className="runRow"><dt>RE</dt><dd className="mono">{Math.round(debouncedRe).toLocaleString("en-US")}</dd></div>
-                                <div className="runRow"><dt>GRID</dt><dd className="mono">{solveGrid.nx} x {solveGrid.ny}</dd></div>
+                                <div className="runRow"><dt>GRID</dt><dd className="mono">{lbmEffective ? `${lbmGrid.nx} x ${lbmGrid.ny}` : `${solveGrid.nx} x ${solveGrid.ny}`}</dd></div>
                                 <div className="runRow"><dt>REGIME</dt><dd className="mono">{regime}</dd></div>
                             </dl>
                         </div>

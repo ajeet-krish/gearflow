@@ -127,6 +127,9 @@ function metaProxy() {
 
 export default defineConfig({
     plugins: [react(), metaProxy()],
+    worker: {
+        format: "es",
+    },
     build: {
         chunkSizeWarningLimit: 900,
         rollupOptions: {
