@@ -1,39 +1,96 @@
-// Agent console: conversational front end over the existing Meta tools.
-// Free text routes through routeIntent to Spark spec, engineer explain, SAM
-// sketch, poster render, or plain chat. Turns persist locally (cap 50).
-// Nothing writes to the canvas except explicit Apply buttons.
+// Agent console: Baseten Spark chat transcript over the live run context.
+// Composer streams through BasetenClient with Stop plus a 15 s budget,
+// falls back to plain chat on a streaming parse failure, and answers
+// locally with an offline badge when the toggle, the env flag, the spend
+// cap, or a network fault forces local mode. Setup actions auto apply
+// through onAgentAction, run and cancel render as confirm chips only,
+// rejections render as reason text. Transcript persists capped at 50.
+// React plus plain CSS classes from the Zenith shell, no new styling deps.
 
-import { useRef, useState } from "react";
-import type {
-    ChatAction,
-    ChatTurn,
-    GeometrySpec,
-    OfflineCase,
-    ParametricSpec,
-} from "@/contracts/types";
-import type { HashCache } from "@/meta/cache";
-import type { MetaClient } from "@/meta/client";
-import { promptToSpec } from "@/meta/sparkSpec";
-import { explainRun } from "@/meta/sparkEngineer";
-import { sketchToSpec } from "@/meta/samSegment";
-import { generatePoster, createPosterSession, type PosterSession } from "@/meta/poster";
-import { appendTurns, clearTurns, loadChatState, saveChatActions, saveTurns } from "@/agent/chatStore";
-import { routeIntent, OFFLINE_TEMPLATES } from "@/agent/intents";
-import { chatReply } from "@/meta/sparkChat";
+import { useMemo, useRef, useState } from "react";
+import type { AgentAction, ChatTurn } from "@/contracts/types";
+import type { AgentContext } from "@/agent/agentContext";
+import { BasetenClient, type BasetenChatResult, type BasetenMessage, type BasetenStreamChunk } from "@/agent/basetenClient";
+import { BASETEN_MODEL_ID } from "@/agent/basetenGate";
+import { parseAgentEnvelope, type AgentValidationContext } from "@/agent/agentActions";
+import { appendTurns, loadTurns, saveTurns } from "@/agent/chatStore";
+import { g_evalLog } from "@/meta/evalLog";
+
+/** Minimal chat port so tests inject a fake with zero live calls. */
+export interface BasetenChatPort {
+    streamChat(
+        messages: BasetenMessage[],
+        opts?: { feature?: string; signal?: AbortSignal; timeoutMs?: number }
+    ): AsyncGenerator<BasetenStreamChunk, BasetenChatResult, void>;
+    chat(
+        messages: BasetenMessage[],
+        opts?: { feature?: string; signal?: AbortSignal; timeoutMs?: number }
+    ): Promise<BasetenChatResult>;
+}
 
 export interface AgentConsoleProps {
-    spec: GeometrySpec;
-    reynolds: number;
-    cl: number;
-    cpMin: number;
-    offline: boolean;
-    onOfflineChange: (next: boolean) => void;
-    onApplySpec: (next: ParametricSpec) => void;
-    client: MetaClient;
-    cache: HashCache;
-    posterUrl: string | null;
-    onPosterUrl: (url: string | null) => void;
-    offlineCases?: OfflineCase[] | null;
+    spec?: unknown;
+    reynolds?: number;
+    cl?: number;
+    cpMin?: number;
+    offline?: boolean;
+    onOfflineChange?: (next: boolean) => void;
+    onApplySpec?: (next: never) => void;
+    client?: unknown;
+    cache?: unknown;
+    posterUrl?: string | null;
+    onPosterUrl?: (url: string | null) => void;
+    offlineCases?: unknown;
+    agentContext?: AgentContext | null;
+    onAgentAction?: (action: AgentAction) => void;
+    chatClient?: BasetenChatPort | null;
+    evalSink?: ((payload: { feature: string; model: string }) => void) | null;
+    spendCapUsd?: number;
+    initialTurns?: ChatTurn[];
+    initialBusy?: boolean;
+    initialExtras?: Record<string, TurnExtra>;
+}
+
+export const BASETEN_FEATURE = "baseten-chat";
+export const BASETEN_TIMEOUT_MS = 15000;
+export const STREAM_FLUSH_MS = 50;
+export const SPEND_SOFT_STOP_USD = 5;
+export const TRANSCRIPT_CAP = 50;
+
+export const PRESET_CHIPS: ReadonlyArray<string> = [
+    "Explain this run",
+    "Set up NACA 2412 alpha 6",
+    "How do I change Re",
+];
+
+const SETUP_KINDS: ReadonlySet<string> = new Set([
+    "set_body",
+    "set_alpha",
+    "set_reynolds",
+    "set_engine",
+    "set_field",
+    "set_spec",
+]);
+
+const RUN_KINDS: ReadonlySet<string> = new Set(["run_lbm", "cancel_lbm"]);
+
+export interface TurnExtra {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+    streaming: boolean;
+    stopped: boolean;
+    applied: string[];
+    rejections: string[];
+    pendingRuns: AgentAction[];
+}
+
+export interface SpendTotals {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
 }
 
 let turnCounter = 0;
@@ -47,302 +104,429 @@ function nowIso(): string {
     return new Date().toISOString();
 }
 
-function describeError(e: unknown): string {
-    const raw = e instanceof Error ? e.message : String(e);
-    return raw.length > 220 ? `${raw.slice(0, 217)}...` : raw;
+function isFiniteNum(v: unknown): v is number {
+    return typeof v === "number" && Number.isFinite(v);
 }
 
-function statusFor(client: MetaClient, cached: boolean): ChatTurn["status"] {
-    if (client.offlineMode) return "offline";
-    return cached ? "cached" : "live";
-}
-
-function shortSpec(spec: ParametricSpec): string {
+function envOffline(): boolean {
     try {
-        const g = (spec as Partial<ParametricSpec> | null)?.geometry as GeometrySpec | undefined;
-        if (!g || typeof g.kind !== "string") return "invalid spec";
-        const re = (spec as Partial<ParametricSpec>).reynolds;
-        const reLabel = Number.isFinite(re) ? ` Re${re}` : "";
-        const alpha = Number.isFinite(g.alphaDeg) ? ` a${g.alphaDeg}` : "";
-        const name = g.kind === "naca4" && g.naca ? `NACA ${g.naca.code}` : g.kind;
-        return `${name}${alpha}${reLabel}`;
+        const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+        return env?.VITE_DEMO_OFFLINE === "true";
     } catch {
-        return "invalid spec";
+        return false;
     }
 }
 
-/** Map an engineer suggested field onto canvas controls. Null means no control. */
-function mapSuggestedChange(
-    current: GeometrySpec,
-    currentRe: number,
-    field: string,
-    to: number
-): { spec: GeometrySpec; reynolds: number } | null {
-    const f = field.trim().toLowerCase();
-    if (f === "alphadeg" || f === "alpha" || f === "aoa") {
-        return { spec: { ...current, alphaDeg: Math.min(12, Math.max(-4, to)) }, reynolds: currentRe };
-    }
-    if (f === "reynolds" || f === "re" || f === "rey") {
-        return { spec: current, reynolds: Math.min(1_000_000, Math.max(1000, Math.round(to))) };
-    }
-    const naca = current.naca;
-    if (naca === undefined) return null;
-    if (f === "camber" || f === "m") {
-        return { spec: { ...current, naca: { ...naca, m: Math.min(0.09, Math.max(0, to)) } }, reynolds: currentRe };
-    }
-    if (f === "camberposition" || f === "camber position" || f === "p") {
-        return { spec: { ...current, naca: { ...naca, p: Math.min(0.8, Math.max(0.2, to)) } }, reynolds: currentRe };
-    }
-    if (f === "thickness" || f === "t") {
-        return { spec: { ...current, naca: { ...naca, t: Math.min(0.18, Math.max(0.06, to)) } }, reynolds: currentRe };
-    }
-    return null;
+export function spendExceeded(costUsd: number, cap: number = SPEND_SOFT_STOP_USD): boolean {
+    if (!Number.isFinite(costUsd) || !Number.isFinite(cap)) return false;
+    return costUsd >= cap;
 }
 
-const PRESET_CHIPS = [
-    "Explain this run",
-    "Propose a high lift spec",
-    "Thicken the section",
-    "Render a poster",
-];
+/** Validation context derived from the agent snapshot, engine flag first. */
+export function validationContextFor(ctx: AgentContext | null | undefined): AgentValidationContext {
+    if (ctx === null || ctx === undefined) {
+        return { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
+    }
+    const flagged = (ctx.lbm as unknown as { effective?: unknown } | null | undefined)?.effective;
+    let lbmEffective: boolean;
+    if (typeof flagged === "boolean") {
+        lbmEffective = flagged;
+    } else {
+        const status = typeof ctx.lbm?.status === "string" ? ctx.lbm.status.toLowerCase() : "";
+        lbmEffective = ctx.lbm?.hasSnapshot === true || status.includes("live") || status.includes("running");
+    }
+    return {
+        lbmEffective,
+        statsReady: ctx.lbm?.statsReady === true,
+        hasTke: ctx.field?.hasTke === true,
+        hasRecirc: ctx.field?.hasRecirc === true,
+    };
+}
+
+/** Prompt messages: system instruction plus bounded context plus recent history. */
+export function buildBasetenMessages(
+    input: string,
+    ctx: AgentContext | null | undefined,
+    history: ChatTurn[]
+): BasetenMessage[] {
+    const contextJson = ctx === null || ctx === undefined ? "{}" : JSON.stringify(ctx).slice(0, 3500);
+    const system: BasetenMessage = {
+        role: "system",
+        content: [
+            "You are the GearFlow tunnel assistant. Answer briefly about the run.",
+            "To change the canvas, append one fenced block per action:",
+            "```action-json",
+            '{"kind":"set_alpha","alphaDeg":6}',
+            "```",
+            "Valid kinds: set_body, set_alpha, set_reynolds, set_engine, set_field, run_lbm, cancel_lbm, set_spec.",
+            "Bounds: alpha in [-4, 12], reynolds in [1000, 1000000].",
+            "set_field k needs TKE ready, recirc needs the mask ready. run_lbm needs LBM live.",
+            `Live context: ${contextJson}`,
+        ].join("\n"),
+    };
+    const tail = history.slice(-8).map((t): BasetenMessage => ({
+        role: t.role === "user" ? "user" : "assistant",
+        content: t.text.slice(0, 2000),
+    }));
+    return [system, ...tail, { role: "user", content: input.slice(0, 2000) }];
+}
+
+/** Deterministic local reply. Zero network, zero canvas writes. */
+export function localOfflineReply(input: string, metrics: { cl: number; cpMin: number; reynolds: number }): string {
+    const lower = input.toLowerCase();
+    const clText = isFiniteNum(metrics.cl) ? `Cl ${metrics.cl.toFixed(3)}` : "Cl pending a clean solve";
+    const cpText = isFiniteNum(metrics.cpMin) ? `CpMin ${metrics.cpMin.toFixed(3)}` : "CpMin pending a clean solve";
+    if (lower.includes("reynolds") || lower.includes("change re") || lower.includes("how do i change")) {
+        const reText = isFiniteNum(metrics.reynolds) ? `Re ${Math.round(metrics.reynolds)}` : "Re unset";
+        return `Offline note, local only. ${reText} lives in the solver bar RE field, edits recompute locally. Canvas unchanged.`;
+    }
+    if (lower.includes("naca 2412") || lower.includes("set up") || lower.includes("setup")) {
+        return "Offline note, local only. NACA 2412 at alpha 6 is the default Shape preset, pick it in the solver bar BODY select. Canvas unchanged while offline.";
+    }
+    if (lower.includes("explain")) {
+        return `Offline engineer note, local only. 2D potential flow plus a wake overlay. ${clText}, ${cpText}. Raise alpha a touch for more lift, watch the suction peak. Canvas unchanged.`;
+    }
+    return "Offline note, local only. Ask to explain the run, set up NACA 2412, or change Re, and the console answers from local state. Canvas unchanged.";
+}
+
+function describeAction(a: AgentAction): string {
+    if (a.kind === "set_body") return `body ${a.body}`;
+    if (a.kind === "set_alpha") return `alpha ${a.alphaDeg}`;
+    if (a.kind === "set_reynolds") return `Re ${a.reynolds}`;
+    if (a.kind === "set_engine") return `engine ${a.engine}`;
+    if (a.kind === "set_field") return `field ${a.field}`;
+    if (a.kind === "run_lbm") return "Run LBM";
+    if (a.kind === "cancel_lbm") return "Cancel LBM";
+    return "custom spec";
+}
+
+function makeExtra(over: Partial<TurnExtra> = {}): TurnExtra {
+    return {
+        model: BASETEN_MODEL_ID,
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        streaming: false,
+        stopped: false,
+        applied: [],
+        rejections: [],
+        pendingRuns: [],
+        ...over,
+    };
+}
 
 export default function AgentConsole({
-    spec,
-    reynolds,
-    cl,
-    cpMin,
-    offline,
-    onOfflineChange,
-    onApplySpec,
-    client,
-    cache,
-    posterUrl,
-    onPosterUrl,
-    offlineCases = null,
+    spec = undefined,
+    reynolds = Number.NaN,
+    cl = Number.NaN,
+    cpMin = Number.NaN,
+    offline = false,
+    onOfflineChange = undefined,
+    onApplySpec = undefined,
+    client = undefined,
+    cache = undefined,
+    posterUrl = undefined,
+    onPosterUrl = undefined,
+    offlineCases = undefined,
+    agentContext = null,
+    onAgentAction = undefined,
+    chatClient = null,
+    evalSink = undefined,
+    spendCapUsd = SPEND_SOFT_STOP_USD,
+    initialTurns = undefined,
+    initialBusy = undefined,
+    initialExtras = undefined,
 }: AgentConsoleProps) {
-    const [turns, setTurns] = useState<ChatTurn[]>(() => loadChatState().turns);
-    const [actions, setActions] = useState<Record<string, ChatAction>>(() => loadChatState().actions);
-    const [input, setInput] = useState("");
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [samArmed, setSamArmed] = useState(false);
-    const fileRef = useRef<HTMLInputElement | null>(null);
-    const posterSessionRef = useRef<PosterSession | null>(null);
-    if (posterSessionRef.current === null) posterSessionRef.current = createPosterSession();
+    void onApplySpec;
+    void client;
+    void cache;
+    void posterUrl;
+    void onPosterUrl;
+    void offlineCases;
+    void spec;
 
-    function pushTurns(next: ChatTurn | ChatTurn[]): void {
+    const [turns, setTurns] = useState<ChatTurn[]>(() => initialTurns ?? loadTurns());
+    const [extras, setExtras] = useState<Record<string, TurnExtra>>(() => initialExtras ?? {});
+    const [input, setInput] = useState("");
+    const [busy, setBusy] = useState<boolean>(() => initialBusy ?? false);
+    const [stopping, setStopping] = useState(false);
+    const [samNote, setSamNote] = useState(false);
+    const [spend, setSpend] = useState<SpendTotals>({ model: BASETEN_MODEL_ID, inputTokens: 0, outputTokens: 0, costUsd: 0 });
+    const busyRef = useRef<boolean>(initialBusy ?? false);
+    const abortRef = useRef<AbortController | null>(null);
+
+    const validationCtx = useMemo(() => validationContextFor(agentContext ?? null), [agentContext]);
+    const softStopped = spendExceeded(spend.costUsd, spendCapUsd);
+    const forcedLocal = offline || envOffline() || softStopped;
+
+    const port: BasetenChatPort = useMemo(() => {
+        if (chatClient !== null && chatClient !== undefined) return chatClient;
+        const live = new BasetenClient({
+            timeoutMs: BASETEN_TIMEOUT_MS,
+            onEval: (p) => {
+                try {
+                    void g_evalLog.add({
+                        feature: BASETEN_FEATURE,
+                        model: p.model,
+                        latencyMs: p.latencyMs,
+                        costUsd: p.costUsd,
+                        costEstimated: false,
+                        cached: p.cachedTokens > 0,
+                        ok: p.ok,
+                        fallback: p.ok ? null : "baseten",
+                        hash: BASETEN_FEATURE,
+                    });
+                } catch {
+                    // Eval sink faults never break the chat path.
+                }
+                try {
+                    if (evalSink !== undefined && evalSink !== null) evalSink({ feature: BASETEN_FEATURE, model: p.model });
+                } catch {
+                    // Optional test sink faults never break the chat path.
+                }
+            },
+        });
+        return live;
+    }, [chatClient, evalSink]);
+
+    function pushTurn(next: ChatTurn | ChatTurn[]): void {
         setTurns((prev) => appendTurns(prev, next));
     }
 
-    function markApplied(id: string): void {
-        setTurns((prev) => {
-            const merged = prev.map((t) => (t.id === id ? { ...t, applied: true } : t));
-            saveTurns(merged);
-            return merged;
-        });
+    function setExtra(id: string, patch: Partial<TurnExtra>): void {
+        setExtras((prev) => ({ ...prev, [id]: makeExtra({ ...prev[id], ...patch }) }));
     }
 
-    function onApplyTurn(id: string): void {
-        const action = actions[id];
-        if (action === undefined) return;
-        if (action.kind === "spec" && action.spec !== undefined) {
-            onApplySpec(action.spec);
-            markApplied(id);
-            return;
-        }
-        if (action.kind === "explain" && action.engineer !== undefined) {
-            const mapped = mapSuggestedChange(spec, reynolds, action.engineer.suggestedChange.field, action.engineer.suggestedChange.to);
-            if (mapped === null) return;
-            onApplySpec({ geometry: mapped.spec, reynolds: mapped.reynolds, rationale: action.engineer.suggestedChange.rationale });
-            markApplied(id);
-            return;
-        }
-        if (action.kind === "sam" && action.sam !== undefined) {
-            onApplySpec({
-                geometry: { kind: "custom", chord: 1, alphaDeg: 4, nPoints: action.sam.polygon.length, polygon: action.sam.polygon },
-                reynolds,
-                rationale: "SAM sketch polygon from agent console.",
-            });
-            markApplied(id);
-        }
+    function recordSpend(result: { usage: { inputTokens: number; outputTokens: number }; costUsd: number; model: string }): void {
+        setSpend((prev) => ({
+            model: result.model,
+            inputTokens: prev.inputTokens + result.usage.inputTokens,
+            outputTokens: prev.outputTokens + result.usage.outputTokens,
+            costUsd: prev.costUsd + (Number.isFinite(result.costUsd) ? result.costUsd : 0),
+        }));
     }
 
-    async function handleSpec(text: string, userId: string): Promise<void> {
-        void userId;
-        try {
-            const result = await promptToSpec(client, cache, text);
-            const id = nextId();
-            pushTurns({
-                id, role: "assistant", at: nowIso(),
-                text: `Proposed ${shortSpec(result.spec)}: ${result.spec.rationale}`,
-                tool: "spark-spec", status: statusFor(client, result.cached), specSnapshot: result.spec,
-            });
-            setActions((prev) => {
-                const next = { ...prev, [id]: { kind: "spec", spec: result.spec } as ChatAction };
-                saveChatActions(next);
-                return next;
-            });
-        } catch (e) {
-            pushTurns({
-                id: nextId(), role: "assistant", at: nowIso(),
-                text: `${OFFLINE_TEMPLATES.spec} (${describeError(e)})`,
-                tool: "spark-spec", status: "fallback",
+    function settleEnvelope(id: string, rawText: string): void {
+        const envelope = parseAgentEnvelope(rawText, validationCtx);
+        const applied: string[] = [];
+        const pending: AgentAction[] = [];
+        for (const action of envelope.actions) {
+            if (RUN_KINDS.has(action.kind)) {
+                pending.push(action);
+                continue;
+            }
+            if (SETUP_KINDS.has(action.kind)) {
+                try {
+                    onAgentAction?.(action);
+                    applied.push(`Applied: ${describeAction(action)}.`);
+                } catch {
+                    // Executor faults render as a rejection line, never throw.
+                    envelope.rejections.push(`apply failed for ${action.kind}, canvas unchanged`);
+                }
+                continue;
+            }
+            envelope.rejections.push(`unknown action kind ${(action as { kind: string }).kind}, ignored`);
+        }
+        const patch: Partial<TurnExtra> = {};
+        if (applied.length > 0) patch.applied = applied;
+        if (envelope.rejections.length > 0) patch.rejections = envelope.rejections;
+        if (pending.length > 0) patch.pendingRuns = pending;
+        patch.streaming = false;
+        setExtra(id, patch);
+        if (envelope.reply.trim().length > 0) {
+            const reply = envelope.reply;
+            setTurns((prev) => {
+                const merged = prev.map((t) => (t.id === id ? { ...t, text: reply } : t));
+                saveTurns(merged.slice(-TRANSCRIPT_CAP));
+                return merged.slice(-TRANSCRIPT_CAP);
             });
         }
     }
 
-    async function handleExplain(): Promise<void> {
-        const metricsReady = Number.isFinite(cl) && Number.isFinite(cpMin);
-        if (!metricsReady) {
-            pushTurns({
-                id: nextId(), role: "assistant", at: nowIso(),
-                text: "Needs a solved run with finite Cl and CpMin before I can read it.",
-                tool: "spark-engineer", status: "fallback",
-            });
-            return;
-        }
-        try {
-            const current: ParametricSpec = { geometry: spec, reynolds, rationale: "Current canvas run." };
-            const result = await explainRun(client, cache, current, { cl, cpMin, reynolds });
-            const id = nextId();
-            pushTurns({
-                id, role: "assistant", at: nowIso(),
-                text: `${result.headline} ${result.explanation} Suggests ${result.suggestedChange.field} ${result.suggestedChange.from} to ${result.suggestedChange.to}. Caveat: ${result.caveats}`,
-                tool: "spark-engineer", status: statusFor(client, false),
-            });
-            setActions((prev) => {
-                const next = { ...prev, [id]: { kind: "explain", engineer: result } as ChatAction };
-                saveChatActions(next);
-                return next;
-            });
-        } catch (e) {
-            pushTurns({
-                id: nextId(), role: "assistant", at: nowIso(),
-                text: `${OFFLINE_TEMPLATES.explain} (${describeError(e)})`,
-                tool: "spark-engineer", status: "fallback",
-            });
-        }
-    }
-
-    async function handleSamFile(file: File): Promise<void> {
-        setBusy(true);
-        setError(null);
-        try {
-            const result = await sketchToSpec(client, cache, file);
-            const id = nextId();
-            pushTurns({
-                id, role: "assistant", at: nowIso(),
-                text: `Segmented sketch: IoU ${result.sam.maskIou.toFixed(2)}, confidence ${result.sam.confidence.toFixed(2)}${result.sam.usedFallback ? ", bbox fallback (mask missing)" : ", mask polygon"}.`,
-                tool: "sam", status: statusFor(client, false),
-            });
-            setActions((prev) => {
-                const next = { ...prev, [id]: { kind: "sam", sam: result.sam } as ChatAction };
-                saveChatActions(next);
-                return next;
-            });
-            setSamArmed(false);
-        } catch (e) {
-            setError(describeError(e));
-        } finally {
-            setBusy(false);
-        }
-    }
-
-    async function handlePoster(): Promise<void> {
-        if (offline && offlineCases !== null && offlineCases.length > 0) {
-            onPosterUrl(offlineCases[0].poster);
-            const id = nextId();
-            pushTurns({
-                id, role: "assistant", at: nowIso(),
-                text: "Offline poster: reused the baked offline render, no network.",
-                tool: "poster", status: "offline",
-            });
-            setActions((prev) => {
-                const next = { ...prev, [id]: { kind: "poster", posterUrl: offlineCases[0].poster } as ChatAction };
-                saveChatActions(next);
-                return next;
-            });
-            return;
-        }
-        try {
-            const current: ParametricSpec = { geometry: spec, reynolds, rationale: "Current canvas run." };
-            const { url, cached } = await generatePoster(client, cache, current, posterSessionRef.current!);
-            onPosterUrl(url);
-            const id = nextId();
-            pushTurns({
-                id, role: "assistant", at: nowIso(), text: "Poster rendered, illustrative only, not physics.",
-                tool: "poster", status: statusFor(client, cached),
-            });
-            setActions((prev) => {
-                const next = { ...prev, [id]: { kind: "poster", posterUrl: url } as ChatAction };
-                saveChatActions(next);
-                return next;
-            });
-        } catch (e) {
-            pushTurns({
-                id: nextId(), role: "assistant", at: nowIso(),
-                text: `${OFFLINE_TEMPLATES.poster} (${describeError(e)})`,
-                tool: "poster", status: "fallback",
-            });
-        }
-    }
-
-    async function handleChat(text: string): Promise<void> {
-        const history = [...turns.slice(-8).map((t) => `${t.role}: ${t.text}`), `user: ${text}`];
-        const current: ParametricSpec = { geometry: spec, reynolds, rationale: "Current canvas run." };
-        const reply = await chatReply(client, cache, history, { spec: current, cl, cpMin });
+    function pushOfflineAssistant(userText: string): void {
         const id = nextId();
-        pushTurns({
-            id, role: "assistant", at: nowIso(), text: reply.reply,
-            tool: "chat", status: client.offlineMode ? "offline" : reply.cached ? "cached" : "live",
-            specSnapshot: reply.proposedSpec,
+        const reply = localOfflineReply(userText, {
+            cl: isFiniteNum(cl) ? cl : Number.NaN,
+            cpMin: isFiniteNum(cpMin) ? cpMin : Number.NaN,
+            reynolds: isFiniteNum(reynolds) ? reynolds : Number.NaN,
         });
-        if (reply.proposedSpec !== undefined) {
-            const proposed = reply.proposedSpec;
-            setActions((prev) => {
-                const next = { ...prev, [id]: { kind: "spec", spec: proposed } as ChatAction };
-                saveChatActions(next);
-                return next;
-            });
+        pushTurn({ id, role: "assistant", at: nowIso(), text: reply, tool: "baseten", status: "offline" });
+        setExtra(id, makeExtra({ streaming: false }));
+    }
+
+    async function runStream(id: string, messages: BasetenMessage[], controller: AbortController): Promise<void> {
+        let fullText = "";
+        let lastResult: BasetenChatResult | null = null;
+        let lastFlush = Date.now();
+        try {
+            const gen = port.streamChat(messages, { feature: BASETEN_FEATURE, signal: controller.signal, timeoutMs: BASETEN_TIMEOUT_MS });
+            for (;;) {
+                const step = await gen.next();
+                if (step.done) {
+                    lastResult = step.value;
+                    fullText = step.value.text;
+                    break;
+                }
+                fullText = step.value.text;
+                const now = Date.now();
+                if (now - lastFlush >= STREAM_FLUSH_MS) {
+                    const snapshot = fullText;
+                    lastFlush = now;
+                    setTurns((prev) => {
+                        const merged = prev.map((t) => (t.id === id ? { ...t, text: snapshot } : t));
+                        saveTurns(merged.slice(-TRANSCRIPT_CAP));
+                        return merged.slice(-TRANSCRIPT_CAP);
+                    });
+                }
+            }
+        } catch (e) {
+            const aborted = controller.signal.aborted || (e instanceof Error && e.name === "AbortError");
+            if (aborted) {
+                const snapshot = fullText.length > 0 ? `${fullText} (stopped)` : "Stopped, partial reply discarded.";
+                setTurns((prev) => {
+                    const merged = prev.map((t) => (t.id === id ? { ...t, text: snapshot, status: "fallback" as const } : t));
+                    saveTurns(merged.slice(-TRANSCRIPT_CAP));
+                    return merged.slice(-TRANSCRIPT_CAP);
+                });
+                setExtra(id, { stopped: true, streaming: false });
+                return;
+            }
+            const failed = e instanceof Error ? e : new Error(String(e));
+            const needsFallback = failed.message.toLowerCase().includes("json") || failed.message.toLowerCase().includes("valid") || fullText.length === 0;
+            if (needsFallback) {
+                try {
+                    const plain = await port.chat(messages, { feature: BASETEN_FEATURE, signal: controller.signal, timeoutMs: BASETEN_TIMEOUT_MS });
+                    lastResult = plain;
+                    fullText = plain.text;
+                } catch {
+                    pushTurn({ id: nextId(), role: "assistant", at: nowIso(), text: "Baseten unreachable, local mode. Canvas unchanged.", tool: "baseten", status: "offline" });
+                    setTurns((prev) => {
+                        const merged = prev.filter((t) => t.id !== id);
+                        saveTurns(merged.slice(-TRANSCRIPT_CAP));
+                        return merged.slice(-TRANSCRIPT_CAP);
+                    });
+                    setExtras((prev) => {
+                        const next = { ...prev };
+                        delete next[id];
+                        return next;
+                    });
+                    return;
+                }
+            } else {
+                pushTurn({ id: nextId(), role: "assistant", at: nowIso(), text: "Baseten unreachable, local mode. Canvas unchanged.", tool: "baseten", status: "offline" });
+                setTurns((prev) => {
+                    const merged = prev.filter((t) => t.id !== id);
+                    saveTurns(merged.slice(-TRANSCRIPT_CAP));
+                    return merged.slice(-TRANSCRIPT_CAP);
+                });
+                setExtras((prev) => {
+                    const next = { ...prev };
+                    delete next[id];
+                    return next;
+                });
+                return;
+            }
         }
+        if (fullText.trim().length === 0) {
+            try {
+                const plain = await port.chat(messages, { feature: BASETEN_FEATURE, signal: controller.signal, timeoutMs: BASETEN_TIMEOUT_MS });
+                lastResult = plain;
+                fullText = plain.text;
+            } catch {
+                fullText = "Empty reply, local mode. Canvas unchanged.";
+            }
+        }
+        const cached = lastResult !== null && lastResult.usage.cachedTokens > 0;
+        setTurns((prev) => {
+            const merged = prev.map((t) =>
+                t.id === id ? { ...t, text: fullText, tool: "baseten" as const, status: (cached ? "cached" : "live") as ChatTurn["status"] } : t
+            );
+            saveTurns(merged.slice(-TRANSCRIPT_CAP));
+            return merged.slice(-TRANSCRIPT_CAP);
+        });
+        if (lastResult !== null) {
+            recordSpend(lastResult);
+            setExtra(id, {
+                model: lastResult.model,
+                inputTokens: lastResult.usage.inputTokens,
+                outputTokens: lastResult.usage.outputTokens,
+                costUsd: lastResult.costUsd,
+                streaming: false,
+            });
+        } else {
+            setExtra(id, { streaming: false });
+        }
+        settleEnvelope(id, fullText);
     }
 
     async function onSubmit(raw: string): Promise<void> {
         const text = raw.trim();
-        if (text.length === 0 || busy) return;
+        if (text.length === 0 || busyRef.current) return;
+        busyRef.current = true;
         setBusy(true);
-        setError(null);
-        const userTurn: ChatTurn = { id: nextId(), role: "user", text, at: nowIso() };
-        pushTurns(userTurn);
+        setStopping(false);
+        const userTurn: ChatTurn = { id: nextId(), role: "user", text: text.slice(0, 2000), at: nowIso() };
+        pushTurn(userTurn);
         setInput("");
-        try {
-            const intent = routeIntent(text);
-            if (intent.kind === "spec") await handleSpec(text, userTurn.id);
-            else if (intent.kind === "explain") await handleExplain();
-            else if (intent.kind === "sam") {
-                setSamArmed(true);
-                pushTurns({
-                    id: nextId(), role: "assistant", at: nowIso(),
-                    text: "Attach a planform sketch below (PNG or JPEG, max 5 MiB) and I will segment it.",
-                    tool: "sam", status: client.offlineMode ? "offline" : "live",
-                });
-            } else if (intent.kind === "poster") await handlePoster();
-            else await handleChat(text);
-        } catch (e) {
-            pushTurns({
-                id: nextId(), role: "assistant", at: nowIso(),
-                text: `${OFFLINE_TEMPLATES.chat} (${describeError(e)})`,
-                tool: "chat", status: "fallback",
-            });
-        } finally {
+        if (forcedLocal) {
+            pushOfflineAssistant(text);
+            busyRef.current = false;
             setBusy(false);
+            return;
+        }
+        const controller = new AbortController();
+        abortRef.current = controller;
+        const id = nextId();
+        pushTurn({ id, role: "assistant", at: nowIso(), text: "", tool: "baseten", status: "live" });
+        setExtra(id, makeExtra({ streaming: true }));
+        try {
+            const messages = buildBasetenMessages(text, agentContext ?? null, [...turns, userTurn]);
+            await runStream(id, messages, controller);
+        } finally {
+            abortRef.current = null;
+            busyRef.current = false;
+            setBusy(false);
+            setStopping(false);
+        }
+    }
+
+    function onStop(): void {
+        try {
+            abortRef.current?.abort();
+            setStopping(true);
+        } catch {
+            // Abort faults never break the Stop control.
         }
     }
 
     function onClear(): void {
-        clearTurns();
+        try {
+            localStorage.removeItem("gearflow:chat:v1");
+            localStorage.removeItem("gearflow:chat-actions:v1");
+        } catch {
+            // Private mode: memory state still clears below.
+        }
         setTurns([]);
-        setActions({});
+        setExtras({});
+    }
+
+    function onConfirmRun(turnId: string, action: AgentAction): void {
+        try {
+            onAgentAction?.(action);
+        } catch {
+            // Executor faults stay local to the confirm control.
+        }
+        setExtras((prev) => {
+            const cur = prev[turnId] ?? makeExtra({});
+            return {
+                ...prev,
+                [turnId]: {
+                    ...cur,
+                    pendingRuns: cur.pendingRuns.filter((p) => p !== action),
+                    applied: [...cur.applied, `Applied after confirm: ${describeAction(action)}.`],
+                },
+            };
+        });
     }
 
     return (
@@ -353,12 +537,12 @@ export default function AgentConsole({
                         id="agentOffline"
                         type="checkbox"
                         checked={offline}
-                        onChange={(e) => onOfflineChange(e.target.checked)}
-                        aria-label="Go offline, disable Meta network calls"
+                        onChange={(e) => onOfflineChange?.(e.target.checked)}
+                        aria-label="Go offline, disable Baseten network calls"
                     />
                     <label htmlFor="agentOffline">
                         Go offline
-                        <span className="mSub">Local only, served from cache or templates.</span>
+                        <span className="mSub">Local only, zero network, canvas unchanged.</span>
                     </label>
                     <span className={`mDot ${offline ? "off" : "on"}`} aria-hidden="true" />
                 </div>
@@ -368,61 +552,48 @@ export default function AgentConsole({
             </div>
             <div className="chatLog" role="log" aria-label="Agent chat transcript" aria-live="polite">
                 {turns.length === 0 && (
-                    <p className="mSub">Ask to explain the run, propose a spec, segment a sketch, or render a poster.</p>
+                    <p className="mSub">Ask to explain the run, set up NACA 2412, or change Re.</p>
                 )}
                 {turns.map((t) => {
-                    const action = actions[t.id];
-                    const canApply =
-                        action !== undefined &&
-                        ((action.kind === "spec" && action.spec !== undefined) ||
-                            (action.kind === "explain" && action.engineer !== undefined &&
-                                mapSuggestedChange(spec, reynolds, action.engineer.suggestedChange.field, action.engineer.suggestedChange.to) !== null) ||
-                            (action.kind === "sam" && action.sam !== undefined));
+                    const extra = extras[t.id];
+                    const isAssistant = t.role === "assistant";
+                    const toolText = typeof t.tool === "string" && t.tool.length > 0 ? t.tool : "legacy";
+                    const statusText = typeof t.status === "string" && t.status.length > 0 ? t.status : "fallback";
                     return (
                         <div key={t.id} className={`chatTurn ${t.role}`}>
                             <div className="chatHead">
                                 <span className="mono">{t.role === "user" ? "You" : "Agent"}</span>
-                                {t.tool !== undefined && <span className="badge status-info">{t.tool}</span>}
-                                {t.status !== undefined && <span className={`badge status-${t.status === "live" ? "pass" : t.status === "cached" ? "info" : "warn"}`}>{t.status}</span>}
-                                {t.applied === true && <span className="badge status-pass">applied</span>}
+                                {isAssistant && <span className="badge status-info">{toolText}</span>}
+                                {isAssistant && (
+                                    <span className={`badge status-${statusText === "live" ? "pass" : statusText === "cached" ? "info" : "warn"}`}>{statusText}</span>
+                                )}
+                                {isAssistant && <span className="badge status-info mono">{extra?.model ?? BASETEN_MODEL_ID}</span>}
+                                {extra?.streaming === true && <span className="badge status-info">streaming</span>}
+                                {extra?.stopped === true && <span className="badge status-warn">stopped</span>}
+                                {(extra?.applied.length ?? 0) > 0 && <span className="badge status-pass">applied</span>}
                             </div>
-                            <p className="chatText">{t.text}</p>
-                            {t.specSnapshot !== undefined && action === undefined && (
-                                <p className="mono mSub">{shortSpec(t.specSnapshot)}</p>
-                            )}
-                            {canApply && (
-                                <button type="button" className="mBtn mApply" onClick={() => onApplyTurn(t.id)}>
-                                    Apply to canvas
+                            <p className="chatText">{t.text.length > 0 ? t.text : "Composing reply"}</p>
+                            {(extra?.applied ?? []).map((note, i) => (
+                                <p key={`applied-${i}`} className="mSub mono">{note}</p>
+                            ))}
+                            {(extra?.rejections ?? []).map((note, i) => (
+                                <p key={`rejected-${i}`} className="mSub mono" role="note">Rejected: {note}</p>
+                            ))}
+                            {(extra?.pendingRuns ?? []).map((run, i) => (
+                                <button
+                                    key={`confirm-${i}`}
+                                    type="button"
+                                    className="mBtn mApply"
+                                    onClick={() => onConfirmRun(t.id, run)}
+                                    aria-label={`Confirm ${run.kind === "run_lbm" ? "Run LBM solve" : "Cancel LBM solve"}`}
+                                >
+                                    Confirm {run.kind === "run_lbm" ? "Run LBM" : "Cancel LBM"}
                                 </button>
-                            )}
+                            ))}
                         </div>
                     );
                 })}
             </div>
-            {samArmed && (
-                <div className="chatSam">
-                    <label className="mLabel" htmlFor="agentSamFile">Sketch upload (PNG or JPEG, max 5 MiB)</label>
-                    <input
-                        id="agentSamFile"
-                        ref={fileRef}
-                        type="file"
-                        accept="image/png,image/jpeg"
-                        className="mFile"
-                        aria-label="Upload a planform sketch for SAM segmentation"
-                    />
-                    <button
-                        type="button"
-                        className="mBtn"
-                        disabled={busy}
-                        onClick={() => {
-                            const file = fileRef.current?.files?.[0];
-                            if (file) void handleSamFile(file);
-                        }}
-                    >
-                        {busy ? "Segmenting" : "Segment sketch"}
-                    </button>
-                </div>
-            )}
             <div className="chipRow" role="group" aria-label="Preset prompts">
                 {PRESET_CHIPS.map((chip) => (
                     <button key={chip} type="button" className="chip" disabled={busy} onClick={() => void onSubmit(chip)}>
@@ -444,18 +615,45 @@ export default function AgentConsole({
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="Explain this run, or propose a thicker section"
+                    placeholder="Explain this run, or set up NACA 2412"
                     maxLength={500}
                     aria-label="Ask the agent"
                 />
-                <button type="submit" className="mBtn chatSend" disabled={busy || input.trim().length === 0}>
-                    {busy ? "Working" : "Send"}
-                </button>
+                {busy ? (
+                    <button type="button" className="mBtn chatSend" onClick={onStop} aria-label="Stop the streaming reply">
+                        {stopping ? "Stopping" : "Stop"}
+                    </button>
+                ) : (
+                    <button type="submit" className="mBtn chatSend" disabled={input.trim().length === 0} aria-label="Send chat message">
+                        Send
+                    </button>
+                )}
             </form>
-            {error !== null && <p className="mError" role="alert">{error}</p>}
-            {posterUrl !== null && (
-                <p className="mSub mono">Poster session render active, illustrative only.</p>
-            )}
+            <div className="chatFoot" role="status" aria-label="Session spend meter">
+                <p className="mSub mono">
+                    Session {spend.model} in {spend.inputTokens} out {spend.outputTokens} est ${spend.costUsd.toFixed(4)}.
+                </p>
+                {softStopped && (
+                    <p className="mSub mono">Spend cap ${spendCapUsd.toFixed(2)} reached, local mode until reset.</p>
+                )}
+                {forcedLocal && !softStopped && (
+                    <p className="mSub mono">Local mode, zero network, canvas unchanged.</p>
+                )}
+            </div>
+            <div className="chatSam">
+                <button
+                    type="button"
+                    className="chip"
+                    onClick={() => setSamNote((v) => !v)}
+                    aria-label="SAM sketch entry point, cached and offline"
+                    aria-expanded={samNote}
+                >
+                    SAM sketch (cached, offline)
+                </button>
+                {samNote && (
+                    <p className="mSub">Sketch segmentation stays cached and offline. SAM runs outside this chat and never routes through Baseten from here.</p>
+                )}
+            </div>
         </div>
     );
 }

@@ -31,6 +31,8 @@ import ValidationPanel, { type ValidationSummary } from "@/ui/ValidationPanel";
 import ExportBar from "@/ui/ExportBar";
 import { asFixtureExport, type ExportData } from "@/export/exportReport";
 import { loadOfflinePack } from "@/meta/offlinePack";
+import { buildAgentContext, type AppSnapshot } from "@/agent/agentContext";
+import type { AgentAction } from "@/contracts/types";
 import { loadDemoPack, type LoadedPack } from "@/meta/fixtures";
 import { HashCache } from "@/meta/cache";
 import { MetaClient } from "@/meta/client";
@@ -173,13 +175,29 @@ export default function App() {
     // frame source. ?engine=lbm selects the worker LBM path instead.
     const [wasmSource, setWasmSource] = useState<FrameSource | null>(null);
     const [wasmNote, setWasmNote] = useState<string | null>(null);
-    const [engineMode] = useState<EngineMode>(() => {
+    const [engineMode, setEngineMode] = useState<EngineMode>(() => {
         try {
             return readEngineMode(window.location.search);
         } catch {
             return "analytic";
         }
     });
+    const setEngineAndMirror = useCallback((next: EngineMode) => {
+        setEngineMode(next);
+        try {
+            const url = new URL(window.location.href);
+            if (next === "analytic") {
+                url.searchParams.delete("engine");
+                url.searchParams.delete("wasm");
+            } else {
+                url.searchParams.set("engine", next);
+                url.searchParams.delete("wasm");
+            }
+            window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+        } catch {
+            // URL mirror must never break engine switching.
+        }
+    }, []);
     const lbmActive = engineMode === "lbm";
     const wasmEngine = engineMode === "wasm";
     // Latest solved inputs, read when constructing the provider so the
@@ -963,6 +981,52 @@ export default function App() {
         setReynolds(Math.min(1_000_000, Math.max(100, Math.round(next))));
     };
 
+    // Phase B2 agent executor. Setup actions apply directly through the
+    // existing setters. Run and cancel reuse the LBM buttons, whose confirm
+    // and disabled states already live in the scene bar UI.
+    const applyAgentAction = useCallback((action: AgentAction) => {
+        if (action.kind === "set_body") {
+            const next = applyBodyPreset(spec, action.body);
+            if (next !== spec) setSpec(next);
+            return;
+        }
+        if (action.kind === "set_alpha") {
+            onAlphaBar(action.alphaDeg);
+            return;
+        }
+        if (action.kind === "set_reynolds") {
+            onReynoldsBar(action.reynolds);
+            return;
+        }
+        if (action.kind === "set_engine") {
+            if (action.engine === "surrogate") {
+                setMode("surrogate");
+                setEngineAndMirror("analytic");
+            } else {
+                setMode("analytic");
+                setEngineAndMirror(action.engine);
+            }
+            return;
+        }
+        if (action.kind === "set_field") {
+            if (action.field === "k" && !hasTke) return;
+            if (action.field === "recirc" && !hasRecirc) return;
+            onVariable(action.field);
+            return;
+        }
+        if (action.kind === "run_lbm") {
+            onLbmRun();
+            return;
+        }
+        if (action.kind === "cancel_lbm") {
+            onLbmCancel();
+            return;
+        }
+        if (action.kind === "set_spec") {
+            applyParametric(action.spec);
+        }
+    }, [spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setEngineAndMirror, applyParametric]);
+
     // Telemetry engine word. Short uppercase token for the status strip.
     const engineLabel = lbmFailedActive
         ? "ANALYTIC-FB"
@@ -988,6 +1052,33 @@ export default function App() {
             : bodySelectValue === "naca4412"
                 ? "NACA 4412"
                 : bodySelectValue.toUpperCase();
+
+    // Phase B2 agent snapshot. Built from solved state only, no new data
+    // plumbing. Passed as props toward AgentConsole, no styling here.
+    const agentSnapshot: AppSnapshot = useMemo(() => ({
+        spec: debouncedSpec,
+        reynolds: debouncedRe,
+        regime,
+        bodyLabel: bodyRowLabel,
+        backend: backendName,
+        engine: engineMode,
+        gridLabel: lbmEffective ? `${lbmGrid.nx}x${lbmGrid.ny}` : `${solveGrid.nx}x${solveGrid.ny}`,
+        cl: frame.cl,
+        cpMin: frame.cpMin,
+        lbmStatus,
+        lbmHasSnapshot,
+        lbmEffective,
+        lbmStatsReady,
+        lbmStats,
+        variable: prefs.variable,
+        effectiveVariable,
+        hasTke,
+        hasRecirc,
+        validation: { pass: valSummary.pass, warn: valSummary.warn, fail: valSummary.fail, info: valSummary.info },
+        provenanceLabel,
+        offline,
+    }), [debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, engineMode, lbmEffective, lbmGrid, solveGrid, frame, lbmStatus, lbmHasSnapshot, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline]);
+    const agentContextValue = useMemo(() => buildAgentContext(agentSnapshot), [agentSnapshot]);
 
     return (
         <div className="page">
@@ -1042,6 +1133,8 @@ export default function App() {
                                 posterUrl={posterUrl}
                                 onPosterUrl={setPosterUrl}
                                 offlineCases={offlineCases}
+                                agentContext={agentContextValue}
+                                onAgentAction={applyAgentAction}
                             />
                         </ErrorBoundary>
                     </div>

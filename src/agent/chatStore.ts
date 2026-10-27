@@ -17,6 +17,7 @@ const TOOL_ALLOWLIST: ReadonlySet<string> = new Set([
     "sam",
     "poster",
     "chat",
+    "baseten",
 ]);
 const STATUS_ALLOWLIST: ReadonlySet<string> = new Set(["live", "cached", "fallback", "offline"]);
 

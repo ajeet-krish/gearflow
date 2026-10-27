@@ -832,3 +832,74 @@ Verdict: PASS
 Minor observation: vite.config.ts:328-333 drain await has no dedicated backpressure test and no abort race on the drain promise. Non blocking.
 Tests: implementer reported npm test 59 files 712 tests and builds clean. Reviewer inspected source and tests in this session, no shell tool available to rerun.
 Note recurring pattern: integration wiring now covered by basetenProxy.test.ts, closing the isolated pass gap from the B1 review.
+
+## 2026-10-27 - B2 agent core plus console review
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Scope: Phase B2 uncommitted vs HEAD 53afdbf (src/agent/agentContext.ts, src/agent/agentActions.ts, agent and console tests, src/agent/agentAppWiring.test.ts, src/agent/chatStore.ts migration, src/contracts/types.ts, src/App.tsx engine lift and applyAgentAction and snapshot, src/ui/AgentConsole.tsx, src/ui/agentConsoleBaseten.test.tsx)
+Verdict: FAIL
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| 1 Engine lift, worker deps, URL mirror, analytic clears param | PASS | src/App.tsx:178-201 state plus mirror, analytic deletes engine and wasm, others set engine and delete wasm. LBM worker effect deps at src/App.tsx:685 unchanged in shape, keyed by lbmActive, grid, spec, Re. Minor: set_engine surrogate at src/App.tsx:1001-1007 leaves a stale engine param in the URL. Delegate frontend-dev: clear engine and wasm when setting surrogate mode. |
+| 2 applyAgentAction mapping, auto setup, confirm run and cancel, gating, set_spec | FAIL | Major at src/ui/AgentConsole.tsx:126-138: validationContextFor derives lbmEffective from hasSnapshot or live or running status only, so a pending LBM engine that has not run yet rejects run_lbm in the parser before a confirm chip can appear. App lbmEffective at src/App.tsx:816 is engine based and does not require a snapshot. Delegate frontend-dev: derive lbmEffective from the engine and failover state supplied in the snapshot, keep stats gating separate. Setup auto apply at AgentConsole.tsx:304-324 and confirm chips at 497-514, 562-572 are correct in code. set_spec validated at agentActions.ts:130-138 via schema.ts:370-385 and reapplied through applyParametric at App.tsx:394-398, 1024-1026. Field gate second layer at App.tsx:1010-1014 relies on hasTke and hasRecirc which already include statsReady at App.tsx:894-896. Minor: cancel_lbm validates even when LBM is not effective at agentActions.ts:127-129, confirm then no ops. |
+| 3 Context bounded, finite, honest, no typed arrays, null Cl | FAIL | Minor at agentContext.ts:28-31,112-113: cleanCount caps step and samples at 9999, so a real LBM step above 9999 is reported as 9999, bounded but not honest. Delegate backend-dev: raise the step cap to the run target or null out over range counts, add a step 12000 assertion. Minor at agentContext.ts:103-109,177-182: buildAgentContext claims never throws but dereferences snapshot.spec and snapshot.validation before any guard, so a null spec or missing validation throws. Delegate backend-dev: guard those heads or drop the never throws claim. Finite and null Cl and CpMin pass at 13-15,105-108,163-164, honesty capped at 147-149, JSON budget loop at 187-195, labels capped at 21-26. Token bound is a 3500 char budget at line 11, sliced again at AgentConsole.tsx:146. |
+| 4 Envelope parser never throws, reasons, malformed fallback | FAIL | Minor at agentActions.ts:150-156: safeCtx is built before the try at line 157, so parseAgentEnvelope with a null or undefined ctx throws instead of returning a rejection. Delegate backend-dev: move the safeCtx build inside the try or default the parameter. Parser otherwise passes: fences, bounds, gating, malformed fallback at 164-216, validateAgentAction wrapped at 70-143, set_spec inner validation at 130-137. Minor: candidate count from fences is unbounded at 161-191, a model reply with many fences can queue many executor calls. Delegate backend-dev: cap actions per envelope. |
+| 5 Store additive, old transcripts survive, baseten tag persisted | PASS | chatStore.ts:14-22 allowlist adds only baseten, version stays 1 at line 9, loadTurns at 87-103 keeps version 1 turns, types.ts:236 adds the tag. Migration tests at chatStore.migration.test.ts:34-58 cover legacy load and baseten load. Minor: the baseten test name says save and load but only loads a prewritten shape, tester: round trip through saveTurns. |
+| 6 Console streaming, Stop, batching, busy lock, provenance, offline, spend, transcript, SAM, no Spark path, no secrets | FAIL | Major at AgentConsole.tsx:344-446, 446 settleEnvelope: the streamed turn text is set to fullText at 427-433 and settleEnvelope at 304-331 never replaces it with envelope.reply, so fenced action-json and raw JSON stay visible in the transcript. Delegate frontend-dev: set the turn text to envelope.reply when non empty after settling, keep raw only for plain chat. Major at AgentConsole.tsx:541-550: every turn, including user turns and legacy turns with another tool, renders a baseten badge and a default live status, ignoring t.tool. Delegate frontend-dev: render provenance only for assistant turns and from t.tool and t.status. Minor at AgentConsole.tsx:245-251,449-451: busyRef is only assigned during render and never set synchronously in onSubmit, and initialBusy does not seed busyRef, so the lock is not atomic. Delegate frontend-dev: set busyRef.current true and false alongside setBusy. Streaming flush at 57,344-368, Stop and abort at 371-379,477-484, spend soft stop at 57,120-123,254-255,612-621, transcript cap at 58,287-289, offline local path at 333-342,457-461, SAM cached only note at 623-636, no Spark text path and no secret in the console file pass on inspection. |
+| 7 Tests behavioral, fail on auto run or gating removal | FAIL | Major at agentAppWiring.test.ts:14-46: source string contains only, so it passes if applyAgentAction maps actions to the wrong setters and if run auto fires. Major at agentConsoleBaseten.test.tsx:74-251: static markup plus a hand driven fake generator, no rendered submit through chatClient, so removing the RUN_KINDS confirm split at AgentConsole.tsx:66-75,304-324, busy lock, offline zero network in onSubmit, or spend gating in the component would not fail these tests. Delegate tester: drive AgentConsole with a fake BasetenChatPort and an onAgentAction spy, assert run and cancel do not call the spy until Confirm is clicked, setup does, gated k is rejected, offline makes zero port calls, and the spend cap blocks the second call. Validator gating removal itself is covered behaviorally at agentActions.test.ts:37-58. agentContext.test.ts and chatStore.migration.test.ts are behavioral and pass on inspection. |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Major | src/ui/AgentConsole.tsx:126-138 | run_lbm rejected for a pending LBM engine, confirm path unreachable for the first run | frontend-dev: snapshot supplied lbmEffective from engine state, not snapshot presence |
+| Major | src/ui/AgentConsole.tsx:427-433,304-331 | raw action fences remain the visible reply text, envelope.reply discarded | frontend-dev: write envelope.reply into the turn after settling |
+| Major | src/ui/AgentConsole.tsx:541-550 | provenance badges mislabel user and legacy turns as baseten live | frontend-dev: badge from t.tool and t.status, assistant turns only |
+| Major | src/agent/agentAppWiring.test.ts:14-46, src/ui/agentConsoleBaseten.test.tsx:186-251 | wiring and console tests are source and static markup, auto run or busy or offline regressions pass | tester: interactive component tests with a fake port and action spy |
+| Minor | src/agent/agentContext.ts:28-31 | step and samples silently capped at 9999 | backend-dev: honest cap or null, test step 12000 |
+| Minor | src/agent/agentContext.ts:104,177 | never throws claim fails on null spec or missing validation | backend-dev: guard heads |
+| Minor | src/agent/agentActions.ts:151-156 | parser throws on null ctx before its try | backend-dev: default or move inside try, cap candidates |
+| Minor | src/App.tsx:1001-1007 | surrogate leaves stale engine URL param | frontend-dev: clear engine and wasm on surrogate |
+| Minor | src/ui/AgentConsole.tsx:249-251 | busyRef not set synchronously, initialBusy ignored | frontend-dev: write busyRef in onSubmit and finally |
+
+### Verification Checklist
+- [ ] All checks passed
+- [ ] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases
+
+Tests inspected, not executed: reviewer session has no shell tool, so npm test and git diff could not be run. Files were read directly. Note recurring pattern: source string and static markup tests certify wiring that only behavioral component tests can prove, the isolated pass pattern flagged in earlier phases.
+
+## 2026-10-27 - B2 fix confirmation
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Scope: Re-review of B2 fixes vs prior FAIL at the B2 agent core plus console review (run_lbm pending rejection, raw fences visible, badges mislabel, weak tests, plus minors: step cap, null guards, surrogate URL, busyRef, parser null ctx and candidate cap)
+Verdict: PASS
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| 1 run_lbm pending LBM (Major) | PASS | src/agent/agentContext.ts:54,145,188 carries lbmEffective; src/App.tsx:816,1070 supplies engine based effective (pending, no snapshot needed); src/ui/AgentConsole.tsx:126-144 prefers the boolean flag; behavioural pin src/agent/agentAppWiring.test.ts:110-120 (pending snapshot, run accepted, zero rejections) and rendered confirm flow src/ui/agentConsoleWiring.test.tsx:278-333 |
+| 2 Raw fences visible (Major) | PASS | src/ui/AgentConsole.tsx:336-343 settleEnvelope rewrites the turn text to envelope.reply and persists it; parser strips fences at src/agent/agentActions.ts:187-203; rendered tests assert the transcript contains the prose and not action-json at src/ui/agentConsoleWiring.test.tsx:298-300,353-362 |
+| 3 Badges mislabel (Major) | PASS | src/ui/AgentConsole.tsx:559-569 badges render only for assistant turns, tool from t.tool with legacy fallback, status from t.status with fallback fallback; static pin src/ui/agentConsoleBaseten.test.tsx:342-362 (user turn has no baseten, legacy assistant shows legacy, not baseten) |
+| 4 Weak tests (Major) | PASS | src/agent/agentAppWiring.test.ts:1-5,58-120 is now behavioural (real validator, context builders, engine parser, no source reads); src/ui/agentConsoleWiring.test.tsx:114-171,277-547 drives the real component through a hook dispatcher with fake ports and an action spy: run parks on confirm (278-304), confirm fires once (306-333), setup auto applies (335-366), busy lock plus Stop (369-411), offline zero fetch (413-440), 503 and fetch failure badges (442-493), spend gate (495-547). Removing the RUN_KINDS confirm split, busy lock, offline branch, or spend gate would now fail these |
+| 5 Step cap (Minor) | PASS | src/agent/agentContext.ts:33-38 cleanStep has no upper cap, applied to samples and step at 127-128; pin src/agent/agentContext.test.ts:82-92 asserts step 12000 |
+| 6 Context null guards (Minor) | PASS | src/agent/agentContext.ts:114-118,218-237 try plus partial casts plus safe fallback; pin src/agent/agentContext.test.ts:94-110 (null snapshot, null spec, missing validation) |
+| 7 Parser null ctx and candidate cap (Minor) | PASS | src/agent/agentActions.ts:158-166 safeCtx built inside try; cap at 15,196-197,220-221; pins src/agent/agentActions.test.ts:86-123 (null ctx, five action cap on fences and plain arrays) |
+| 8 Surrogate URL (Minor) | PASS | src/App.tsx:1001-1004 set_engine surrogate also calls setEngineAndMirror analytic, which deletes engine and wasm params at src/App.tsx:185-200 |
+| 9 busyRef (Minor) | PASS | src/ui/AgentConsole.tsx:255 seeds from initialBusy, 464-466 sets busyRef synchronously in onSubmit before any await, cleared at 473-475 and in finally at 485-490; behavioural pin src/ui/agentConsoleWiring.test.tsx:369-411 (second submit ignored, streams stays 1) |
+
+Residual non blocking notes: (a) fence only or plain JSON only model replies still surface raw text, because src/agent/agentActions.ts:189 falls back to the raw reply when stripped text is empty and settleEnvelope at AgentConsole.tsx:336 only replaces on a non empty reply; add a fence only console test and return a generic settled line there. (b) Legacy assistant turns still show the default session model badge at AgentConsole.tsx:570 even though tool and status are now honest; gate the model badge on extras presence. (c) Gated k rejection and cancel confirm are pinned at validator level (agentAppWiring.test.ts:77-91) but not through the rendered console; the spend gate is pinned with a pre crossed cap (agentConsoleWiring.test.tsx:495-527) rather than a live first call crossing then a blocked second call.
+
+Checks detail: engine lift and URL mirror unchanged PASS (src/App.tsx:178-200,1001-1008), set_spec still validated (agentActions.ts:135-145), store additive PASS unchanged, no Spark path or secret in the console file, no em dashes in the reviewed fix surfaces. Tests and typecheck were reported by the implementer (npm test 65 files 766 tests PASS, tsc clean) and were inspected, not rerun, in this reviewer session (no shell tool available).
+
+### Verification Checklist
+- [x] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Note recurring pattern: closed for B2. Source string and static markup certification has been replaced by component level behavioural tests with a fake port and an action spy, ending the isolated pass pattern for the console; the remaining residuals are reply text edges for prose free model output, not gating or wiring.

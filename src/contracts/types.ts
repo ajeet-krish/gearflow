@@ -233,7 +233,7 @@ export interface ChatTurn {
     role: "user" | "assistant";
     text: string;
     at: string;
-    tool?: "spark-spec" | "spark-engineer" | "sam" | "poster" | "chat";
+    tool?: "spark-spec" | "spark-engineer" | "sam" | "poster" | "chat" | "baseten";
     status?: "live" | "cached" | "fallback" | "offline";
     applied?: boolean;
     specSnapshot?: ParametricSpec;
@@ -247,6 +247,23 @@ export interface ChatAction {
     sam?: SamResult;
     posterUrl?: string;
 }
+
+/** Phase B2 body token for the solver bar BODY select. Custom shapes go through set_spec. */
+export type BodyToken = "naca0012" | "naca2412" | "naca4412" | "cylinder" | "block" | "duct";
+
+/** Phase B2 engine token. Analytic, wasm, and lbm drive the engine switch, surrogate drives the solve mode. */
+export type AgentEngineToken = "analytic" | "wasm" | "lbm" | "surrogate";
+
+/** Phase B2 agent action union. Bounds match the canvas controls: alpha in [-4, 12], reynolds in [1000, 1000000]. */
+export type AgentAction =
+    | { kind: "set_body"; body: BodyToken }
+    | { kind: "set_alpha"; alphaDeg: number }
+    | { kind: "set_reynolds"; reynolds: number }
+    | { kind: "set_engine"; engine: AgentEngineToken }
+    | { kind: "set_field"; field: FieldMode }
+    | { kind: "run_lbm" }
+    | { kind: "cancel_lbm" }
+    | { kind: "set_spec"; spec: ParametricSpec };
 
 /** Selectable field quantity rendered on the tunnel canvas. */
 export type FieldMode = "speed" | "cp" | "omega" | "u" | "v" | "k" | "recirc";

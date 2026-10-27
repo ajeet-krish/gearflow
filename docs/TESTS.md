@@ -607,3 +607,42 @@ Phase tests integrate with prior phase tests (all 70 pre-existing Rust tests and
 | Probe Re 40 at D_lat 8 (temporary, removed) | BGK instability: tau 0.53 is inside the observed instability zone, diverged at step 672 | Use the Re 20 versus Re 30 pair at D_lat 12 (taus 0.59 and 0.56), which is what the committed test does; do not force Re 40 at coarse resolution |
 | Probe loop overshoot (temporary, fixed before commit) | Test looped run_steps(512) until done meets 6000, overshooting to 6144 since 6000 is not a multiple of 512 | Step with (remaining).min(512) like the other tests; fixed, now asserts step equals 6000 exactly |
 | Compiler warnings (pre-existing, not failures) | Unused p1, c1, p2, c2 bindings in the Poiseuille helper plus never read panels field plus never used generate_flow | Hygiene cleanup for the owning agent; no behavior change needed for tests to pass |
+
+## 2026-10-27 - Phase 12 B2 Wiring Hardening: Test Report (behavioral agent console coverage)
+
+### Test Results
+npm test: 65 files, 766 tests, all passed. Baseline before hardening was 64 files, 756 tests, all passed. Delta is src/ui/agentConsoleWiring.test.tsx (9 tests) plus agentAppWiring growth from 3 to 4 behavioral tests.
+npm run build: tsc noEmit plus vite build succeeded, no new warnings.
+
+New coverage in src/ui/agentConsoleWiring.test.tsx (9 tests, real component through a hook dispatcher shim, real BasetenClient with fake fetch, fake streaming port, zero live calls):
+happy path run_lbm envelope parks on the confirm chip with zero executor calls, confirm click fires the executor exactly once with run_lbm then clears the chip and renders the applied note, setup set_alpha auto applies once with no confirm chip,
+busy lock second submit while busy issues zero additional client calls with presets disabled and Send replaced by Stop, Stop aborts the hanging stream and renders the stopped badge with Send restored,
+offline toggle answers locally with zero fetch calls plus offline badge, 503 from the proxy renders the offline badge with zero executor calls, outright fetch failure renders the offline badge with zero executor calls,
+spend gate soft stop boundary pins plus over cap session forces local mode with the cap note and zero client calls, under cap session stays live with Send present.
+
+Reworked coverage replacing source string matching:
+src/agent/agentAppWiring.test.ts now drives the real envelope validator for all eight action kinds, the real gating on TKE plus recirc plus run plus alpha bounds, the real engine mode parser with URL round trip, and the real pending LBM snapshot through validation to a zero rejection run_lbm action.
+src/ui/agentConsoleBaseten.test.tsx source read test replaced with a mount level wiring test that passes the real context plus executor plus fake port as props with zero calls on mount.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| agentConsoleWiring.test.tsx (9) | PASS | Real component runs, real confirm click, busy single call plus Stop, three offline badge paths, spend cap local mode |
+| agentAppWiring.test.ts (4) | PASS | All eight kinds validate, gates hold, engine parser round trip, pending LBM run action with zero rejections |
+| agentConsoleBaseten.test.tsx (18) | PASS | Pre-existing 17 plus 1 behavioral wiring mount test, source read test removed, still green |
+| all other Node suites (735) | PASS | No regressions, 766 total |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+
+### Coverage Summary
+Happy path covered (run_lbm parks on confirm then fires once on click, setup auto applies, live path under cap stays clean).
+Edge cases covered (second submit ignored while busy, Stop aborts a hanging stream, spend boundary at exactly five dollars, custom cap respected, NaN spend never trips).
+Error conditions covered (offline toggle with zero fetch, 503 proxy fallback to local badge, fetch failure fallback to local badge, gated fields and run rejected without live state, alpha outside bounds rejected).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 756 pre-existing tests still pass, 766 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| wiring offline and spend assertions (initial run) | Test expected the generic offline note, but the explain input takes the engineer note variant | Assert the engineer note variant that the explain path really renders; fixed, now passes |
+| wiring baseten mount replacement (initial draft) | Draft used an invalid membership check on rendered HTML | Assert the Send control directly on the idle render; fixed, now passes |
+| busy guard mutation probe (temporary, restored) | Removed the busyRef early return to prove sensitivity, the busy lock test failed as intended | Guard restored byte for byte, production file untouched; probe confirms the test catches the regression |
