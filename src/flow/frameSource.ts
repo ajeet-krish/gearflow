@@ -47,7 +47,7 @@ function polygonsEqual(
 }
 
 /** Deep value compare for GeometrySpec so re-created but equal specs skip panel re-solves. */
-function geometriesEqual(a: GeometrySpec, b: GeometrySpec): boolean {
+export function geometriesEqual(a: GeometrySpec, b: GeometrySpec): boolean {
   if (a === b) return true;
   if (a.kind !== b.kind) return false;
   if (a.chord !== b.chord || a.alphaDeg !== b.alphaDeg || a.nPoints !== b.nPoints) return false;

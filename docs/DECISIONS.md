@@ -174,3 +174,17 @@ Append only. Add new entries at bottom with date. Never rewrite history.
 * Options considered: Defer to Phase 5 versus fix all High and Major items plus Mediums and Lows in one pass with regression tests.
 * Decision: Fixed all 13 items. Proxy allowlists 3 POST paths with same origin check, per IP rate limit, 10 MiB body cap with 413, upstream timeout, response cap, generic errors. EvalLog stores payload hash verbatim and the cache layer reports cached hits. SAM hashes full bytes via SHA-256, never caches fallbacks, validates fallback polygons, caps sketches at 5 MiB PNG/JPEG, validates dims and bbox, finite checks iou and confidence, maps AbortError to timeout. Custom closed airfoils get Kutta. Offline pack ships public/offline-pack/index.json with 2 baked cases and wires into App offline state. HashCache is LRU capped at 100 with expiry purge and persist cap plus namespaced clear. Poster URLs allowlist https and sized png base64. Schema enforces chord 1, magnitude bounds, SAM y bounds, Spark nPoints 160, and provider string caps. Monaco preset corrected to m 0.06, FlowControls derives display code, extractContent threads feature, masthead reads Phase 4.
 * Impact (judging link): Technical Depth (closed review gate, 308 tests green) and Demo (offline safe, honest ledger).
+
+### 2026-10-26 Adopt Zenith instrument shell layout
+* Date: 2026-10-26
+* Context: Phase 8 rebuilds the studio shell around a full bleed tunnel. The prior single panel surface buried solver, field, telemetry, validation, and export in one column.
+* Options considered: Keep the single panel surface versus adopt the Zenith instrument room shell with a 56px top navbar, 320px left agent rail, 320px right analysis rail, and three pinned tunnel bars.
+* Decision: Adopt the Zenith shell. TopNav carries the GearFlow wordmark plus STUDIO/VALIDATE/EXPORT plus offline chip plus theme icon. The left rail holds the agent transcript with pinned composer. The right rail stacks five collapsible windows (GEOMETRY, DISPLAY, VALIDATION, EVAL LEDGER, EXPORT) with content kept mounted. The tunnel column pins SOLVER, FIELD, and TELEMETRY bars above an edge to edge FlowCanvas, with a bottom left RUN card and a bottom right vertical colorbar as overlays.
+* Impact (judging link): Demo (field stays hero, every control visible in one frame) and Indie creativity lens (dense instrument craft).
+
+### 2026-10-26 Ship wasm-pack output with a static import for the production WASM path
+* Date: 2026-10-26
+* Context: The Rust solver built cleanly but production never served WASM frames. The loader used a non literal specifier that Vite could not analyze, so the production bundle omitted the wasm asset and the glue chunk and every session fell back to analytic.
+* Options considered: Keep the non literal dynamic path with a runtime URL versus check in the wasm-pack web output and load it through a static specifier.
+* Decision: Check in the wasm-pack web output under src/wasm/pkg and load it through a static dynamic import of the pkg entry inside wasmLoader. Vite now emits the hashed gearflow_wasm_bg wasm asset plus the glue chunk in dist/assets. createFlowProvider builds the WASM provider once per grid, the App solved memo drives it through setGeometry plus setRe with the panel cache surviving Re changes, and any fault latches wasmFailed to analytic with honest provenance and badge state.
+* Impact (judging link): Technical Depth (real Rust in production with tested fallback) and Demo (WASM badge means WASM frames, never a mislabeled fallback).

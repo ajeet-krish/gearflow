@@ -5,13 +5,13 @@
 
 import type { FlowField, GeometrySpec, GridSpec } from "@/contracts/types";
 import { validateGeometrySpec, validateGridSpec } from "@/contracts/schema";
-import { AnalyticFlowProvider, cloneGeometry, type FrameSource } from "./frameSource";
+import { AnalyticFlowProvider, cloneGeometry, geometriesEqual, type FrameSource } from "./frameSource";
 import type { AnalyticFlowParams } from "./analyticFlow";
 
 export interface WasmSolverHandle {
     resolve(geomJson: string, uInf: number): unknown;
     field(uInf: number, re: number): unknown;
-    panel_count(): number;
+    free?(): void;
 }
 
 export type WasmSolverFactory = (
@@ -40,13 +40,36 @@ interface WasmFieldPayload {
     obstacle: ArrayLike<number>;
 }
 
-function toFlowField(payload: WasmFieldPayload): FlowField {
+function toFlowField(grid: GridSpec, payload: WasmFieldPayload): FlowField {
+    if (!Number.isInteger(payload.nx) || payload.nx < 4 || payload.nx !== grid.nx) {
+        throw new Error(`WasmFlowProvider: payload nx ${String(payload.nx)} does not match grid nx ${grid.nx}`);
+    }
+    if (!Number.isInteger(payload.ny) || payload.ny < 4 || payload.ny !== grid.ny) {
+        throw new Error(`WasmFlowProvider: payload ny ${String(payload.ny)} does not match grid ny ${grid.ny}`);
+    }
+    const domain = payload.domain;
+    if (!domain) {
+        throw new Error("WasmFlowProvider: payload domain is missing");
+    }
+    for (const key of ["xMin", "xMax", "yMin", "yMax"] as const) {
+        const got = (domain as unknown as Record<string, unknown>)[key];
+        const want = grid.domain[key];
+        if (typeof got !== "number" || !Number.isFinite(got) || got !== want) {
+            throw new Error(`WasmFlowProvider: payload domain ${key} ${String(got)} does not match grid ${String(want)}`);
+        }
+    }
     const n = payload.nx * payload.ny;
     const wrap = (name: string, src: ArrayLike<number>): Float32Array => {
         if (!src || src.length !== n) {
             throw new Error(`WasmFlowProvider: channel ${name} length ${src?.length} does not match ${n}`);
         }
-        return src instanceof Float32Array ? src : new Float32Array(src as ArrayLike<number> & { length: number } as unknown as number[]);
+        const arr = src instanceof Float32Array ? src : new Float32Array(src as ArrayLike<number> & { length: number } as unknown as number[]);
+        for (let i = 0; i < arr.length; i++) {
+            if (!Number.isFinite(arr[i])) {
+                throw new Error(`WasmFlowProvider: channel ${name} has a non-finite value at index ${i}`);
+            }
+        }
+        return arr;
     };
     return {
         nx: payload.nx,
@@ -79,6 +102,7 @@ export class WasmFlowProvider implements FrameSource {
     private fieldDirty = true;
     private _solveCount = 0;
     private _wasmFailed = false;
+    private lastSolveMs = 0;
 
     constructor(grid: GridSpec, geom: GeometrySpec, params: AnalyticFlowParams = {}, solver: WasmSolverHandle) {
         const U = params.U ?? 1;
@@ -112,8 +136,28 @@ export class WasmFlowProvider implements FrameSource {
         return this._wasmFailed;
     }
 
+    /** Release the underlying Rust solver, if it exposes free(). Never throws. */
+    free(): void {
+        try {
+            this.solver.free?.();
+        } catch {
+            // Disposal must never break provider teardown.
+        }
+    }
+
     private failover(): void {
         this._wasmFailed = true;
+    }
+
+    private clockNow(): number | null {
+        try {
+            if (typeof performance !== "undefined" && typeof performance.now === "function") {
+                return performance.now();
+            }
+        } catch {
+            return null;
+        }
+        return null;
     }
 
     setAlpha(alphaDeg: number): void {
@@ -152,6 +196,9 @@ export class WasmFlowProvider implements FrameSource {
         if (this._wasmFailed) {
             return;
         }
+        if (geometriesEqual(this.geom, geom)) {
+            return;
+        }
         this.geom = cloneGeometry(geom);
         this.panelsDirty = true;
         this.fieldDirty = true;
@@ -163,13 +210,16 @@ export class WasmFlowProvider implements FrameSource {
         }
         try {
             this.getFrame();
+            if (this._wasmFailed) {
+                return this.analytic.getResult();
+            }
             if (!this.summary || !Number.isFinite(this.summary.cl) || !Number.isFinite(this.summary.cpMin)) {
                 throw new Error("WasmFlowProvider: non-finite cl or cpMin");
             }
             return {
                 cl: this.summary.cl,
                 cpMin: this.summary.cpMin,
-                solveMs: 0,
+                solveMs: this.lastSolveMs,
                 panelCount: this.summary.panelCount,
             };
         } catch {
@@ -187,10 +237,15 @@ export class WasmFlowProvider implements FrameSource {
             return this.analytic.getFrame();
         }
         try {
+            const needsWork = this.panelsDirty || this.summary === null || this.fieldDirty || this.field === null;
+            const t0 = needsWork ? this.clockNow() : null;
             if (this.panelsDirty || this.summary === null) {
                 const raw = this.solver.resolve(JSON.stringify(this.geom), this.U) as WasmSummary;
                 if (!raw || !Number.isFinite(raw.cl) || !Number.isFinite(raw.cpMin)) {
                     throw new Error("WasmFlowProvider: bad resolve payload from WASM solver");
+                }
+                if (typeof raw.panelCount !== "number" || !Number.isFinite(raw.panelCount) || raw.panelCount < 1) {
+                    throw new Error("WasmFlowProvider: bad panelCount in resolve payload from WASM solver");
                 }
                 this.summary = { cl: raw.cl, cpMin: raw.cpMin, panelCount: raw.panelCount };
                 this._solveCount += 1;
@@ -198,8 +253,14 @@ export class WasmFlowProvider implements FrameSource {
             }
             if (this.fieldDirty || this.field === null) {
                 const payload = this.solver.field(this.U, this.Re) as WasmFieldPayload;
-                this.field = toFlowField(payload);
+                this.field = toFlowField(this.grid, payload);
                 this.fieldDirty = false;
+            }
+            if (t0 !== null) {
+                const t1 = this.clockNow();
+                if (t1 !== null) {
+                    this.lastSolveMs = Math.max(0, t1 - t0);
+                }
             }
             return this.field as FlowField;
         } catch {

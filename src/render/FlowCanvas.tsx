@@ -314,7 +314,8 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         const f0 = flowRef.current;
 
         const w = mount.clientWidth || 800;
-        const h = Math.max(320, Math.min(560, Math.round(w * 0.55)));
+        const h0 = mount.clientHeight;
+        const h = h0 > 100 ? h0 : Math.max(320, Math.min(560, Math.round(w * 0.55)));
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(w, h);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

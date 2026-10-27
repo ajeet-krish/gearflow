@@ -1,9 +1,9 @@
 // Singleton loader for the Rust WASM solver package (wasm-pack --target
-// web output under src/wasm/pkg). Follows the zenith pattern: a non-literal
-// specifier with @vite-ignore so the bundler leaves the probe alone, a
-// singleton promise, and a readiness flag that never throws. Missing pkg or
-// failed init resolves false and clears the inflight promise so the next
-// call retries; callers fall back to the TS analytic path.
+// web output under src/wasm/pkg). Uses a statically analyzable dynamic
+// import so Vite bundles the glue chunk and emits the .wasm asset in
+// production. Singleton promise plus a readiness flag that never throws.
+// Missing pkg or failed init resolves false and clears the inflight promise
+// so the next call retries; callers fall back to the TS analytic path.
 
 /** Minimal surface used from the generated wasm-pack glue. */
 export interface WasmPackage {
@@ -45,10 +45,10 @@ export async function initWasm(): Promise<boolean> {
     }
     inflight = (async () => {
         try {
-            // Non-literal specifier so the bundler leaves this probe alone.
-            const parts = ["..", "wasm", "pkg", "gearflow_wasm.js"];
-            const target = parts.join("/");
-            const pkg = (await import(/* @vite-ignore */ target)) as WasmPackage;
+            // Static specifier so Vite bundles the glue and emits the .wasm
+            // asset. Kept inside this async function so test modules that
+            // never call initWasm do not load WASM at import time.
+            const pkg = (await import("@/wasm/pkg/gearflow_wasm")) as unknown as WasmPackage;
             const init = pkg.default as (() => Promise<unknown>) | undefined;
             if (typeof init === "function") {
                 await init();

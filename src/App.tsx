@@ -6,10 +6,15 @@ import ResizeHandle from "@/components/ui/ResizeHandle";
 import AgentConsole from "@/ui/AgentConsole";
 import EvalLogPanel from "@/ui/EvalLogPanel";
 import DisplayControls from "@/ui/DisplayControls";
-import Legend from "@/ui/Legend";
 import ThemeToggle from "@/ui/ThemeToggle";
-import RackTabs from "@/ui/RackTabs";
+import TopNav, { type NavId } from "@/ui/TopNav";
+import SolverBar from "@/ui/SolverBar";
+import FieldBar from "@/ui/FieldBar";
+import TelemetryBar from "@/ui/TelemetryBar";
+import AnalysisPanel from "@/ui/AnalysisPanel";
+import VerticalColorbar from "@/ui/VerticalColorbar";
 import { buildPolygons } from "@/geometry/parametric";
+import { applyBodyPreset, bodySelectValue as bodySelectValueFor } from "@/geometry/bodyPresets";
 import { AnalyticFlowProvider, type FrameSource } from "@/flow/frameSource";
 import { createFlowProvider } from "@/flow/createFlowProvider";
 import { SurrogateFlowProvider } from "@/flow/surrogate";
@@ -63,13 +68,13 @@ interface SolvedFrame {
 }
 
 /** Poisoned field guard: a single NaN or Infinity anywhere rejects the frame. */
-function isUsableField(flow: FlowField, cl: number, cpMin: number): boolean {
+export function isUsableField(flow: FlowField, cl: number, cpMin: number): boolean {
     if (!Number.isFinite(cl) || !Number.isFinite(cpMin)) return false;
     if (!Number.isFinite(flow.nx) || !Number.isFinite(flow.ny)) return false;
     const n = flow.nx * flow.ny;
-    if (flow.u.length !== n || flow.v.length !== n || flow.p.length !== n) return false;
+    if (flow.u.length !== n || flow.v.length !== n || flow.p.length !== n || flow.omega.length !== n) return false;
     for (let k = 0; k < n; k++) {
-        if (!Number.isFinite(flow.u[k]) || !Number.isFinite(flow.v[k]) || !Number.isFinite(flow.p[k])) {
+        if (!Number.isFinite(flow.u[k]) || !Number.isFinite(flow.v[k]) || !Number.isFinite(flow.p[k]) || !Number.isFinite(flow.omega[k])) {
             return false;
         }
     }
@@ -159,6 +164,13 @@ export default function App() {
     // means the analytic provider stays the only frame source.
     const [wasmSource, setWasmSource] = useState<FrameSource | null>(null);
     const [wasmNote, setWasmNote] = useState<string | null>(null);
+    // Latest solved inputs, read when constructing the provider so the
+    // initial WASM solver is not stale. The provider itself stays alive
+    // across slider moves and is updated via setters in the solved memo.
+    const latestSpecRef = useRef(debouncedSpec);
+    const latestReRef = useRef(debouncedRe);
+    latestSpecRef.current = debouncedSpec;
+    latestReRef.current = debouncedRe;
     useEffect(() => {
         void maybeLoadWasm();
     }, []);
@@ -187,9 +199,9 @@ export default function App() {
     // Resizable control room rails. Widths persist per booth so a judged demo
     // keeps its tunnel framing. Clamped to usable instrument widths.
     const LEFT_MIN = 280;
-    const LEFT_MAX = 480;
-    const RIGHT_MIN = 260;
-    const RIGHT_MAX = 420;
+    const LEFT_MAX = 420;
+    const RIGHT_MIN = 280;
+    const RIGHT_MAX = 480;
     const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
     function loadRail(key: string, fallback: number, lo: number, hi: number): number {
         try {
@@ -203,8 +215,8 @@ export default function App() {
         }
         return fallback;
     }
-    const [leftW, setLeftW] = useState<number>(() => loadRail("gearflow:leftW", 330, LEFT_MIN, LEFT_MAX));
-    const [rightW, setRightW] = useState<number>(() => loadRail("gearflow:rightW", 330, RIGHT_MIN, RIGHT_MAX));
+    const [leftW, setLeftW] = useState<number>(() => loadRail("gearflow:leftW", 320, LEFT_MIN, LEFT_MAX));
+    const [rightW, setRightW] = useState<number>(() => loadRail("gearflow:rightW", 320, RIGHT_MIN, RIGHT_MAX));
 
     useEffect(() => {
         try {
@@ -255,6 +267,31 @@ export default function App() {
     }, [offline]);
 
     useEffect(() => g_evalLog.subscribe(setEvalEntries), []);
+
+    // Zenith style stacked analysis rail. Multiple sections open at once,
+    // default open GEOMETRY and DISPLAY. Navbar VALIDATE and EXPORT links
+    // open the matching section. Content stays mounted when collapsed.
+    const [openSections, setOpenSections] = useState<Set<string>>(
+        () => new Set(["geometry", "display"])
+    );
+    const [navActive, setNavActive] = useState<NavId>("studio");
+    const toggleSection = useCallback((id: string) => {
+        setOpenSections((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    }, []);
+    const openSection = useCallback((id: string) => {
+        setOpenSections((prev) => new Set(prev).add(id));
+    }, []);
+    const handleNav = useCallback((id: NavId) => {
+        setNavActive(id);
+        if (id === "validate") openSection("validation");
+        else if (id === "export") openSection("export");
+        else openSection("geometry");
+    }, [openSection]);
 
     const cacheRef = useRef<HashCache | null>(null);
     if (cacheRef.current === null) cacheRef.current = new HashCache(true);
@@ -349,21 +386,34 @@ export default function App() {
     // this frame and reports the error inline instead of throwing.
     const lastGoodRef = useRef<SolvedFrame | null>(null);
 
-    // WASM provider load: only when ?wasm=1 is present. createFlowProvider
-    // falls back to analytic on any fault, so check the label before keeping
-    // the handle as the live wasm path.
+    // WASM provider load: only when ?wasm=1 is present. Created once per
+    // grid and kept alive across parameter changes; the solved memo drives
+    // it via setGeometry/setRe. Any fault falls back to analytic.
     useEffect(() => {
         let cancelled = false;
+        let live: FrameSource | null = null;
         try {
             if (typeof window === "undefined") return;
             if (new URLSearchParams(window.location.search).get("wasm") !== "1") return;
         } catch {
             return;
         }
-        void createFlowProvider(solveGrid, debouncedSpec, { Re: debouncedRe })
+        setWasmSource(null);
+        void createFlowProvider(solveGrid, latestSpecRef.current, { Re: latestReRef.current })
             .then((p) => {
-                if (cancelled) return;
-                if ((p as { label?: string }).label === "wasm-potential") {
+                const isWasm = (p as { label?: string }).label === "wasm-potential";
+                if (cancelled) {
+                    if (isWasm) {
+                        try {
+                            (p as { free?: () => void }).free?.();
+                        } catch {
+                            // Disposal must never break provider teardown.
+                        }
+                    }
+                    return;
+                }
+                if (isWasm) {
+                    live = p;
                     setWasmSource(p);
                     setWasmNote(null);
                 } else {
@@ -375,8 +425,16 @@ export default function App() {
             });
         return () => {
             cancelled = true;
+            if (live !== null) {
+                try {
+                    (live as { free?: () => void }).free?.();
+                } catch {
+                    // Disposal must never break provider teardown.
+                }
+                live = null;
+            }
         };
-    }, [solveGrid, debouncedSpec, debouncedRe]);
+    }, [solveGrid]);
 
     const solved = useMemo<{ frame: SolvedFrame; error: string | null }>(() => {
         try {
@@ -426,18 +484,28 @@ export default function App() {
                     ws.setRe?.(debouncedRe);
                     const flow = ws.getFrame();
                     const res = ws.getResult?.() ?? { cl: Number.NaN, cpMin: Number.NaN, solveMs: 0 };
+                    const wasmFaulted = (ws as { wasmFailed?: boolean }).wasmFailed === true;
                     if (!isUsableField(flow, res.cl, res.cpMin)) {
                         throw new Error("wasm solve produced a non-finite field, holding last good frame");
                     }
                     const polygons = buildPolygons(debouncedSpec);
-                    const provenance: Provenance = {
-                        source: "analytic-potential",
-                        label: `wasm-rust backend, computed locally at ${solveGrid.nx}`,
-                        generatedAt: new Date().toISOString(),
-                        gridLabel: `${solveGrid.nx}x${solveGrid.ny}`,
-                        geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
-                        note: "Rust WASM solver (wasm-rust), analytic fallback on fault. Potential panel solution plus wake overlay.",
-                    };
+                    const provenance: Provenance = wasmFaulted
+                        ? {
+                            source: "analytic-potential",
+                            label: `analytic fallback after wasm fault, computed locally at ${solveGrid.nx}`,
+                            generatedAt: new Date().toISOString(),
+                            gridLabel: `${solveGrid.nx}x${solveGrid.ny}`,
+                            geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
+                            note: "WASM solver faulted mid-session, analytic fallback is serving frames.",
+                        }
+                        : {
+                            source: "analytic-potential",
+                            label: `wasm-rust backend, computed locally at ${solveGrid.nx}`,
+                            generatedAt: new Date().toISOString(),
+                            gridLabel: `${solveGrid.nx}x${solveGrid.ny}`,
+                            geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
+                            note: "Rust WASM solver (wasm-rust), analytic fallback on fault. Potential panel solution plus wake overlay.",
+                        };
                     const frame: SolvedFrame = { flow, polygons, cl: res.cl, cpMin: res.cpMin, solveMs: res.solveMs, provenance };
                     lastGoodRef.current = frame;
                     return { frame, error: null };
@@ -498,7 +566,8 @@ export default function App() {
     const isFixture = mode === "fixture" && pack !== null;
     const frame = solved.frame;
     const solveError = isFixture ? null : solved.error;
-    const isWasmActive = mode === "analytic" && wasmSource !== null && solveError === null && frame.provenance.label.startsWith("wasm-rust");
+    const wasmFaulted = mode === "analytic" && wasmSource !== null && (wasmSource as { wasmFailed?: boolean }).wasmFailed === true;
+    const isWasmActive = mode === "analytic" && wasmSource !== null && !wasmFaulted && solveError === null && frame.provenance.label.startsWith("wasm-rust");
     const isSurrogatePending = mode === "surrogate" && !surrogateReady;
     const sourceIsSurrogate = frame.provenance.source === "surrogate";
     const isSurrogateFallback = mode === "surrogate" && surrogateReady && !sourceIsSurrogate;
@@ -573,60 +642,89 @@ export default function App() {
         patch({ theme: next });
     };
 
+    // Solver bar BODY select. NACA presets set exact m, p, t triples, other
+    // kinds follow the same object rules FlowControls.setKind uses. A NACA
+    // section tuned by sliders falls back to the 2412 slot in the select.
+    const bodySelectValue = bodySelectValueFor(spec);
+    const onBodySelect = (value: string) => {
+        const next = applyBodyPreset(spec, value);
+        if (next !== spec) setSpec(next);
+    };
+    const onAlphaBar = (next: number) => {
+        if (!Number.isFinite(next)) return;
+        setSpec((s) => ({ ...s, alphaDeg: Math.min(12, Math.max(-4, next)) }));
+    };
+    const onReynoldsBar = (next: number) => {
+        if (!Number.isFinite(next)) return;
+        setReynolds(Math.min(1_000_000, Math.max(100, Math.round(next))));
+    };
+
+    // Telemetry engine word. Short uppercase token for the status strip.
+    const engineLabel = isWasmActive
+        ? "WASM-RUST"
+        : isSurrogateActive
+            ? "SURROGATE"
+            : isSurrogatePending
+                ? "LOADING"
+                : isFixture
+                    ? "FIXTURE"
+                    : solveError !== null
+                        ? "HELD"
+                        : isSurrogateFallback
+                            ? "ANALYTIC-FB"
+                            : "ANALYTIC";
+    const bodyRowLabel = bodySelectValue === "naca0012"
+        ? "NACA 0012"
+        : bodySelectValue === "naca2412"
+            ? "NACA 2412"
+            : bodySelectValue === "naca4412"
+                ? "NACA 4412"
+                : bodySelectValue.toUpperCase();
+
     return (
         <div className="page">
-            <a className="skip" href="#flow">Skip to flow canvas</a>
-            <header className="masthead">
-                <div>
-                    <p className="eyebrow">GearFlow control room, Phase 6</p>
-                    <h1 className="display">Wind over a wing, live in the browser</h1>
-                    <p className="lede">
-                        Shape the body and the Reynolds number, the field recomputes locally
-                        in milliseconds. Ask the agent, tune the display, and export the run
-                        as PNG or a clean printed sheet.
-                    </p>
-                </div>
-                <div className="provenance" role="status" aria-label={`Data provenance, ${backendName}`}>
-                    <span className={`dot ${dotClass}`} aria-hidden="true" />
-                    <span className="provText">{packLoading && mode === "fixture" ? "Loading fixture" : provenanceLabel}</span>
-                    <span className="provMode mono" aria-hidden="true">{backendName}</span>
-                </div>
-            </header>
+            <a className="skip" href="#tunnel">Skip to flow canvas</a>
+            <TopNav
+                offline={offline}
+                active={navActive}
+                onNav={handleNav}
+                theme={prefs.theme}
+                onTheme={onTheme}
+                wasmActive={isWasmActive}
+            />
 
             <main id="flow" className="layout workbench">
-                <aside className="rail railLeft" style={{ width: leftW }} aria-label="Agent console: conversational assistant and eval">
-                    <div className="railScroll">
-                        <section className="card meta" aria-label="Agent console">
-                            <h2><span className="railTag mono" aria-hidden="true">CON 01</span>Agent console</h2>
-                            {offline && offlinePackError !== null && (
-                                <p className="error" role="alert">{offlinePackError}</p>
-                            )}
-                            {offline && offlineCases !== null && (
-                                <p className="mSub mono" role="status">
-                                    Offline pack loaded, {offlineCases.length} baked cases, zero network.
-                                </p>
-                            )}
-                            <ErrorBoundary resetKey={`agent-${offline}`} label="agent console">
-                                <AgentConsole
-                                    spec={spec}
-                                    reynolds={reynolds}
-                                    cl={frame.cl}
-                                    cpMin={frame.cpMin}
-                                    offline={offline}
-                                    onOfflineChange={setOffline}
-                                    onApplySpec={applyParametric}
-                                    client={metaClient}
-                                    cache={cacheRef.current!}
-                                    posterUrl={posterUrl}
-                                    onPosterUrl={setPosterUrl}
-                                    offlineCases={offlineCases}
-                                />
-                            </ErrorBoundary>
-                        </section>
-                        <section className="card evalCard" aria-label="Eval log">
-                            <h2><span className="railTag mono" aria-hidden="true">LOG 02</span>Eval ledger</h2>
-                            <EvalLogPanel entries={evalEntries} />
-                        </section>
+                <aside className="railLeft" style={{ width: leftW }} aria-label="Agent console: conversational assistant">
+                    <div className="railHead">
+                        <span className="railTitle">AGENT CONSOLE</span>
+                        <span className={offline ? "dot off" : "dot on"} aria-hidden="true" />
+                        <span className="mono railState">{offline ? "OFFLINE" : "LIVE"}</span>
+                    </div>
+                    <div className="agentBody">
+                        {offline && offlinePackError !== null && (
+                            <p className="error" role="alert">{offlinePackError}</p>
+                        )}
+                        {offline && offlineCases !== null && (
+                            <p className="mSub mono" role="status">
+                                Offline pack loaded, {offlineCases.length} baked cases, zero network.
+                            </p>
+                        )}
+                        <ErrorBoundary resetKey={`agent-${offline}`} label="agent console">
+                            <AgentConsole
+                                spec={spec}
+                                reynolds={reynolds}
+                                cl={frame.cl}
+                                cpMin={frame.cpMin}
+                                offline={offline}
+                                onOfflineChange={setOffline}
+                                onApplySpec={applyParametric}
+                                client={metaClient}
+                                cache={cacheRef.current!}
+                                posterUrl={posterUrl}
+                                onPosterUrl={setPosterUrl}
+                                offlineCases={offlineCases}
+                            />
+                        </ErrorBoundary>
                     </div>
                 </aside>
 
@@ -637,33 +735,47 @@ export default function App() {
                     onDrag={(d) => setLeftW((w) => clamp(w + d, LEFT_MIN, LEFT_MAX))}
                 />
 
-                <section className="center" aria-label="Tunnel window">
-                    <div className="canvasCard" aria-label={isFixture ? "Fixture flow" : "Live analytic flow"}>
-                        {packError && mode === "fixture" && <p className="error">{packError}</p>}
-                        {packLoading && mode === "fixture" && !pack && <p className="loading">Loading fixture pack</p>}
-                        {isSurrogatePending && (
-                            <p className="loading" role="status">Loading surrogate weights, showing analytic meanwhile. No action needed.</p>
-                        )}
-                        {isSurrogateFallback && (
-                            <p className="fallbackNote" role="status">{frame.provenance.note ?? "Surrogate unavailable, analytic fallback active."}</p>
-                        )}
-                        {gridState.notice !== null && mode === "analytic" && (
-                            <p className="fallbackNote" role="status">
-                                {gridState.notice}
-                                <button type="button" className="noticeDismiss" onClick={clearNotice} aria-label="Dismiss resolution notice">Dismiss</button>
-                            </p>
-                        )}
-                        {mode === "surrogate" && surrogateNote !== null && surrogateReady && isSurrogateFallback && (
-                            <p className="reNote">{surrogateNote}</p>
-                        )}
-                        {mode === "analytic" && wasmNote !== null && wasmSource === null && (
-                            <p className="reNote" role="status">{wasmNote}</p>
-                        )}
-                        {solveError !== null && !isFixture && (
-                            <p className="error solveError" role="alert">
-                                {sourceIsSurrogate ? "Surrogate" : "Analytic"} solve failed ({solveError}), showing last good field. Adjust the shape controls to recover.
-                            </p>
-                        )}
+                <section className="tunnelCol" aria-label="Tunnel window">
+                    <SolverBar
+                        mode={mode}
+                        onMode={setMode}
+                        body={bodySelectValue}
+                        onBody={onBodySelect}
+                        alpha={spec.alphaDeg}
+                        onAlpha={onAlphaBar}
+                        reynolds={reynolds}
+                        onReynolds={onReynoldsBar}
+                        gridMode={gridState.mode}
+                        onGridMode={setGridMode}
+                        live={solveError === null}
+                    />
+                    <FieldBar
+                        variable={prefs.variable}
+                        onVariable={onVariable}
+                        fieldVisible={fieldVisible}
+                        onFieldVisible={setFieldVisible}
+                        contours={contours}
+                        onContours={setContours}
+                        particleCount={particleCount}
+                        onParticles={setParticleCount}
+                        colormapName={prefs.colormap}
+                    />
+                    <TelemetryBar
+                        engine={engineLabel}
+                        dotClass={dotClass}
+                        gridLabel={`${solveGrid.nx} x ${solveGrid.ny}`}
+                        cells={flow.nx * flow.ny}
+                        solveMs={frame.solveMs}
+                        cl={frame.cl}
+                        cpMin={frame.cpMin}
+                        regime={regime}
+                        provenanceLabel={packLoading && mode === "fixture" ? "Loading fixture" : provenanceLabel}
+                        pass={valSummary.pass}
+                        warn={valSummary.warn}
+                        fail={valSummary.fail}
+                        isFixture={isFixture}
+                    />
+                    <div className="tunnel" id="tunnel">
                         <ErrorBoundary resetKey={boundaryKey} label="flow canvas">
                             <FlowCanvas
                                 ref={canvasRef}
@@ -676,32 +788,52 @@ export default function App() {
                                 showContours={contours}
                             />
                         </ErrorBoundary>
-                        <div className="canvasFoot">
-                            <span className="mono">{`${flow.nx} x ${flow.ny} grid, x [-0.5, 2.0] y [-1.0, 1.0]`}</span>
-                            <span className="mono">{`${debouncedSpec.kind} a${debouncedSpec.alphaDeg} Re${debouncedRe}`}</span>
-                        </div>
-                        {prefs.showLegend && (
-                            <div className="legendWrap">
-                                <Legend flow={flow} variable={prefs.variable} colormap={prefs.colormap} visible />
-                            </div>
-                        )}
-                        <div className="metricsBar" aria-label="Solver metrics">
-                            {isFixture ? (
-                                <span className="mono">Cl n/a (fixture), CpMin n/a (fixture), regime {regime}</span>
-                            ) : solveError !== null ? (
-                                <span className="mono">
-                                    Solve failed, last good Cl {Number.isFinite(frame.cl) ? frame.cl.toFixed(3) : "n/a"}, CpMin{" "}
-                                    {Number.isFinite(frame.cpMin) ? frame.cpMin.toFixed(3) : "n/a"}, {frame.solveMs.toFixed(1)} ms, {regime}
-                                </span>
-                            ) : (
-                                <span className="mono">
-                                    Cl {frame.cl.toFixed(3)}, CpMin {frame.cpMin.toFixed(3)}, {frame.solveMs.toFixed(1)} ms, {regime}
-                                </span>
+                        <div className="noticeStack" aria-label="Solver notices">
+                            {packError && mode === "fixture" && <p className="error notice" role="alert">{packError}</p>}
+                            {packLoading && mode === "fixture" && !pack && <p className="loading notice" role="status">Loading fixture pack</p>}
+                            {isSurrogatePending && (
+                                <p className="loading notice" role="status">Loading surrogate weights, showing analytic meanwhile. No action needed.</p>
+                            )}
+                            {isSurrogateFallback && (
+                                <p className="fallbackNote notice" role="status">{frame.provenance.note ?? "Surrogate unavailable, analytic fallback active."}</p>
+                            )}
+                            {gridState.notice !== null && mode === "analytic" && (
+                                <p className="fallbackNote notice" role="status">
+                                    {gridState.notice}
+                                    <button type="button" className="noticeDismiss" onClick={clearNotice} aria-label="Dismiss resolution notice">Dismiss</button>
+                                </p>
+                            )}
+                            {mode === "surrogate" && surrogateNote !== null && surrogateReady && isSurrogateFallback && (
+                                <p className="reNote notice">{surrogateNote}</p>
+                            )}
+                            {mode === "analytic" && wasmNote !== null && wasmSource === null && (
+                                <p className="reNote notice" role="status">{wasmNote}</p>
+                            )}
+                            {wasmFaulted && (
+                                <p className="fallbackNote notice" role="status">WASM faulted, analytic fallback serving frames.</p>
+                            )}
+                            {solveError !== null && !isFixture && (
+                                <p className="error solveError notice" role="alert">
+                                    {sourceIsSurrogate ? "Surrogate" : "Analytic"} solve failed ({solveError}), showing last good field. Adjust the shape controls to recover.
+                                </p>
                             )}
                         </div>
-                        {!isFixture && (
-                            <p className="reNote">Honest Re note: Re shades the wake deficit only, the potential core stays inviscid.</p>
-                        )}
+                        <div className="runCard" aria-label="Run summary">
+                            <p className="runTitle">RUN</p>
+                            <dl className="runRows">
+                                <div className="runRow"><dt>BODY</dt><dd className="mono">{bodyRowLabel}</dd></div>
+                                <div className="runRow"><dt>ALPHA</dt><dd className="mono">{spec.alphaDeg.toFixed(1)} deg</dd></div>
+                                <div className="runRow"><dt>RE</dt><dd className="mono">{Math.round(debouncedRe).toLocaleString("en-US")}</dd></div>
+                                <div className="runRow"><dt>GRID</dt><dd className="mono">{solveGrid.nx} x {solveGrid.ny}</dd></div>
+                                <div className="runRow"><dt>REGIME</dt><dd className="mono">{regime}</dd></div>
+                            </dl>
+                        </div>
+                        <VerticalColorbar
+                            flow={flow}
+                            variable={prefs.variable}
+                            colormap={prefs.colormap}
+                            visible={prefs.showLegend}
+                        />
                         <p className="printValidation mono" role="note" aria-label="Validation summary for print">
                             Validation ledger (print): {valSummary.pass} pass, {valSummary.warn} warn, {valSummary.fail} fail,{" "}
                             {valSummary.info} info. {valSummary.blocking === 0 ? "No blocking failures." : `${valSummary.blocking} blocking failures, demo hold.`}{" "}
@@ -717,13 +849,16 @@ export default function App() {
                     onDrag={(d) => setRightW((w) => clamp(w - d, RIGHT_MIN, RIGHT_MAX))}
                 />
 
-                <aside className="side rail railRight" style={{ width: rightW }} aria-label="Instrument rack: shape, display, validation, export">
-                    <div className="railScroll">
-                        <ErrorBoundary resetKey="rack" label="instrument rack">
-                            <RackTabs
-                                shape={
-                                    <section className="card" aria-label="Shape controls">
-                                        <h2><span className="railTag mono" aria-hidden="true">RCK 01</span>Shape controls</h2>
+                <aside className="railRight" style={{ width: rightW }} aria-label="Analysis rail: geometry, display, validation, eval ledger, export">
+                    <ErrorBoundary resetKey="rack" label="analysis rail">
+                        <AnalysisPanel
+                            open={openSections}
+                            onToggle={toggleSection}
+                            sections={[
+                                {
+                                    id: "geometry",
+                                    label: "GEOMETRY",
+                                    content: (
                                         <FlowControls
                                             spec={spec}
                                             reynolds={reynolds}
@@ -732,59 +867,68 @@ export default function App() {
                                             onReynoldsChange={setReynolds}
                                             onModeChange={setMode}
                                         />
-                                    </section>
-                                }
-                                display={
-                                    <section className="card" aria-label="Display controls">
-                                        <h2><span className="railTag mono" aria-hidden="true">RCK 02</span>Display</h2>
-                                        <DisplayControls
-                                            colormap={prefs.colormap}
-                                            onColormap={onColormap}
-                                            variable={prefs.variable}
-                                            onVariable={onVariable}
-                                            gridMode={gridState.mode}
-                                            activeGrid={solveGrid.nx === 256 ? 256 : 128}
-                                            onGridMode={setGridMode}
-                                            particles={particleCount}
-                                            onParticles={setParticleCount}
-                                            fieldVisible={fieldVisible}
-                                            onFieldVisible={setFieldVisible}
-                                            contours={contours}
-                                            onContours={setContours}
-                                            showLegend={prefs.showLegend}
-                                            onShowLegend={(next) => patch({ showLegend: next })}
-                                        />
-                                        <div className="themeRow">
-                                            <ThemeToggle theme={prefs.theme} onTheme={onTheme} />
+                                    ),
+                                },
+                                {
+                                    id: "display",
+                                    label: "DISPLAY",
+                                    content: (
+                                        <div>
+                                            <DisplayControls
+                                                colormap={prefs.colormap}
+                                                onColormap={onColormap}
+                                                variable={prefs.variable}
+                                                onVariable={onVariable}
+                                                gridMode={gridState.mode}
+                                                activeGrid={solveGrid.nx === 256 ? 256 : 128}
+                                                onGridMode={setGridMode}
+                                                particles={particleCount}
+                                                onParticles={setParticleCount}
+                                                fieldVisible={fieldVisible}
+                                                onFieldVisible={setFieldVisible}
+                                                contours={contours}
+                                                onContours={setContours}
+                                                showLegend={prefs.showLegend}
+                                                onShowLegend={(next) => patch({ showLegend: next })}
+                                            />
+                                            <div className="themeRow">
+                                                <ThemeToggle theme={prefs.theme} onTheme={onTheme} />
+                                            </div>
+                                            <p className="hint mono">
+                                                Honest Re note: Re shades the wake deficit only, the potential core stays inviscid.
+                                            </p>
                                         </div>
-                                    </section>
-                                }
-                                validation={
-                                    <section className="card validationCard" aria-label="Validation panel">
-                                        <h2><span className="railTag mono" aria-hidden="true">RCK 03</span>Validation ledger</h2>
-                                        <ErrorBoundary resetKey="validation" label="validation panel">
-                                            <ValidationPanel onSummary={setValSummary} />
-                                        </ErrorBoundary>
-                                        <p className="visuallyHidden" role="status">
-                                            {valSummary.blocking === 0 ? "No blocking validation failures." : `${valSummary.blocking} blocking validation failures.`}
-                                        </p>
-                                    </section>
-                                }
-                                exportPanel={
-                                    <section className="card" aria-label="Export panel">
-                                        <h2><span className="railTag mono" aria-hidden="true">RCK 04</span>Export</h2>
-                                        <ExportBar getSnapshot={getSnapshot} data={exportData} />
-                                    </section>
-                                }
-                            />
-                        </ErrorBoundary>
-                    </div>
+                                    ),
+                                },
+                                {
+                                    id: "validation",
+                                    label: "VALIDATION",
+                                    content: (
+                                        <div>
+                                            <ErrorBoundary resetKey="validation" label="validation panel">
+                                                <ValidationPanel onSummary={setValSummary} />
+                                            </ErrorBoundary>
+                                            <p className="visuallyHidden" role="status">
+                                                {valSummary.blocking === 0 ? "No blocking validation failures." : `${valSummary.blocking} blocking validation failures.`}
+                                            </p>
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    id: "eval",
+                                    label: "EVAL LEDGER",
+                                    content: <EvalLogPanel entries={evalEntries} />,
+                                },
+                                {
+                                    id: "export",
+                                    label: "EXPORT",
+                                    content: <ExportBar getSnapshot={getSnapshot} data={exportData} />,
+                                },
+                            ]}
+                        />
+                    </ErrorBoundary>
                 </aside>
             </main>
-
-            <footer className="foot">
-                <span className="mono">GearFlow 1.0.0, Phase 6 agent console and display overhaul. Commas, colons, parentheses.</span>
-            </footer>
         </div>
     );
 }

@@ -1,5 +1,5 @@
 # Architecture
-Last updated: 2026-10-26. Phase 4 Meta orchestration design. Phases 1 to 3 complete, Phase 4 in build, Phase 5 pending. Solo owner, demo must run offline.
+Last updated: 2026-10-26. Phase 8 Zenith shell plus Phase 7 Rust WASM path. Phases 1 to 6 complete, Phase 7 and Phase 8 complete. Solo owner, demo must run offline.
 
 ## System Overview
 GearFlow is a browser airfoil flow lab. Vite plus TypeScript, no backend at demo time except a thin Meta proxy for key safety.
@@ -15,6 +15,18 @@ Core loop never blocks on Meta. Every Meta call has a cached or template fallbac
 * Validation panel (src/ui/ValidationPanel.tsx plus src/validation): compares Cl, Cp stagnation, Cp shoulder, alpha0, cylinder St against vendored JSON in fixtures/validation. Shows PASS, WARN, or INFO with tolerance and provenance per metric. No network calls.
 * Render (src/render/FlowCanvas.tsx, fieldTexture.ts, particles.ts, colormap.ts): canvas field texture plus advected particles. Reads frames only, never physics.
 * Contracts (src/contracts): DemoPack, FlowField, Grid, Geometry, Provenance schemas. DemoPack pins version, meta, files, and pack to flow consistency.
+
+## Frontend Shell (Phase 8 Zenith instrument room)
+* Top navbar (src/ui/TopNav.tsx): 56px tall instrument bar with GearFlow wordmark, STUDIO/VALIDATE/EXPORT nav links, offline chip, theme icon, plus WASM badge when the Rust backend is live.
+* Left agent rail (src/ui/AgentConsole.tsx in src/App.tsx railLeft, default 320px resizable): full height transcript with a pinned composer, offline aware, backed by MetaClient plus HashCache plus EvalLog.
+* Right analysis rail (src/ui/AnalysisPanel.tsx plus src/ui/AnalysisSection.tsx, default 320px resizable): five stacked collapsible windows that stay mounted when collapsed, GEOMETRY (src/ui/FlowControls.tsx), DISPLAY (src/ui/DisplayControls.tsx), VALIDATION (src/ui/ValidationPanel.tsx), EVAL LEDGER (src/ui/EvalLogPanel.tsx), EXPORT (src/ui/ExportBar.tsx). Navbar VALIDATE and EXPORT links open the matching window.
+* Center tunnel column (src/App.tsx tunnelCol): three pinned bars above an edge to edge FlowCanvas (src/render/FlowCanvas.tsx). SOLVER bar (src/ui/SolverBar.tsx) for backend, body, alpha, Re, grid, live state. FIELD bar (src/ui/FieldBar.tsx) for quantity, layers, particles, colormap name. TELEMETRY bar (src/ui/TelemetryBar.tsx) for engine, grid, cells, solve time, Cl, CpMin, regime, provenance, validation counts.
+* Tunnel overlays: bottom left RUN card (body, alpha, Re, grid, regime summary) and bottom right vertical colorbar (src/ui/VerticalColorbar.tsx, 8 stop gradient with ticks at max, 75, 50, 25, min). Both are overlays inside the tunnel element, so the field stays full bleed.
+
+## Solver Backends (analytic plus Rust WASM, Phase 7)
+* Analytic default (src/flow/frameSource.ts AnalyticFlowProvider): Hess Smith panels plus analytic cylinder, matrix factored once per geometry, wake rebuilt on Re change. Panel cache survives Re only updates via geometriesEqual early return.
+* Rust WASM path (rust/gearflow-wasm plus src/flow/wasmFlowProvider.ts WasmFlowProvider, factory src/flow/createFlowProvider.ts, loader src/flow/wasmLoader.ts): wasm-pack web output checked in under src/wasm/pkg. Loader uses a static dynamic import of @/wasm/pkg/gearflow_wasm, so Vite bundles the glue chunk and emits a dist/assets/gearflow_wasm_bg hashed wasm asset plus the glue chunk in production. Loader is a singleton that never throws, missing pkg resolves false for TS fallback.
+* Provider lifecycle: created once per grid via createFlowProvider when ?wasm=1 is set, kept alive across slider moves, driven by the App solved memo through setGeometry plus setRe. Re only changes reuse cached panels and rebuild the field. Any WASM fault latches wasmFailed to the TS analytic fallback with honest provenance (analytic fallback label, no WASM badge, fallback notice in the tunnel).
 
 ## Phase 4 Meta Orchestration (new)
 Design goal: visible multi model value (Spark reasoning, SAM segmentation, Image visuals) with Standard mode default, cache first, offline pack fallback, and keys never in the browser bundle.
@@ -58,8 +70,8 @@ Design goal: visible multi model value (Spark reasoning, SAM segmentation, Image
 * Proxy: minimal server route POST /api/meta/* that injects MODEL_API_KEY from env (format LLM id secret), enforces per app keys, rate limits per session, strips key from client. Browser bundle contains no secret. Sample env file documents the variable, repo contains no real key.
 * Standard mode for all judging runs. Contributor models are excluded unless explicit consent plus labeling is added, because that mode trains on content.
 
-### MetaPanel (src/ui/MetaPanel.tsx, new)
-* Single UI surface for all Meta state. Shows per call status (live, cached with age, fallback with reason), latency, cost, model name.
+### MetaPanel (src/ui/MetaPanel.tsx, Phase 4 origin, superseded by Phase 8 shell)
+* Phase 4 single UI surface for all Meta state. Shows per call status (live, cached with age, fallback with reason), latency, cost, model name. Phase 8 splits this across the agent console rail and the analysis rail windows above.
 * Controls: preset picker, Spark explain button, SAM overlay toggle, Poster regenerate button, offline toggle, low bandwidth toggle.
 * Trust copy: labels what Meta did (spec from text, mask from SAM, art from Image) and what is analytic (Cl, Cp from Hess Smith or surrogate). Consent line for Standard mode.
 
@@ -92,7 +104,7 @@ Design goal: visible multi model value (Spark reasoning, SAM segmentation, Image
 * Surrogate: compact U Net behind frame interface with sync gate. Reason: same UI path, A/B ready, honest fallback.
 * Validation: vendored JSON, no runtime fetch. Reason: offline judging, leakage control.
 * Meta AI: Standard mode via proxy, cache then fallback. Reason: privacy default, survives network loss, key safety.
-* Meta UI: one MetaPanel for status plus controls. Reason: judging transparency, single presenter clarity.
+* Meta UI: agent console rail plus stacked analysis rail (AgentConsole, AnalysisPanel, EvalLogPanel) for status plus controls. Reason: judging transparency, single presenter clarity.
 
 ## API Strategy
 * Base URL: https://api.meta.ai/v1 via proxy path /api/meta. Keys in env only, sample env file, no secrets in repo.

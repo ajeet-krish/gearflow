@@ -32,6 +32,8 @@ Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKAT
 | Phase 4 | Meta orchestration (Spark, SAM, Image) | Complete |
 | Phase 5 | Polish, export, submission | Complete |
 | Phase 6 | UI/backend overhaul (C-1, C-3, C-4) | Complete |
+| Phase 7 | Rust + WASM solver (parity, production bundle) | Complete |
+| Phase 8 | Zenith instrument shell (navbar, rails, bars, vertical colorbar) | Complete |
 
 ## Deep Docs
 * Rules: docs/HACKATHON_RULES.md

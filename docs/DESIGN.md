@@ -24,7 +24,10 @@ Placeholder: Describe a firsthand pain or frontier pushing problem in one paragr
 * Frontier visible: make the hard part obvious (segmentation, reasoning trace, generated visual).
 
 ## Visual Direction
-Placeholder: Define tone (playful, calm, pro), palette, type, and motion. Add mock link when ready. Prefer generated assets from Muse Image with consistent style prompt.
+Tone is a calm instrument room: deep near black surfaces, purple plus cyan accents, dense data type. Dracula tokens carry the theme (ink near #0a0a0f, panel near #0d0d12, borders near #21222c and #44475a, muted text near #6272a4, accent purple #bd93f9, accent cyan #8be9fd, ok green #50fa7b, warn amber #ffb86c). Data reads in monospace (readouts, telemetry, ticks), labels in tracked uppercase. Prefer generated assets from Muse Image with consistent style prompt.
+
+## Shell Layout (Zenith instrument room, Phase 8)
+The shell borrows the Zenith control room idea: a full bleed tunnel at center, data dense bars pinned above it, stacked analysis windows on the right, one vertical colorbar in the tunnel. Why: the flow field is the hero, so the canvas runs edge to edge with no card inset. The three bars (SOLVER, FIELD, TELEMETRY) keep every run control and readout visible without opening a panel. The right rail stacks five collapsible windows (GEOMETRY, DISPLAY, VALIDATION, EVAL LEDGER, EXPORT) so validation and export sit beside the field instead of behind a tab. One bottom right vertical colorbar replaces scattered legends, with the RUN summary card bottom left for the demo readout.
 
 ## Demo Script Outline (single presenter)
 1. Hook (0 to 15 sec): problem in one line, firsthand or frontier stake.
