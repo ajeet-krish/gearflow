@@ -1,13 +1,26 @@
-/* GearFlow Phase 1: quiet tunnel room around a live canvas. Palette is wind tunnel, not gradient. */
+/* GearFlow control room: dark instrument theme around a live tunnel window.
+   Palette is wind tunnel at night, not cream paper. Monospace carries data,
+   serif carries the masthead only, sans carries body copy. */
+
 :root {
-  --ink: #0e141b;
-  --paper: #f4f1e8;
-  --brass: #8a5f1a;
-  --lagoon: #145f55;
-  --slate: #43545f;
-  --line: #e2dac6;
-  --card: #fdfbf5;
-  --focus: #145f55;
+  --bg: #0d0d12;
+  --panel: #14141c;
+  --panel2: #191924;
+  --line: #26262f;
+  --grid: #1e1e28;
+  --ink: #e8e2d2;
+  --muted: #a7a7b8;
+  --dim: #cfc9b8;
+  --cyan: #26b8d9;
+  --cyan-dim: #1a7f96;
+  --brass: #c98a2e;
+  --lagoon: #1b7a6e;
+  --danger: #e0654a;
+  --ok: #3fce8f;
+  --focus: #26b8d9;
+  --paper: #0d0d12;
+  --card: #14141c;
+  --slate: #a7a7b8;
 }
 
 * { box-sizing: border-box; }
@@ -15,7 +28,7 @@
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--paper);
+  background: var(--bg);
   color: var(--ink);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
@@ -23,40 +36,46 @@ html, body {
 
 .display {
   font-family: "Iowan Old Style", Palatino, Georgia, serif;
-  font-size: clamp(2rem, 5vw, 3.4rem);
-  line-height: 1.02;
+  font-size: clamp(1.4rem, 2.6vw, 2.1rem);
+  line-height: 1.05;
   letter-spacing: -0.02em;
   margin: 0.2em 0 0.3em;
   font-weight: 750;
+  color: var(--ink);
 }
 
 .eyebrow {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.75rem;
-  color: var(--slate);
+  letter-spacing: 0.18em;
+  font-size: 0.68rem;
+  color: var(--cyan);
   margin: 0;
 }
 
 .lede {
-  font-size: 1.05rem;
-  max-width: 38em;
-  color: #2a343e;
+  font-size: 0.95rem;
+  max-width: 44em;
+  color: var(--muted);
 }
 
-.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.8rem; }
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
 
-.page { min-height: 100vh; display: flex; flex-direction: column; }
+.page { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 
 .skip {
   position: absolute;
   left: -9999px;
   top: 0;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--cyan);
+  color: #061014;
   padding: 0.6em 1em;
   z-index: 10;
+  font-weight: 700;
 }
 .skip:focus { left: 0.5em; top: 0.5em; }
 
@@ -65,86 +84,188 @@ html, body {
   justify-content: space-between;
   gap: 1.5rem;
   align-items: start;
-  padding: 2rem clamp(1rem, 4vw, 3rem) 1rem;
-  border-bottom: 2px solid var(--ink);
+  padding: 1.1rem clamp(1rem, 3vw, 2rem) 0.9rem;
+  border-bottom: 1px solid var(--line);
+  background: rgba(13, 13, 18, 0.9);
+  backdrop-filter: blur(12px);
   flex-wrap: wrap;
+  flex: none;
 }
 
 .provenance {
   display: inline-flex;
   align-items: center;
   gap: 0.6em;
-  border: 1px solid var(--ink);
-  background: var(--card);
+  border: 1px solid var(--line);
+  background: var(--panel);
   padding: 0.6em 0.9em;
   font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   border-radius: 999px;
   white-space: nowrap;
+  color: var(--dim);
 }
 .provenance .dot {
   width: 0.7em;
   height: 0.7em;
   border-radius: 50%;
   background: var(--brass);
-  border: 1px solid var(--ink);
+  border: 1px solid #000;
+  box-shadow: 0 0 8px currentColor;
+  flex: none;
 }
 
-.layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 1.25rem;
-  padding: 1.25rem clamp(1rem, 4vw, 3rem);
+/* Workbench: three columns, full height, rails scroll independently. */
+.layout { flex: 1; min-height: 0; }
+.workbench {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  min-height: 0;
+  height: calc(100vh - 190px);
+  height: calc(100dvh - 190px);
+}
+
+.rail {
+  flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 20, 28, 0.86);
+  backdrop-filter: blur(14px);
+  border-right: 1px solid var(--line);
+}
+.railRight { border-right: 0; border-left: 1px solid var(--line); }
+.railScroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--cyan-dim) transparent;
+}
+.railScroll::-webkit-scrollbar { width: 8px; }
+.railScroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+.railScroll::-webkit-scrollbar-thumb:hover { background: var(--cyan-dim); }
+
+.center {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+  background:
+    radial-gradient(1200px 500px at 50% -10%, rgba(38, 184, 217, 0.08), transparent 60%),
+    var(--bg);
 }
 
 .canvasCard {
-  background: var(--ink);
-  color: var(--paper);
-  border: 2px solid var(--ink);
+  background: #0a0a10;
+  color: var(--ink);
+  border: 1px solid var(--line);
   border-radius: 14px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 60px rgba(38, 184, 217, 0.07);
 }
-.flowcanvas canvas { display: block; width: 100%; }
+.flowcanvas { flex: 1; min-height: 320px; position: relative; }
+.flowcanvas canvas { display: block; width: 100%; height: 100%; }
 .canvasFoot {
   display: flex;
   justify-content: space-between;
   gap: 1em;
-  padding: 0.7em 1em;
-  border-top: 1px solid #2a343e;
-  color: #cfd6cd;
+  padding: 0.55em 1em;
+  border-top: 1px solid var(--grid);
+  color: var(--muted);
   flex-wrap: wrap;
+  background: rgba(20, 20, 28, 0.7);
 }
 
+/* Resize handle: 4px strip, highlight on hover, keyboard focus visible. */
+.resizeHandle {
+  flex: none;
+  width: 10px;
+  min-height: 0;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  touch-action: none;
+  user-select: none;
+}
+.resizeHandle:hover, .resizeHandle:focus-visible { background: rgba(38, 184, 217, 0.12); outline: none; }
+.resizeHandle:focus-visible { box-shadow: inset 0 0 0 2px var(--cyan); }
+.resizeGrip {
+  display: block;
+  width: 4px;
+  height: 56px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.resizeHandle:hover .resizeGrip, .resizeHandle:focus-visible .resizeGrip { background: var(--cyan); }
+
+/* Instrument cards: dark glass panels with tracking labels. */
 .side { display: flex; flex-direction: column; gap: 1rem; }
 
 .card {
-  background: var(--card);
+  background: rgba(25, 25, 36, 0.92);
   border: 1px solid var(--line);
-  border-top: 3px solid var(--brass);
+  border-top: 2px solid var(--cyan);
   border-radius: 10px;
-  padding: 1rem 1.1rem;
+  padding: 0.9rem 1rem;
+  color: var(--ink);
+  backdrop-filter: blur(10px);
 }
 .card h2 {
-  font-family: "Iowan Old Style", Palatino, Georgia, serif;
-  margin: 0 0 0.4em;
-  font-size: 1.25rem;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  margin: 0 0 0.6em;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
 }
-.card p { margin: 0.4em 0; color: #33404c; }
+.railTag {
+  display: inline-block;
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  color: var(--cyan);
+  border: 1px solid var(--cyan-dim);
+  border-radius: 4px;
+  padding: 0.15em 0.45em;
+}
+.card p { margin: 0.4em 0; color: var(--muted); }
 .field { display: grid; gap: 0.25em; margin: 0.7em 0; font-size: 0.9rem; }
+.field label { font-size: 0.82rem; color: var(--dim); }
 .field input[type="range"] { width: 100%; min-height: 44px; }
 .card button {
   width: 100%;
   min-height: 44px;
-  border: 1px solid var(--ink);
-  background: var(--line);
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--ink);
   border-radius: 8px;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   cursor: not-allowed;
 }
 .card button:disabled { opacity: 0.6; }
 
-.meta { border-top-color: var(--lagoon); }
+.meta { border-top-color: var(--brass); }
 .meta ul { list-style: none; margin: 0.6em 0; padding: 0; display: grid; gap: 0.5em; }
 .meta li {
   display: flex;
@@ -154,57 +275,60 @@ html, body {
   padding-bottom: 0.5em;
   font-size: 0.92rem;
 }
-.meta li span { color: var(--slate); }
+.meta li span { color: var(--muted); }
 
 .error { color: #ffb4a2; padding: 1em; }
-.loading { color: var(--paper); padding: 2em; text-align: center; }
+.loading { color: var(--ink); padding: 2em; text-align: center; }
 
-/* Inline solve failure banner: keeps the last good field visible underneath. */
 .solveError {
   margin: 0;
-  border-bottom: 1px solid #2a343e;
+  border-bottom: 1px solid var(--line);
   background: #2a1512;
   color: #ffd9cd;
 }
 
-/* ErrorBoundary fallback inside the canvas card. */
 .errorFallback {
   padding: 2em 1.5em;
   text-align: center;
-  color: var(--paper);
+  color: var(--ink);
 }
 .errorFallback .errorTitle { margin: 0 0 0.4em; font-weight: 650; }
 .errorFallback .errorDetail {
   margin: 0 0 1em;
-  color: #cfd6cd;
+  color: var(--muted);
   word-break: break-word;
 }
 .errorFallback .retryButton {
   min-height: 44px;
   min-width: 160px;
-  border: 1px solid var(--paper);
+  border: 1px solid var(--ink);
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.95rem;
   padding: 0.5em 1.2em;
 }
 
-.foot { padding: 1rem clamp(1rem, 4vw, 3rem) 2rem; color: var(--slate); }
+.foot {
+  padding: 0.7rem clamp(1rem, 3vw, 2rem);
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+  flex: none;
+}
 
-.provenance .dot.analytic { background: var(--lagoon); }
-/* Honest backend states. One accent per state, canvas stays the hero. */
-.provenance .dot.surrogate { background: #7a5c1e; box-shadow: 0 0 0 2px var(--brass); }
+.provenance .dot.analytic { background: var(--ok); color: var(--ok); }
+.provenance .dot.surrogate { background: var(--brass); color: var(--brass); box-shadow: 0 0 0 2px var(--brass); }
 .provenance .dot.pending { background: var(--brass); animation: provPulse 1.2s ease-in-out infinite; }
-.provenance .dot.fallback { background: #b3402a; }
-.provenance .dot.gated { background: #b3402a; box-shadow: 0 0 0 2px var(--brass); }
-.provenance .dot.fixture { background: var(--slate); }
-.provenance .dot.failed { background: #b3402a; box-shadow: 0 0 0 2px #b3402a; }
+.provenance .dot.fallback { background: var(--danger); color: var(--danger); }
+.provenance .dot.gated { background: var(--danger); box-shadow: 0 0 0 2px var(--brass); }
+.provenance .dot.fixture { background: var(--muted); }
+.provenance .dot.failed { background: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
 .provMode {
   border-left: 1px solid var(--line);
   padding-left: 0.6em;
-  color: var(--slate);
+  color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 0.72rem;
@@ -218,15 +342,16 @@ html, body {
   display: flex;
   gap: 0.8em;
   padding: 0.55em 1em;
-  border-top: 1px solid #2a343e;
-  color: #e8e2d2;
+  border-top: 1px solid var(--grid);
+  color: var(--cyan);
+  background: rgba(13, 13, 18, 0.85);
   flex-wrap: wrap;
 }
 
 .reNote {
   margin: 0;
   padding: 0.55em 1em 0.8em;
-  color: #b9c4c2;
+  color: var(--muted);
   font-size: 0.82rem;
 }
 
@@ -234,23 +359,24 @@ html, body {
 .controls select {
   width: 100%;
   min-height: 44px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--paper);
+  background: #0a0a10;
   color: var(--ink);
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   padding: 0.4em 0.6em;
 }
 
-/* Quiet rail right: thin track, brass thumb, no gradients. */
+/* Scrubber: thin track, cyan thumb, tabular numbers. */
 .field input[type="range"] {
   width: 100%;
   min-height: 44px;
-  accent-color: var(--brass);
+  accent-color: var(--cyan);
   background: transparent;
 }
-.field output { margin-left: 0.5em; color: var(--ink); }
-.hint { font-size: 0.8rem; color: var(--slate); margin: 0.25em 0 0; }
+input[type="range"].scrubber { accent-color: var(--cyan); }
+.field output { margin-left: 0.5em; color: var(--cyan); font-variant-numeric: tabular-nums; }
+.hint { font-size: 0.78rem; color: var(--muted); margin: 0.25em 0 0; }
 .toggleRow {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -260,7 +386,7 @@ html, body {
 .toggleRow input[type="checkbox"] {
   width: 22px;
   height: 22px;
-  accent-color: var(--lagoon);
+  accent-color: var(--cyan);
 }
 .toggleRow label { font-size: 0.9rem; }
 
@@ -269,16 +395,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   outline-offset: 2px;
 }
 
-@media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; }
-  .masthead { flex-direction: column; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
-}
-
-/* Phase 3 validation ledger. Quiet logbook beside the hero canvas. */
+/* Validation ledger. */
 .visuallyHidden {
   position: absolute;
   width: 1px;
@@ -291,7 +408,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   border: 0;
 }
 
-.validationCard { border-top-color: var(--slate); }
+.validationCard { border-top-color: var(--muted); }
 .validation { display: grid; gap: 0.6em; }
 .vSummary { display: grid; gap: 0.45em; }
 .vCounts {
@@ -302,14 +419,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   flex-wrap: wrap;
   gap: 0.4em;
 }
-.vVerdict { margin: 0; color: #33404c; }
+.vVerdict { margin: 0; color: var(--muted); }
 .vAlert {
   margin: 0;
   padding: 0.6em 0.75em;
-  border: 1px solid #b3402a;
-  border-left: 4px solid #b3402a;
-  background: #faf0ea;
-  color: #6e2318;
+  border: 1px solid var(--danger);
+  border-left: 4px solid var(--danger);
+  background: #241110;
+  color: #ffd9cd;
   font-size: 0.85rem;
   border-radius: 6px;
 }
@@ -319,28 +436,28 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   line-height: 24px;
   padding: 0 0.6em;
   border-radius: 999px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--line);
   font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  background: var(--paper);
+  letter-spacing: 0.08em;
+  background: #0a0a10;
   color: var(--ink);
   white-space: nowrap;
 }
-.badge.tier-pass { border-top: 2px solid var(--lagoon); }
+.badge.tier-pass { border-top: 2px solid var(--ok); }
 .badge.tier-warn { border-top: 2px solid var(--brass); }
-.badge.tier-info { border-top: 2px solid var(--slate); }
-.badge.status-pass { background: #e3efe9; border-color: var(--lagoon); color: #0f4a42; }
-.badge.status-warn { background: #f7ecd4; border-color: var(--brass); color: #5f430f; }
-.badge.status-fail { background: #f6ddd6; border-color: #b3402a; color: #6e2318; }
-.badge.status-info { background: #e9edf0; border-color: var(--slate); color: #33404c; }
+.badge.tier-info { border-top: 2px solid var(--muted); }
+.badge.status-pass { background: #0e2a22; border-color: var(--ok); color: #b8f0d4; }
+.badge.status-warn { background: #2b2110; border-color: var(--brass); color: #f2d9a4; }
+.badge.status-fail { background: #2a1512; border-color: var(--danger); color: #ffc9b8; }
+.badge.status-info { background: #1a1a24; border-color: var(--muted); color: var(--muted); }
 
 .vScroll {
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fffdf8;
+  background: #0a0a10;
   max-width: 100%;
 }
 .vScroll:focus-visible {
@@ -351,42 +468,43 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   border-collapse: collapse;
   width: 100%;
   min-width: 560px;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
 }
 .validationTable thead th {
   text-align: left;
   font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--slate);
+  letter-spacing: 0.1em;
+  color: var(--muted);
   padding: 0.6em 0.7em;
-  border-bottom: 2px solid var(--ink);
-  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel2);
   position: sticky;
   top: 0;
 }
 .validationTable tbody th,
 .validationTable tbody td {
   padding: 0.55em 0.7em;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--grid);
   vertical-align: top;
   text-align: left;
+  color: var(--dim);
 }
 .validationTable tbody tr:last-child th,
 .validationTable tbody tr:last-child td { border-bottom: 0; }
-.vMetric { font-weight: 600; font-size: 0.82rem; max-width: 22em; }
+.vMetric { font-weight: 600; font-size: 0.8rem; max-width: 22em; color: var(--ink); }
 .vNote {
   display: block;
   font-weight: 400;
-  font-size: 0.75rem;
-  color: var(--slate);
+  font-size: 0.72rem;
+  color: var(--muted);
   margin-top: 0.2em;
 }
 .vSource { word-break: break-word; }
-.validationTable tbody tr.status-fail { background: #faf0ea; }
-.validationTable tbody tr.status-warn { background: #fbf6ea; }
-.vFoot { margin: 0; color: var(--slate); }
+.validationTable tbody tr.status-fail { background: rgba(224, 101, 74, 0.08); }
+.validationTable tbody tr.status-warn { background: rgba(201, 138, 46, 0.08); }
+.vFoot { margin: 0; color: var(--muted); }
 
 .fallbackNote {
   margin: 0;
@@ -394,17 +512,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: #3a2119;
   color: #ffd9cd;
   font-size: 0.85rem;
-  border-bottom: 1px solid #2a343e;
+  border-bottom: 1px solid var(--line);
 }
 
-@media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; }
-  .masthead { flex-direction: column; }
-  .provenance { white-space: normal; max-width: 100%; }
-  .provText { overflow-wrap: anywhere; }
-}
-
-/* Phase 4 Meta orchestration. Quiet logbook beside the hero canvas. No gradients. */
+/* Meta orchestration panel. */
 .metaPanel { display: grid; gap: 0; }
 .mRow {
   padding: 0.8em 0;
@@ -414,23 +525,23 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .mRow:last-of-type { border-bottom: 0; }
 .mRow h3 {
   font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--slate);
+  letter-spacing: 0.14em;
+  color: var(--muted);
   margin: 0 0 0.6em;
   font-weight: 600;
 }
-.mLabel { display: block; font-size: 0.88rem; margin-bottom: 0.4em; }
-.mSub { font-size: 0.8rem; color: var(--slate); margin: 0.5em 0 0; }
+.mLabel { display: block; font-size: 0.86rem; margin-bottom: 0.4em; color: var(--dim); }
+.mSub { font-size: 0.78rem; color: var(--muted); margin: 0.5em 0 0; }
 .mText {
   width: 100%;
   min-height: 64px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fffdf8;
+  background: #0a0a10;
   color: var(--ink);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   padding: 0.55em 0.7em;
   resize: vertical;
   font-family: inherit;
@@ -447,21 +558,23 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   cursor: pointer;
   width: 100%;
   min-height: 44px;
-  background: var(--paper);
+  background: #0a0a10;
+  border: 1px solid var(--cyan-dim);
+  color: var(--ink);
 }
-.card .mBtn:disabled { cursor: not-allowed; }
+.card .mBtn:disabled { cursor: not-allowed; opacity: 0.6; }
 .card .mBtn.mApply {
-  border-color: var(--lagoon);
+  border-color: var(--cyan);
   border-width: 2px;
-  background: #eef5f2;
+  background: rgba(38, 184, 217, 0.12);
 }
 .mError {
   margin: 0.6em 0 0;
   padding: 0.6em 0.75em;
-  border: 1px solid #b3402a;
-  border-left: 4px solid #b3402a;
-  background: #faf0ea;
-  color: #6e2318;
+  border: 1px solid var(--danger);
+  border-left: 4px solid var(--danger);
+  background: #241110;
+  color: #ffd9cd;
   font-size: 0.85rem;
   border-radius: 6px;
 }
@@ -469,31 +582,30 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   margin-top: 0.6em;
   padding: 0.7em 0.8em;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--lagoon);
+  border-left: 3px solid var(--cyan);
   border-radius: 6px;
-  background: #fffdf8;
+  background: #0a0a10;
   display: grid;
   gap: 0.45em;
 }
 .mResult p { margin: 0; }
-.mHeadline { font-weight: 650; }
+.mHeadline { font-weight: 650; color: var(--ink); }
 .mFoot {
   margin: 0.8em 0 0;
   padding-top: 0.8em;
-  border-top: 2px solid var(--ink);
-  color: var(--slate);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
 }
 .mPoster { margin: 0.6em 0 0; }
 .mPoster img {
   display: block;
   width: 100%;
   height: auto;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--line);
   border-radius: 8px;
 }
-.mPoster figcaption { margin-top: 0.4em; color: var(--slate); }
+.mPoster figcaption { margin-top: 0.4em; color: var(--muted); }
 
-/* Go Offline toggle row and provenance dots. */
 .mToggleRow {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -503,27 +615,27 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .mToggleRow input[type="checkbox"] {
   width: 22px;
   height: 22px;
-  accent-color: var(--lagoon);
+  accent-color: var(--cyan);
 }
-.mToggleRow label { font-size: 0.92rem; font-weight: 600; }
+.mToggleRow label { font-size: 0.9rem; font-weight: 600; }
 .mToggleRow label .mSub { display: block; font-weight: 400; }
 .mDot {
   width: 0.7em;
   height: 0.7em;
   border-radius: 50%;
-  border: 1px solid var(--ink);
+  border: 1px solid #000;
   background: var(--brass);
   flex: none;
 }
-.mDot.on { background: var(--lagoon); }
-.mDot.off { background: #b3402a; }
+.mDot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.mDot.off { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
 .mDotInline { display: inline-block; margin-right: 0.4em; vertical-align: baseline; }
 
-/* Style presets. Rendered once in MetaPanel, styled for any card. */
 .presetLabel {
   display: block;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   margin-bottom: 0.4em;
+  color: var(--dim);
 }
 .presetGrid {
   display: grid;
@@ -534,15 +646,15 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   cursor: pointer;
   width: 100%;
   min-height: 44px;
-  border: 1px solid var(--ink);
-  background: var(--paper);
+  border: 1px solid var(--line);
+  background: #0a0a10;
+  color: var(--ink);
   border-radius: 8px;
-  font-size: 0.88rem;
+  font-size: 0.86rem;
 }
 .card .presetBtn:disabled { cursor: not-allowed; opacity: 0.6; }
 
-/* Eval ledger. */
-.evalCard { border-top-color: var(--lagoon); }
+.evalCard { border-top-color: var(--cyan); }
 .evalLog { display: grid; gap: 0.6em; }
 .evalHead {
   display: flex;
@@ -551,35 +663,36 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   gap: 0.8em;
   flex-wrap: wrap;
 }
-.evalCount { margin: 0; color: var(--slate); }
+.evalCount { margin: 0; color: var(--muted); }
 .card .mBtn.evalExport { width: auto; padding: 0 1.2em; }
 .evalTable {
   border-collapse: collapse;
   width: 100%;
   min-width: 520px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 .evalTable thead th {
   text-align: left;
   font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--slate);
+  letter-spacing: 0.1em;
+  color: var(--muted);
   padding: 0.6em 0.7em;
-  border-bottom: 2px solid var(--ink);
-  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel2);
   position: sticky;
   top: 0;
 }
 .evalTable tbody th, .evalTable tbody td {
   padding: 0.5em 0.7em;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--grid);
   text-align: left;
   vertical-align: top;
+  color: var(--dim);
 }
 .evalTable tbody tr:last-child th, .evalTable tbody tr:last-child td { border-bottom: 0; }
-.evalTable tbody tr.evalFail { background: #faf0ea; }
+.evalTable tbody tr.evalFail { background: rgba(224, 101, 74, 0.08); }
 .evalModel { overflow-wrap: anywhere; }
 
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
@@ -587,18 +700,17 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   outline-offset: 2px;
 }
 
-/* Phase 5 polish: quiet export utility under the hero canvas. No gradients,
-   no animation. Buttons meet the 44px touch target at rest. */
 .exportBar {
   display: grid;
   gap: 0.6em;
   padding: 0.8em 1em 1em;
-  border-top: 1px solid #2a343e;
+  border-top: 1px solid var(--grid);
+  background: rgba(20, 20, 28, 0.85);
 }
 .exportSummary {
   margin: 0;
-  color: #e8e2d2;
-  font-size: 0.8rem;
+  color: var(--dim);
+  font-size: 0.78rem;
   overflow-wrap: anywhere;
 }
 .exportActions {
@@ -610,19 +722,19 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   min-height: 44px;
   min-width: 96px;
   padding: 0.5em 1.2em;
-  border: 1px solid #e8e2d2;
+  border: 1px solid var(--cyan-dim);
   border-radius: 8px;
   background: transparent;
-  color: #f4f1e8;
-  font-size: 0.92rem;
+  color: var(--ink);
+  font-size: 0.9rem;
   cursor: pointer;
 }
-.exportBtn:hover { background: #1a242e; }
+.exportBtn:hover { background: rgba(38, 184, 217, 0.12); }
 .exportBtn:disabled { opacity: 0.6; cursor: not-allowed; }
 .exportHint {
   margin: 0;
-  color: #c3ccc9;
-  font-size: 0.78rem;
+  color: var(--muted);
+  font-size: 0.76rem;
 }
 .exportNote {
   margin: 0;
@@ -630,38 +742,44 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   border: 1px solid var(--brass);
   border-left: 4px solid var(--brass);
   border-radius: 6px;
-  background: #1a242e;
-  color: #f4f1e8;
+  background: #241c0e;
+  color: var(--ink);
   font-size: 0.85rem;
 }
 
-/* Phase 5 contrast notes: slate text now meets 4.5 to 1 on paper, error text
-   keeps dark red on pale rose, canvas foot notes keep light gray on ink. */
-
-/* Low bandwidth: text renders first, images never push layout. Poster and
-   snapshots carry lazy loading plus descriptive alt in the panels. */
 img { max-width: 100%; height: auto; }
 .metricsBar, .canvasFoot, .exportSummary { overflow-wrap: anywhere; }
 .mPoster img { aspect-ratio: auto; }
 
-/* Print-only compact validation summary. Screen keeps the full ledger in
-   the side rail, print carries the counts plus blocking state inside the
-   canvas card, so the sheet is metrics plus validation, never metrics only. */
 .printValidation {
   display: none;
   margin: 0;
   padding: 0.6em 1em;
-  border-top: 1px solid #2a343e;
-  color: #cfd6cd;
+  border-top: 1px solid var(--grid);
+  color: var(--muted);
   font-size: 0.8rem;
 }
 
-/* Small phones: stack everything, roomier touch targets, narrower rail. */
+@media (max-width: 900px) {
+  .workbench {
+    flex-direction: column;
+    height: auto;
+    overflow: visible;
+  }
+  .rail, .railRight { width: 100% !important; border: 0; border-bottom: 1px solid var(--line); }
+  .railScroll { overflow: visible; }
+  .resizeHandle { display: none; }
+  .center { order: -1; }
+  .masthead { flex-direction: column; }
+  .provenance { white-space: normal; max-width: 100%; }
+  .provText { overflow-wrap: anywhere; }
+}
+
 @media (max-width: 480px) {
   .page { font-size: 16px; }
-  .display { font-size: 1.9rem; }
+  .display { font-size: 1.6rem; }
   .masthead { padding: 1.25rem 1rem 0.75rem; }
-  .layout { padding: 1rem; }
+  .center { padding: 0.5rem; }
   .canvasFoot { flex-direction: column; gap: 0.4em; }
   .exportBar { padding: 0.8em 1em; }
   .exportActions { flex-direction: column; align-items: stretch; }
@@ -673,6 +791,10 @@ img { max-width: 100%; height: auto; }
   .foot { padding: 1rem 1rem 1.5rem; }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
 /* Print: clean report sheet. Side rail, footer, and buttons are hidden, the
    canvas card expands full width on a white sheet with black text. */
 @media print {
@@ -680,8 +802,10 @@ img { max-width: 100%; height: auto; }
   html, body { background: #ffffff; color: #000000; font-size: 11pt; }
   .skip { display: none; }
   .side, .foot { display: none !important; }
+  .railLeft, .resizeHandle { display: none !important; }
   .masthead { border-bottom: 2px solid #000000; padding: 0 0 0.6em; }
   .layout { display: block; padding: 0; }
+  .workbench { display: block; height: auto; }
   .canvasCard {
     background: #ffffff;
     color: #000000;

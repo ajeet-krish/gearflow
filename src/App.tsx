@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FlowCanvas, { type FlowCanvasHandle } from "@/render/FlowCanvas";
 import FlowControls, { type FlowMode } from "@/ui/FlowControls";
 import ErrorBoundary from "@/ui/ErrorBoundary";
+import ResizeHandle from "@/components/ui/ResizeHandle";
 import MetaPanel from "@/ui/MetaPanel";
 import EvalLogPanel from "@/ui/EvalLogPanel";
 import { buildPolygons } from "@/geometry/parametric";
@@ -151,6 +152,42 @@ export default function App() {
     // the panels, this is wiring only.
     const [valSummary, setValSummary] = useState<ValidationSummary>({ pass: 0, warn: 0, fail: 0, info: 0, blocking: 0 });
     const canvasRef = useRef<FlowCanvasHandle | null>(null);
+    // Resizable control room rails. Widths persist per booth so a judged demo
+    // keeps its tunnel framing. Clamped to usable instrument widths.
+    const LEFT_MIN = 280;
+    const LEFT_MAX = 480;
+    const RIGHT_MIN = 260;
+    const RIGHT_MAX = 420;
+    const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+    function loadRail(key: string, fallback: number, lo: number, hi: number): number {
+        try {
+            const raw = window.localStorage.getItem(key);
+            if (raw !== null) {
+                const n = Number(raw);
+                if (Number.isFinite(n)) return clamp(Math.round(n), lo, hi);
+            }
+        } catch {
+            // Private mode: fall through to the default width.
+        }
+        return fallback;
+    }
+    const [leftW, setLeftW] = useState<number>(() => loadRail("gearflow:leftW", 330, LEFT_MIN, LEFT_MAX));
+    const [rightW, setRightW] = useState<number>(() => loadRail("gearflow:rightW", 330, RIGHT_MIN, RIGHT_MAX));
+
+    useEffect(() => {
+        try {
+            window.localStorage.setItem("gearflow:leftW", String(leftW));
+        } catch {
+            // Private mode: width still applies to this session.
+        }
+    }, [leftW]);
+    useEffect(() => {
+        try {
+            window.localStorage.setItem("gearflow:rightW", String(rightW));
+        } catch {
+            // Private mode: width still applies to this session.
+        }
+    }, [rightW]);
 
     useEffect(() => {
         if (!offline) {
@@ -412,7 +449,7 @@ export default function App() {
             <a className="skip" href="#flow">Skip to flow canvas</a>
             <header className="masthead">
                 <div>
-                    <p className="eyebrow">GearFlow: Phase 5, polish and submission</p>
+                    <p className="eyebrow">GearFlow control room, Phase 5</p>
                     <h1 className="display">Wind over a wing, live in the browser</h1>
                     <p className="lede">
                         Shape the body and the Reynolds number, the field recomputes locally
@@ -427,116 +464,136 @@ export default function App() {
                 </div>
             </header>
 
-            <main id="flow" className="layout">
-                <section className="canvasCard" aria-label={isFixture ? "Fixture flow" : "Live analytic flow"}>
-                    {packError && mode === "fixture" && <p className="error">{packError}</p>}
-                    {packLoading && mode === "fixture" && !pack && <p className="loading">Loading fixture pack</p>}
-                    {isSurrogatePending && (
-                        <p className="loading" role="status">Loading surrogate weights, showing analytic meanwhile. No action needed.</p>
-                    )}
-                    {isSurrogateFallback && (
-                        <p className="fallbackNote" role="status">{frame.provenance.note ?? "Surrogate unavailable, analytic fallback active."}</p>
-                    )}
-                    {mode === "surrogate" && surrogateNote !== null && surrogateReady && isSurrogateFallback && (
-                        <p className="reNote">{surrogateNote}</p>
-                    )}
-                    {solveError !== null && !isFixture && (
-                        <p className="error solveError" role="alert">
-                            {sourceIsSurrogate ? "Surrogate" : "Analytic"} solve failed ({solveError}), showing last good field. Adjust the shape controls to recover.
-                        </p>
-                    )}
-                    <ErrorBoundary resetKey={boundaryKey} label="flow canvas">
-                        <FlowCanvas ref={canvasRef} flow={flow} airfoil={airfoil} colormap="viridis" />
-                    </ErrorBoundary>
-                    <div className="canvasFoot">
-                        <span className="mono">{`${flow.nx} x ${flow.ny} grid, x [-0.5, 2.0] y [-1.0, 1.0]`}</span>
-                        <span className="mono">{`${debouncedSpec.kind} a${debouncedSpec.alphaDeg} Re${debouncedRe}`}</span>
+            <main id="flow" className="layout workbench">
+                <aside className="rail railLeft" style={{ width: leftW }} aria-label="Agent console: Meta orchestration and eval">
+                    <div className="railScroll">
+                        <section className="card meta" aria-label="Meta orchestration">
+                            <h2><span className="railTag mono" aria-hidden="true">CON 01</span>Agent console</h2>
+                            {offline && offlinePackError !== null && (
+                                <p className="error" role="alert">{offlinePackError}</p>
+                            )}
+                            {offline && offlineCases !== null && (
+                                <p className="mSub mono" role="status">
+                                    Offline pack loaded, {offlineCases.length} baked cases, zero network.
+                                </p>
+                            )}
+                            <ErrorBoundary resetKey={`meta-${offline}`} label="meta panel">
+                                <MetaPanel
+                                    spec={spec}
+                                    reynolds={reynolds}
+                                    cl={frame.cl}
+                                    cpMin={frame.cpMin}
+                                    offline={offline}
+                                    onOfflineChange={setOffline}
+                                    onApplySpec={applyParametric}
+                                    client={metaClient}
+                                    cache={cacheRef.current!}
+                                    posterUrl={posterUrl}
+                                    onPosterUrl={setPosterUrl}
+                                    offlineCases={offlineCases}
+                                />
+                            </ErrorBoundary>
+                        </section>
+                        <section className="card evalCard" aria-label="Eval log">
+                            <h2><span className="railTag mono" aria-hidden="true">LOG 02</span>Eval ledger</h2>
+                            <EvalLogPanel entries={evalEntries} />
+                        </section>
                     </div>
-                    <div className="metricsBar" aria-label="Solver metrics">
-                        {isFixture ? (
-                            <span className="mono">Cl n/a (fixture) · CpMin n/a (fixture) · regime {regime}</span>
-                        ) : solveError !== null ? (
-                            <span className="mono">
-                                Solve failed, last good Cl {Number.isFinite(frame.cl) ? frame.cl.toFixed(3) : "n/a"} · CpMin{" "}
-                                {Number.isFinite(frame.cpMin) ? frame.cpMin.toFixed(3) : "n/a"} · {frame.solveMs.toFixed(1)} ms · {regime}
-                            </span>
-                        ) : (
-                            <span className="mono">
-                                Cl {frame.cl.toFixed(3)} · CpMin {frame.cpMin.toFixed(3)} · {frame.solveMs.toFixed(1)} ms · {regime}
-                            </span>
+                </aside>
+
+                <ResizeHandle
+                    id="gripLeft"
+                    label="Resize agent console, left and right arrows adjust width"
+                    onNudge={(d) => setLeftW((w) => clamp(d > 9000 ? LEFT_MAX : d < -9000 ? LEFT_MIN : w + d, LEFT_MIN, LEFT_MAX))}
+                    onDrag={(d) => setLeftW((w) => clamp(w + d, LEFT_MIN, LEFT_MAX))}
+                />
+
+                <section className="center" aria-label="Tunnel window">
+                    <div className="canvasCard" aria-label={isFixture ? "Fixture flow" : "Live analytic flow"}>
+                        {packError && mode === "fixture" && <p className="error">{packError}</p>}
+                        {packLoading && mode === "fixture" && !pack && <p className="loading">Loading fixture pack</p>}
+                        {isSurrogatePending && (
+                            <p className="loading" role="status">Loading surrogate weights, showing analytic meanwhile. No action needed.</p>
                         )}
-                    </div>
-                    {!isFixture && (
-                        <p className="reNote">Honest Re note: Re shades the wake deficit only, the potential core stays inviscid.</p>
-                    )}
-                    <p className="printValidation mono" role="note" aria-label="Validation summary for print">
-                        Validation ledger (print): {valSummary.pass} pass, {valSummary.warn} warn, {valSummary.fail} fail,{" "}
-                        {valSummary.info} info. {valSummary.blocking === 0 ? "No blocking failures." : `${valSummary.blocking} blocking failures, demo hold.`}{" "}
-                        Full 9 row ledger lives in the app side panel. PDF export carries the same counts plus report rows.
-                    </p>
-                    <ExportBar getSnapshot={getSnapshot} data={exportData} />
-                </section>
-
-                <aside className="side" aria-label="Controls, Meta, and eval panels">
-                    <section className="card" aria-label="Phase 4 controls">
-                        <h2>Shape controls</h2>
-                        <FlowControls
-                            spec={spec}
-                            reynolds={reynolds}
-                            mode={mode}
-                            onSpecChange={setSpec}
-                            onReynoldsChange={setReynolds}
-                            onModeChange={setMode}
-                        />
-                    </section>
-
-                    <section className="card validationCard" aria-label="Validation panel">
-                        <h2>Validation ledger</h2>
-                        <ErrorBoundary resetKey="validation" label="validation panel">
-                            <ValidationPanel onSummary={setValSummary} />
-                        </ErrorBoundary>
-                        <p className="visuallyHidden" role="status">
-                            {valSummary.blocking === 0 ? "No blocking validation failures." : `${valSummary.blocking} blocking validation failures.`}
-                        </p>
-                    </section>
-
-                    <section className="card meta" aria-label="Meta orchestration">
-                        <h2>Meta orchestration</h2>
-                        {offline && offlinePackError !== null && (
-                            <p className="error" role="alert">{offlinePackError}</p>
+                        {isSurrogateFallback && (
+                            <p className="fallbackNote" role="status">{frame.provenance.note ?? "Surrogate unavailable, analytic fallback active."}</p>
                         )}
-                        {offline && offlineCases !== null && (
-                            <p className="mSub mono" role="status">
-                                Offline pack loaded, {offlineCases.length} baked cases, zero network.
+                        {mode === "surrogate" && surrogateNote !== null && surrogateReady && isSurrogateFallback && (
+                            <p className="reNote">{surrogateNote}</p>
+                        )}
+                        {solveError !== null && !isFixture && (
+                            <p className="error solveError" role="alert">
+                                {sourceIsSurrogate ? "Surrogate" : "Analytic"} solve failed ({solveError}), showing last good field. Adjust the shape controls to recover.
                             </p>
                         )}
-                        <ErrorBoundary resetKey={`meta-${offline}`} label="meta panel">
-                            <MetaPanel
+                        <ErrorBoundary resetKey={boundaryKey} label="flow canvas">
+                            <FlowCanvas ref={canvasRef} flow={flow} airfoil={airfoil} colormap="viridis" />
+                        </ErrorBoundary>
+                        <div className="canvasFoot">
+                            <span className="mono">{`${flow.nx} x ${flow.ny} grid, x [-0.5, 2.0] y [-1.0, 1.0]`}</span>
+                            <span className="mono">{`${debouncedSpec.kind} a${debouncedSpec.alphaDeg} Re${debouncedRe}`}</span>
+                        </div>
+                        <div className="metricsBar" aria-label="Solver metrics">
+                            {isFixture ? (
+                                <span className="mono">Cl n/a (fixture), CpMin n/a (fixture), regime {regime}</span>
+                            ) : solveError !== null ? (
+                                <span className="mono">
+                                    Solve failed, last good Cl {Number.isFinite(frame.cl) ? frame.cl.toFixed(3) : "n/a"}, CpMin{" "}
+                                    {Number.isFinite(frame.cpMin) ? frame.cpMin.toFixed(3) : "n/a"}, {frame.solveMs.toFixed(1)} ms, {regime}
+                                </span>
+                            ) : (
+                                <span className="mono">
+                                    Cl {frame.cl.toFixed(3)}, CpMin {frame.cpMin.toFixed(3)}, {frame.solveMs.toFixed(1)} ms, {regime}
+                                </span>
+                            )}
+                        </div>
+                        {!isFixture && (
+                            <p className="reNote">Honest Re note: Re shades the wake deficit only, the potential core stays inviscid.</p>
+                        )}
+                        <p className="printValidation mono" role="note" aria-label="Validation summary for print">
+                            Validation ledger (print): {valSummary.pass} pass, {valSummary.warn} warn, {valSummary.fail} fail,{" "}
+                            {valSummary.info} info. {valSummary.blocking === 0 ? "No blocking failures." : `${valSummary.blocking} blocking failures, demo hold.`}{" "}
+                            Full 9 row ledger lives in the app side panel. PDF export carries the same counts plus report rows.
+                        </p>
+                        <ExportBar getSnapshot={getSnapshot} data={exportData} />
+                    </div>
+                </section>
+
+                <ResizeHandle
+                    id="gripRight"
+                    label="Resize instrument rack, left and right arrows adjust width"
+                    onNudge={(d) => setRightW((w) => clamp(d > 9000 ? RIGHT_MAX : d < -9000 ? RIGHT_MIN : w - d, RIGHT_MIN, RIGHT_MAX))}
+                    onDrag={(d) => setRightW((w) => clamp(w - d, RIGHT_MIN, RIGHT_MAX))}
+                />
+
+                <aside className="side rail railRight" style={{ width: rightW }} aria-label="Instrument rack: shape and validation">
+                    <div className="railScroll">
+                        <section className="card" aria-label="Phase 4 controls">
+                            <h2><span className="railTag mono" aria-hidden="true">RCK 01</span>Shape controls</h2>
+                            <FlowControls
                                 spec={spec}
                                 reynolds={reynolds}
-                                cl={frame.cl}
-                                cpMin={frame.cpMin}
-                                offline={offline}
-                                onOfflineChange={setOffline}
-                                onApplySpec={applyParametric}
-                                client={metaClient}
-                                cache={cacheRef.current!}
-                                posterUrl={posterUrl}
-                                onPosterUrl={setPosterUrl}
-                                offlineCases={offlineCases}
+                                mode={mode}
+                                onSpecChange={setSpec}
+                                onReynoldsChange={setReynolds}
+                                onModeChange={setMode}
                             />
-                        </ErrorBoundary>
-                    </section>
-
-                    <section className="card evalCard" aria-label="Eval log">
-                        <h2>Eval ledger</h2>
-                        <EvalLogPanel entries={evalEntries} />
-                    </section>
+                        </section>
+                        <section className="card validationCard" aria-label="Validation panel">
+                            <h2><span className="railTag mono" aria-hidden="true">RCK 02</span>Validation ledger</h2>
+                            <ErrorBoundary resetKey="validation" label="validation panel">
+                                <ValidationPanel onSummary={setValSummary} />
+                            </ErrorBoundary>
+                            <p className="visuallyHidden" role="status">
+                                {valSummary.blocking === 0 ? "No blocking validation failures." : `${valSummary.blocking} blocking validation failures.`}
+                            </p>
+                        </section>
+                    </div>
                 </aside>
             </main>
 
             <footer className="foot">
-                <span className="mono">GearFlow 1.0.0, Phase 5 polish and submission. Commas and colons only.</span>
+                <span className="mono">GearFlow 1.0.0, Phase 5 polish and submission. Commas, colons, parentheses.</span>
             </footer>
         </div>
     );

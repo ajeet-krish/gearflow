@@ -395,13 +395,20 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas({ flo
 
         const onResize = () => {
             const nw = mount.clientWidth || w;
-            const nh = Math.max(320, Math.min(560, Math.round(nw * 0.55)));
-            renderer.setSize(nw, nh);
+            const availH = mount.clientHeight || 0;
+            const targetH = availH > 100 ? availH : Math.max(320, Math.min(560, Math.round(nw * 0.55)));
+            renderer.setSize(nw, targetH);
         };
+        let ro: ResizeObserver | null = null;
+        if (typeof ResizeObserver !== "undefined") {
+            ro = new ResizeObserver(() => onResize());
+            ro.observe(mount);
+        }
         window.addEventListener("resize", onResize);
         return () => {
             cancelAnimationFrame(raf);
             window.removeEventListener("resize", onResize);
+            if (ro) ro.disconnect();
             document.removeEventListener("visibilitychange", onVisibility);
             if (observer) observer.disconnect();
             readyRef.current = false;
