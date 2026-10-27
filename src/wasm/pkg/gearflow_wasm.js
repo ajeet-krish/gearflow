@@ -1,6 +1,138 @@
 /* @ts-self-types="./gearflow_wasm.d.ts" */
 
 /**
+ * Viscous LBM solver binding. Mirrors the host LbmState API.
+ * Construction validates grid caps plus square cells; configure()
+ * builds the state; run_steps() advances in bounded batches.
+ */
+export class WasmLbmSolver {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        WasmLbmSolverFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_wasmlbmsolver_free(ptr, 0);
+    }
+    /**
+     * Request cancellation. State stays intact and resumable.
+     */
+    cancel() {
+        wasm.wasmlbmsolver_cancel(this.__wbg_ptr);
+    }
+    /**
+     * Current drag coefficient.
+     * @returns {number}
+     */
+    cd() {
+        const ret = wasm.wasmlbmsolver_cd(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Current lift coefficient.
+     * @returns {number}
+     */
+    cl() {
+        const ret = wasm.wasmlbmsolver_cl(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Configure geometry plus flow parameters. Picks inlet and outlet
+     * from the kind: duct uses parabolic plus zero gradient, else
+     * uniform plus convective.
+     * @param {string} geom_json
+     * @param {number} re
+     * @param {number} u_lattice
+     * @param {boolean} les_enabled
+     */
+    configure(geom_json, re, u_lattice, les_enabled) {
+        const ptr0 = passStringToWasm0(geom_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmlbmsolver_configure(this.__wbg_ptr, ptr0, len0, re, u_lattice, les_enabled);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * Field snapshot with the same object shape as WasmSolver::field.
+     * @returns {any}
+     */
+    field() {
+        const ret = wasm.wasmlbmsolver_field(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Create an LBM solver grid. Rejects non-square cells with a
+     * corrected ny in the message.
+     * @param {number} nx
+     * @param {number} ny
+     * @param {number} xmin
+     * @param {number} xmax
+     * @param {number} ymin
+     * @param {number} ymax
+     */
+    constructor(nx, ny, xmin, xmax, ymin, ymax) {
+        const ret = wasm.wasmlbmsolver_new(nx, ny, xmin, xmax, ymin, ymax);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        WasmLbmSolverFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Restore the initial condition, clear stats and history.
+     */
+    reset() {
+        const ret = wasm.wasmlbmsolver_reset(this.__wbg_ptr);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * Clear a pending cancel so stepping can continue. Leaves the field,
+     * step count, forces, and statistics untouched. Errors when diverged.
+     */
+    resume() {
+        const ret = wasm.wasmlbmsolver_resume(this.__wbg_ptr);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * Advance up to n steps (bounded by max_steps_per_call).
+     * Returns { stepsDone, step, cd, cl, cancelled, diverged }.
+     * @param {bigint} n
+     * @returns {any}
+     */
+    run_steps(n) {
+        const ret = wasm.wasmlbmsolver_run_steps(this.__wbg_ptr, n);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Single lattice step. Returns { step, cd, cl }.
+     * Errors when cancelled (call resume() first) or diverged.
+     * @returns {any}
+     */
+    step() {
+        const ret = wasm.wasmlbmsolver_step(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+}
+if (Symbol.dispose) WasmLbmSolver.prototype[Symbol.dispose] = WasmLbmSolver.prototype.free;
+
+/**
  * Cached solver holding the grid plus the last resolved body.
  * resolve() caches panels; field() reuses them (Re changes skip re-solve).
  */
@@ -130,6 +262,9 @@ function __wbg_get_imports() {
     };
 }
 
+const WasmLbmSolverFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_wasmlbmsolver_free(ptr, 1));
 const WasmSolverFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmsolver_free(ptr, 1));

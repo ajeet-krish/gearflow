@@ -119,3 +119,6 @@ Design goal: visible multi model value (Spark reasoning, SAM segmentation, Image
 * Cached demo pack for judging network issues. Required for solo live demo.
 * Low bandwidth mode: text first, images lazy, clear status copy.
 * Solo maintainability: single owner stack, minimal ops, pinned versions, one command setup.
+
+## Phase 10 pointer
+The viscous Lattice Boltzmann core design (modules, kernel, boundaries, forces, statistics, batch API, tests, provenance) lives in docs/ARCHITECTURE-LBM-PHASE10.md. The potential path in this document is unchanged and remains the instant preview and fallback.
