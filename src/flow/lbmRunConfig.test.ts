@@ -9,6 +9,7 @@ import { DEFAULT_DOMAIN } from "@/contracts/types";
 import {
     LBM_DEFAULT_TARGET_STEPS,
     LBM_DEFAULT_U_LATTICE,
+    LBM_ENTER_BODY_RADIUS,
     LBM_ENTER_NOTICE,
     LBM_ENTER_RE,
     LBM_MAX_RE,
@@ -21,6 +22,7 @@ import {
     isLbmTauFailover,
     lbmLesEnabled,
     lbmRecoveryRe,
+    preflightLbm,
     shouldResetReOnLbmEnter,
     withLbmTauGuidance,
 } from "./lbmRunConfig";
@@ -90,6 +92,54 @@ describe("lbmRunConfig", () => {
         expect(withLbmTauGuidance(plain)).toBe(plain);
         expect(isLbmTauFailover(plain)).toBe(false);
         expect(withLbmTauGuidance(tau)).toBe(tau);
+    });
+
+    it("hard blocks Run at Re 50000 when predicted tau hits the floor", () => {
+        const gate = preflightLbm(
+            { kind: "cylinder", chord: 1, alphaDeg: 0, nPoints: 64, radius: 0.25, center: { x: 0.5, y: 0 } },
+            { nx: 320, ny: 256, domain: { ...DEFAULT_DOMAIN } },
+            0.05,
+            50000
+        );
+        expect(gate.ok).toBe(false);
+        expect(gate.blockReasons.length).toBeGreaterThan(0);
+        expect(gate.blockReasons.join(" ")).toContain("tau");
+        expect(gate.tau).toBeLessThanOrEqual(0.505);
+    });
+
+    it("warns at 25 percent blockage but still allows Run", () => {
+        // 41 by 33 over the default domain keeps square cells with dx 0.0625,
+        // so a radius 0.25 cylinder spans 8 cells of a 32 cell height.
+        const gate = preflightLbm(
+            { kind: "cylinder", chord: 1, alphaDeg: 0, nPoints: 64, radius: 0.25, center: { x: 0.5, y: 0 } },
+            { nx: 41, ny: 33, domain: { ...DEFAULT_DOMAIN } },
+            0.05,
+            100
+        );
+        expect(gate.ok).toBe(true);
+        expect(gate.blockReasons).toHaveLength(0);
+        expect(gate.blockage).toBeCloseTo(0.25, 5);
+        expect(gate.warnings.join(" ")).toContain("25.0 percent");
+    });
+
+    it("allows the radius 0.15 Re 200 candidate with warnings only", () => {
+        const gate = preflightLbm(
+            { kind: "cylinder", chord: 1, alphaDeg: 0, nPoints: 120, radius: 0.15, center: { x: 0.5, y: 0 } },
+            { nx: 320, ny: 256, domain: { ...DEFAULT_DOMAIN } },
+            0.05,
+            200
+        );
+        expect(gate.ok).toBe(true);
+        expect(gate.tau).toBeCloseTo(0.5287, 3);
+        expect(gate.blockage).toBeCloseTo(0.15, 2);
+        expect(gate.warnings.length).toBeGreaterThan(0);
+    });
+
+    it("keeps the Re only entry default after the native verification diverges", () => {
+        // Release 40000 step runs at radius 0.15 diverge at step 576
+        // (Re 200) and step 10304 (Re 100), so no body suggestion ships.
+        expect(LBM_ENTER_BODY_RADIUS).toBeNull();
+        expect(LBM_ENTER_RE).toBe(200);
     });
 });
 

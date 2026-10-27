@@ -710,3 +710,34 @@ No blocking defect found. No production changes made. Freeze ready for Nov 4.
 - [x] Phase tests integrate with prior phase tests
 - [x] Both builds green with worker chunk (6.62 kB) and wasm asset (193.24 kB)
 - [x] Grep proofs recorded (no key, no secret, no dashes, model pinned)
+
+## 2026-10-27 - Phase A Major F2: Test Report (Run gate plus death step behavioral coverage, no production changes)
+
+### Test Results
+npm test: 73 files, 852 tests, all passed. Baseline at the prior entry was 809 tests across 69 files. Delta is src/flow/lbmRunGateBehavior.test.ts (5 tests). No production code touched. No commit made.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| lbmRunGateBehavior.test.ts (5) | PASS | Hard block posts notice plus one block log entry with zero run posts, 200 row cap drops oldest, warnings still post run with warn entry, fresh run pre progress failover names no stale step, landed progress still threads the death step |
+| all other Node suites (847) | PASS | No regressions, 852 total |
+
+### Coverage Summary
+Happy path covered (warn gate allows run with warn notice plus warn log, landed progress threads the death step with step and target).
+Edge cases covered (log at 200 rows stays capped with oldest dropped, fresh run reset clears the stale 576 step before failover).
+Error conditions covered (hard block at predicted tau floor never posts run, notice plus single block log entry).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 809 prior tests still pass plus 5 new, 852 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full suite green on this run, 852 passed | No fix needed |
+
+### Verification Checklist
+- [x] All tests pass (73 files, 852 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

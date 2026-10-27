@@ -212,9 +212,9 @@ describe("LbmFailoverNotice", () => {
 describe("LbmEntryNotice", () => {
     it("renders the entry message with a dismiss control", () => {
         const html = renderToStaticMarkup(
-            LbmEntryNotice({ message: "LBM needs low Re, Re set to 200 for a stable solve.", onDismiss: noop }) as never,
+            LbmEntryNotice({ message: "LBM needs low Re, Re set to 200 for the run default.", onDismiss: noop }) as never,
         );
-        expect(html).toContain("LBM needs low Re, Re set to 200 for a stable solve.");
+        expect(html).toContain("LBM needs low Re, Re set to 200 for the run default.");
         expect(html).toContain("Dismiss");
     });
 

@@ -31,6 +31,7 @@ import {
     lbmEntryTransition,
     lbmLesEnabled,
     lbmRecoveryRe,
+    preflightLbm,
     withLbmTauGuidance,
 } from "@/flow/lbmRunConfig";
 import { LbmFlowProvider, type LbmProviderStatus } from "@/flow/lbmFlowProvider";
@@ -157,6 +158,12 @@ export function buildAppExportData(
  * fetch on the critical path. Surrogate stays at 128, analytic may run 256
  * with automatic fallback to 128 after repeated slow solves.
  */
+export interface RunLogEntry {
+    step: number;
+    message: string;
+    level: "info" | "warn" | "block";
+}
+
 export default function App() {
     const [spec, setSpec] = useState<GeometrySpec>(DEFAULT_SPEC);
     const [reynolds, setReynolds] = useState(50_000);
@@ -565,7 +572,19 @@ export default function App() {
     const [lbmLesAuto, setLbmLesAuto] = useState(true);
     const [lbmLesManual, setLbmLesManual] = useState(false);
     const [lbmNotice, setLbmNotice] = useState<string | null>(null);
+    // Append only run log for the bottom terminal hook. The terminal task
+    // consumes this array, entries carry the last completed step plus the
+    // message and level. Capped at 200 rows, never cleared except on reload.
+    const [runLog, setRunLog] = useState<RunLogEntry[]>([]);
+    const appendRunLog = useCallback((entry: RunLogEntry) => {
+        setRunLog((prev) => [...prev.slice(-199), entry]);
+    }, []);
     const lbmLesEffective = lbmLesEnabled(lbmLesAuto, lbmLesManual, debouncedRe);
+    // Last completed progress plus the configured target, mirrored in refs
+    // so the failover notice can name the death step without stale closures.
+    const lbmProgressRef = useRef<LbmProgress>({ step: 0, targetSteps: 0, cd: NaN, cl: NaN });
+    const lbmTargetStepsRef = useRef(LBM_DEFAULT_TARGET_STEPS);
+    lbmTargetStepsRef.current = lbmTargetSteps;
     // Keyed on the mode transition so entering LBM resets a high Re once,
     // without looping and without clobbering a deliberate low Re.
     const lbmEnterSeenRef = useRef<EngineMode | null>(null);
@@ -592,11 +611,21 @@ export default function App() {
 
     const lbmFailover = useCallback((message: string) => {
         if (lbmFailedRef.current !== null) return;
+        // Keep the death step: the last completed progress step rides into
+        // the notice and the progress readout instead of resetting to 0,
+        // while the analytic fallback still serves every frame.
+        const last = lbmProgressRef.current;
+        const target = last.targetSteps > 0 ? last.targetSteps : lbmTargetStepsRef.current;
+        const stepped = /at step \d+/.test(message)
+            ? message
+            : last.step > 0
+                ? `${message} Diverged at step ${last.step} of ${target}.`
+                : message;
         // Tau and floor faults carry the measured stability guidance so the
         // notice is actionable. The latch and the honest fallback stay put.
-        setLbmFailed(withLbmTauGuidance(message));
+        setLbmFailed(withLbmTauGuidance(stepped));
         setLbmHasSnapshot(false);
-        setLbmProgress({ step: 0, targetSteps: 0, cd: NaN, cl: NaN });
+        setLbmProgress({ step: last.step, targetSteps: target, cd: last.cd, cl: last.cl });
         setLbmStatus("idle");
         try {
             lbmProviderRef.current?.clearSnapshot();
@@ -615,8 +644,11 @@ export default function App() {
         if (!lbmActive) return;
         // Fresh run: drop stale snapshot, progress, and status so a
         // placeholder is shown until the first snapshot of the new run.
+        // Mirror the reset into the ref so a pre progress failover in a
+        // fresh run never names a stale death step from the prior run.
         setLbmHasSnapshot(false);
         setLbmProgress({ step: 0, targetSteps: 0, cd: NaN, cl: NaN });
+        lbmProgressRef.current = { step: 0, targetSteps: 0, cd: NaN, cl: NaN };
         setLbmStatus("idle");
         if (lbmGrid.reason !== null) {
             setLbmFailed(`LBM grid unavailable (${lbmGrid.reason}), analytic fallback serving frames.`);
@@ -670,6 +702,7 @@ export default function App() {
         };
         client.onProgress = (p) => {
             if (disposed) return;
+            lbmProgressRef.current = { ...p };
             setLbmProgress({ ...p });
             provider.setProgress(p.step, p.targetSteps, p.cd, p.cl);
             const now = Date.now();
@@ -951,14 +984,33 @@ export default function App() {
     const effectiveVariable = fallbackVariableFor(prefs.variable, flow);
 
     // LBM run controls. Run starts the worker loop, Cancel latches the
-    // current state and keeps the last snapshot on screen.
+    // current state and keeps the last snapshot on screen. Run first passes
+    // the pre-flight gate: a hard block never starts the worker and lands
+    // in the notice stack plus the run log, warnings allow Run with a note.
     const onLbmRun = useCallback(() => {
         try {
+            const gate = preflightLbm(
+                debouncedSpec,
+                { nx: lbmGrid.nx, ny: lbmGrid.ny, domain: { ...DEFAULT_DOMAIN } },
+                lbmULattice,
+                debouncedRe
+            );
+            if (!gate.ok) {
+                const reason = gate.blockReasons.join(" ");
+                setLbmNotice(reason);
+                appendRunLog({ step: lbmProgressRef.current.step, message: `Run blocked: ${reason}`, level: "block" });
+                return;
+            }
+            if (gate.warnings.length > 0) {
+                const note = gate.warnings.join(" ");
+                setLbmNotice(note);
+                appendRunLog({ step: lbmProgressRef.current.step, message: note, level: "warn" });
+            }
             lbmClientRef.current?.run();
         } catch {
             // Run must never throw out of the button handler.
         }
-    }, []);
+    }, [debouncedSpec, lbmGrid.nx, lbmGrid.ny, lbmULattice, debouncedRe, appendRunLog]);
     const onLbmCancel = useCallback(() => {
         try {
             lbmClientRef.current?.cancel();

@@ -964,3 +964,30 @@ Residual non blocking note: recovery re-init is triggered by the debounced Re ch
 - [x] Code follows project conventions
 - [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
 - [x] Phase code integrates cleanly with prior phases
+
+## 2026-10-27 - Phase A fix confirmation
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Scope: Phase A fix re-review (stale progress ref reset, constants interpolated in preflight notices, softened stability notice, 5 new behavioural tests in src/flow/lbmRunGateBehavior.test.ts; reported 73 files, 852 tests green per docs/TESTS.md:714-722, inspected not rerun in this session)
+Verdict: PASS
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| Ref reset in init effect (Major) | PASS | src/App.tsx:643-652, the LBM init effect resets state at 650 and lbmProgressRef.current at 651, with the stale death step rationale at 647-648; production failover reads the ref at src/App.tsx:617-623, so a pre progress failover in a fresh run names no prior step |
+| Constants interpolated (Minor) | PASS | src/flow/lbmRunConfig.ts:180-194, block reason interpolates LBM_TAU_FLOOR at 182, blockage warning derives both percentages from LBM_PREFLIGHT_BLOCKAGE_WARN at 187, tau warning interpolates LBM_PREFLIGHT_TAU_WARN at 192; no hard coded 0.505, 0.53, or 13 remains in those messages |
+| Notice softened (Minor) | PASS | src/flow/lbmRunConfig.ts:31-32 LBM_TAU_GUIDANCE reads stable below about Re 480, qualified with about, and src/ui/LbmSetupRow.tsx:128 carries the same qualified wording, no absolute stability guarantee |
+| Behavioural tests, hard block never runs | PASS | src/flow/lbmRunGateBehavior.test.ts:72-96 drives the real preflightLbm and 95 calls the real LbmClient.run; the client is a real LbmClient over a fake port at 140-143; block asserts zero run posts at 164 and 197, one block log entry at 165-168 |
+| Behavioural tests, warnings run | PASS | src/flow/lbmRunGateBehavior.test.ts:205-231, real gate plus real client, exactly one run post at 227, warn notice and warn log entry at 226-230 |
+| Behavioural tests, fresh failover clean | PASS | src/flow/lbmRunGateBehavior.test.ts:234-252, after the fresh run reset the failover names no 576 and no at step text at 248-251; mirrors the production reset now landed at src/App.tsx:651 |
+| Behavioural tests, landed death step threads | PASS | src/flow/lbmRunGateBehavior.test.ts:254-264 asserts Diverged at step 576 of 40000 at 261 with step and targetSteps at 262-263, matching production threading at src/App.tsx:617-628 |
+| Test gate | PASS | docs/TESTS.md:714-722 records npm test 73 files, 852 tests, all passed, delta exactly the 5 tests in lbmRunGateBehavior.test.ts; reviewer inspected source and tests, no shell tool in this session to rerun |
+
+Note: the gate and client are exercised for real (real preflightLbm at lbmRunGateBehavior.test.ts:11,72 and real LbmClient imported at line 8 over the fake port at 28-39); the failover latch and fresh reset harnesses at lbmRunGateBehavior.test.ts:99-130 are local mirrors of the App bodies, so those two pins certify the mirrored logic plus the production lines cited above rather than rendering App itself. Non blocking, keep as a follow up if App level rendering coverage is added later. No em dashes in the reviewed fix surfaces.
+
+### Verification Checklist
+- [x] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases

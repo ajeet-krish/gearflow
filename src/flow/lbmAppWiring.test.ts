@@ -57,7 +57,7 @@ describe("LBM App wiring", () => {
         expect(src).toContain("setLbmNotice(transition.notice)");
         expect(src).toContain("lbmNotice");
         const cfgSrc = await readFile(configPath, "utf8");
-        expect(cfgSrc).toContain("LBM needs low Re, Re set to 200 for a stable solve.");
+        expect(cfgSrc).toContain("LBM needs low Re, Re set to 200 for the run default.");
     });
 
     it("caps the SolverBar Re input while LBM is active", async () => {
@@ -80,7 +80,7 @@ describe("LBM App wiring", () => {
 
     it("exposes an actionable tau recovery that sets Re 200", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).toContain("withLbmTauGuidance(message)");
+        expect(src).toContain("withLbmTauGuidance(stepped)");
         // Measured guidance lives in the shared run config module.
         const cfgSrc = await readFile(configPath, "utf8");
         expect(cfgSrc).toContain("LBM_TAU_GUIDANCE");
@@ -91,5 +91,26 @@ describe("LBM App wiring", () => {
         expect(src).toContain("setLbmFailed(null)");
         expect(src).toContain("setReynolds(lbmRecoveryRe)");
         expect(src).toContain("Recover at Re 200");
+    });
+
+    it("gates Run on the pre-flight and logs blocks to the run log", async () => {
+        const src = await readFile(appPath, "utf8");
+        expect(src).toContain("preflightLbm(");
+        expect(src).toContain("Run blocked");
+        // Append only terminal hook: step plus message plus level.
+        expect(src).toContain("RunLogEntry");
+        expect(src).toContain("appendRunLog");
+        expect(src).toContain("runLog");
+    });
+
+    it("threads the death step into the failover notice", async () => {
+        const src = await readFile(appPath, "utf8");
+        // Last completed step rides into the notice and the readout.
+        expect(src).toContain("lbmProgressRef");
+        expect(src).toContain("Diverged at step");
+        expect(src).toContain("of ${target}");
+        expect(src).toContain("step: last.step, targetSteps: target");
+        // The honest fallback still clears the snapshot and latches.
+        expect(src).toContain("setLbmHasSnapshot(false)");
     });
 });
