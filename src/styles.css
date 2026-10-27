@@ -65,7 +65,12 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
-.page { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+.page { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 
 .skip {
   position: absolute;
@@ -124,8 +129,7 @@ html, body {
   padding: 0;
   overflow: hidden;
   min-height: 0;
-  height: calc(100vh - 190px);
-  height: calc(100dvh - 190px);
+  flex: 1;
 }
 
 .rail {
