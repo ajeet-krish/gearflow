@@ -1,0 +1,16 @@
+{
+  "name": "gearflow-wasm",
+  "type": "module",
+  "description": "GearFlow analytic potential flow solver ported from TypeScript for WASM",
+  "version": "0.1.0",
+  "files": [
+    "gearflow_wasm_bg.wasm",
+    "gearflow_wasm.js",
+    "gearflow_wasm.d.ts"
+  ],
+  "main": "gearflow_wasm.js",
+  "types": "gearflow_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
