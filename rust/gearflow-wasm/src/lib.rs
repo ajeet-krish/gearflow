@@ -433,6 +433,43 @@ impl WasmLbmSolver {
         set("p", &js_sys::Float32Array::from(field.p.as_slice()).into())?;
         set("omega", &js_sys::Float32Array::from(field.omega.as_slice()).into())?;
         set("obstacle", &js_sys::Float32Array::from(field.obstacle.as_slice()).into())?;
+        // Mean and turbulence channels from the stats accumulator.
+        // Solid cells and the zero sample state read 0, all values are
+        // finite at the source so no NaN or infinite crosses the boundary.
+        let (u_mean, v_mean, k, recirc) = st.stats_fields();
+        set("uMean", &js_sys::Float32Array::from(u_mean.as_slice()).into())?;
+        set("vMean", &js_sys::Float32Array::from(v_mean.as_slice()).into())?;
+        set("k", &js_sys::Float32Array::from(k.as_slice()).into())?;
+        set("recirc", &js_sys::Float32Array::from(recirc.as_slice()).into())?;
+        let rep = st.stats_report();
+        let stats_obj = js_sys::Object::new();
+        let set_stat = |key: &str, value: &JsValue| {
+            js_sys::Reflect::set(&stats_obj, &JsValue::from_str(key), value)
+                .map_err(|_| JsValue::from_str("WasmLbmSolver.field: serialize failed"))
+        };
+        let finite_f64 = |x: f64| {
+            if x.is_finite() {
+                x
+            } else {
+                0.0
+            }
+        };
+        set_stat("samples", &JsValue::from_f64(rep.samples as f64))?;
+        set_stat("startStep", &JsValue::from_f64(rep.start_step as f64))?;
+        set_stat("step", &JsValue::from_f64(rep.step as f64))?;
+        set_stat("recircFraction", &JsValue::from_f64(finite_f64(rep.recirc_fraction)))?;
+        set_stat("cdMean", &JsValue::from_f64(finite_f64(rep.cd_mean)))?;
+        set_stat("clMean", &JsValue::from_f64(finite_f64(rep.cl_mean)))?;
+        set_stat("clRms", &JsValue::from_f64(finite_f64(rep.cl_rms)))?;
+        match rep.strouhal {
+            Some(v) if v.is_finite() && v > 0.0 => {
+                set_stat("strouhal", &JsValue::from_f64(v))?;
+            }
+            _ => {
+                set_stat("strouhal", &JsValue::null())?;
+            }
+        }
+        set("stats", &stats_obj.into())?;
         Ok(obj.into())
     }
 }

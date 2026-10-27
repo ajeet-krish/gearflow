@@ -116,6 +116,87 @@ impl StatsAccumulator {
         self.samples += 1;
     }
 
+    /// Time mean fields with solid zero and finite clamp, sized for the
+    /// WASM boundary. Zero samples returns correctly sized zero arrays so
+    /// the consumer never sees a short buffer. Uses the same formulas as
+    /// finalise (mean, variance floor, k) and forces solid cells to 0.
+    /// Returns (mean_u, mean_v, tke, recirc_mask).
+    pub fn fields_or_zeros(&self, solid: &[u8]) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+        let cells = self.cells;
+        assert!(
+            solid.len() == cells,
+            "stats: solid len {} must equal cells {cells}",
+            solid.len()
+        );
+        if self.samples == 0 {
+            return (vec![0.0; cells], vec![0.0; cells], vec![0.0; cells], vec![0.0; cells]);
+        }
+        let fin = match self.finalise() {
+            Ok(f) => f,
+            Err(_) => {
+                return (vec![0.0; cells], vec![0.0; cells], vec![0.0; cells], vec![0.0; cells]);
+            }
+        };
+        let mut mean_u = fin.mean_u;
+        let mut mean_v = fin.mean_v;
+        let mut tke = fin.tke;
+        let mut mask = fin.recirc_mask;
+        for k in 0..cells {
+            if solid[k] != 0 {
+                mean_u[k] = 0.0;
+                mean_v[k] = 0.0;
+                tke[k] = 0.0;
+                mask[k] = 0.0;
+                continue;
+            }
+            if !mean_u[k].is_finite() {
+                mean_u[k] = 0.0;
+            }
+            if !mean_v[k].is_finite() {
+                mean_v[k] = 0.0;
+            }
+            if !tke[k].is_finite() || tke[k] < 0.0 {
+                tke[k] = 0.0;
+            }
+            if !mask[k].is_finite() {
+                mask[k] = 0.0;
+            } else if mask[k] != 0.0 && mask[k] != 1.0 {
+                mask[k] = if mask[k] > 0.5 { 1.0 } else { 0.0 };
+            }
+        }
+        (mean_u, mean_v, tke, mask)
+    }
+
+    /// Global recirculation fraction for the stats report: fluid cells with
+    /// time mean u < 0 divided by fluid cell count. Zero when there are no
+    /// samples or no fluid cells. Pure and host testable.
+    pub fn global_recirc_fraction(&self, solid: &[u8]) -> f64 {
+        if self.samples == 0 {
+            return 0.0;
+        }
+        let n = self.samples.max(1) as f64;
+        let mut fluid = 0u64;
+        let mut recirc = 0u64;
+        for k in 0..self.cells {
+            if k >= solid.len() || solid[k] != 0 {
+                continue;
+            }
+            fluid += 1;
+            if self.sum_u[k] / n < 0.0 {
+                recirc += 1;
+            }
+        }
+        if fluid == 0 {
+            return 0.0;
+        }
+        let frac = recirc as f64 / fluid as f64;
+        if frac.is_finite() {
+            frac
+        } else {
+            0.0
+        }
+    }
+
     /// Finalise with n = max(samples, 1). Zero samples is an error.
     pub fn finalise(&self) -> Result<FinalStats, String> {
         if self.samples == 0 {

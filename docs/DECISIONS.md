@@ -202,3 +202,10 @@ Append only. Add new entries at bottom with date. Never rewrite history.
 * Options considered: Gate on the literature bands anyway versus gate on the mask corrected quantities versus gate the solver's measured reference plus or minus 5 percent with an honest non validation label.
 * Decision: Interpretation (c). Long window means are raw Cd 1.5845 (corrected 1.4549), St 0.15423, Cl amplitude about 0.9 per block; the mask equivalent diameter (16.04) explains none of the gap. The ignored reference test now pins per point Cd and St at the measured short window values plus or minus 5 percent, keeps Cl amplitude as a reported value with a 0.25 to 2.0 sanity tripwire, and prints values plus block table under nocapture. St and Cl amplitude are solver reference values, not literature validated, at this resolution; Phase 12 must label them that way in the UI.
 * Impact (judging link): Technical Depth (honest convergence ledger with a 24 block table, regression tripwire without overclaiming) and Demo (Phase 12 labels stay truthful about what the viscous core proves).
+
+### 2026-10-27 LBM stats surface for turbulence UI
+* Date: 2026-10-27
+* Context: UI needs mean fields, TKE, recirculation map, and a stats report from the Rust core without changing existing snapshot or force APIs.
+* Options considered: Recirc fraction as mean of per cell hit rate versus share of fluid cells with negative time mean u. Strouhal as zero or NaN versus null when unmeasurable.
+* Decision: Recirc fraction is the share of fluid cells with time mean u below zero. Strouhal is null when the peak counter errors, force means use the retained history window from stats start, new WASM keys are uMean, vMean, k, recirc, stats.
+* Impact (judging link): Technical Depth (honest turbulence labels with finite guarantees) and Demo (new field modes without breaking existing views).

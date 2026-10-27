@@ -60,6 +60,31 @@ pub struct StepReport {
     pub diverged: bool,
 }
 
+/// Turbulence statistics report for the UI. Additive only, existing
+/// snapshot and force APIs are untouched. Force means come from the
+/// retained history window (step >= stats start), strouhal is None when
+/// the peak counter cannot find a period.
+#[derive(Clone, Copy, Debug)]
+pub struct StatsReport {
+    pub samples: u64,
+    pub start_step: u64,
+    pub step: u64,
+    pub recirc_fraction: f64,
+    pub cd_mean: f64,
+    pub cl_mean: f64,
+    pub cl_rms: f64,
+    pub strouhal: Option<f64>,
+}
+
+/// Clamp helper so no NaN or infinite value reaches the caller.
+fn finite_or_zero(x: f64) -> f64 {
+    if x.is_finite() {
+        x
+    } else {
+        0.0
+    }
+}
+
 /// Full LBM state with two population buffers plus macroscopics.
 #[derive(Debug)]
 pub struct LbmState {
@@ -532,6 +557,38 @@ impl LbmState {
     /// Final time statistics.
     pub fn final_stats(&self) -> Result<FinalStats, String> {
         self.stats.finalise()
+    }
+
+    /// Time mean fields sized for the UI: (u_mean, v_mean, k, recirc).
+    /// Solid cells and the zero sample state return 0. All values are
+    /// finite. Uses the stats accumulator formulas: mean from sum / n,
+    /// variance floor at 0, k = 0.5 * (var_u + var_v), recirc 1 where
+    /// mean u < 0 in fluid cells else 0. Additive, snapshot is untouched.
+    pub fn stats_fields(&self) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+        self.stats.fields_or_zeros(&self.solid)
+    }
+
+    /// Stats report for the UI. Never panics, never returns NaN or
+    /// infinite (clamped to 0), strouhal is None when the peak counter
+    /// cannot measure a period. Force means use the retained history
+    /// window with step >= stats start, not the whole run.
+    pub fn stats_report(&self) -> StatsReport {
+        let from = self.stats.start_step;
+        let summary = self.force.summary(from);
+        let strouhal = self
+            .strouhal(from)
+            .ok()
+            .filter(|v| v.is_finite() && *v > 0.0);
+        StatsReport {
+            samples: self.stats.samples,
+            start_step: from,
+            step: self.step,
+            recirc_fraction: finite_or_zero(self.stats.global_recirc_fraction(&self.solid)),
+            cd_mean: finite_or_zero(summary.mean_cd),
+            cl_mean: finite_or_zero(summary.mean_cl),
+            cl_rms: finite_or_zero(summary.rms_cl),
+            strouhal,
+        }
     }
 
     /// Force summary from a start step.
@@ -1965,5 +2022,176 @@ mod tests {
         let div = st.rms_divergence();
         eprintln!("mass: drift = {drift:.6}, rms div = {div:.6}");
         assert!(div < 0.01, "rms divergence = {div}");
+    }
+
+    fn tiny_steady_setup(
+        stats_start: u64,
+        sample_every: u64,
+    ) -> (GridSpec, GeometrySpec, LbmConfig) {
+        let grid = GridSpec {
+            nx: 121,
+            ny: 61,
+            domain: Domain { x_min: 0.0, x_max: 2.4, y_min: -0.6, y_max: 0.6 },
+        };
+        let dx = 2.4 / 120.0;
+        let d_phys = 10.0 * dx;
+        let geom = cylinder_geom(0.72, 0.0, d_phys / 2.0);
+        let cfg = LbmConfig {
+            u_lattice: 0.05,
+            re: 20.0,
+            cs_smag: 0.17,
+            les_enabled: false,
+            inlet: InletProfile::Uniform,
+            outlet: OutletKind::Convective,
+            stats_start_step: stats_start,
+            sample_every,
+            seed: 42,
+            max_steps_per_call: 512,
+        };
+        (grid, geom, cfg)
+    }
+
+    fn run_to(grid: &GridSpec, geom: &GeometrySpec, cfg: &LbmConfig, total: u64) -> LbmState {
+        let mut st = LbmState::new(grid, geom, cfg).unwrap();
+        let mut done = 0u64;
+        while done < total {
+            let want = (total - done).min(512);
+            let rep = st.run_steps(want).unwrap();
+            done += rep.steps_done;
+            if rep.steps_done == 0 {
+                break;
+            }
+        }
+        assert_eq!(st.step, total);
+        st
+    }
+
+    #[test]
+    fn stats_mean_converges_on_steady_case() {
+        let (grid, geom, cfg) = tiny_steady_setup(2000, 10);
+        let st = run_to(&grid, &geom, &cfg, 4000);
+        let snap = st.snapshot();
+        let (mean_u, mean_v, k, _recirc) = st.stats_fields();
+        let n = grid.nx * grid.ny;
+        assert_eq!(mean_u.len(), n);
+        assert_eq!(mean_v.len(), n);
+        assert_eq!(k.len(), n);
+        let mut max_diff = 0.0f64;
+        let mut sum_diff = 0.0f64;
+        let mut fluid = 0u64;
+        let mut k_max = 0.0f64;
+        for kk in 0..n {
+            if st.solid[kk] != 0 {
+                continue;
+            }
+            fluid += 1;
+            let d = (mean_u[kk] as f64 - snap.u[kk] as f64).abs();
+            if d > max_diff {
+                max_diff = d;
+            }
+            sum_diff += d;
+            assert!(k[kk] >= 0.0, "k negative at cell {kk}");
+            assert!(k[kk].is_finite(), "k nonfinite at cell {kk}");
+            if (k[kk] as f64) > k_max {
+                k_max = k[kk] as f64;
+            }
+        }
+        assert!(fluid > 0);
+        let mean_diff = sum_diff / fluid as f64;
+        eprintln!("steady mean: max diff = {max_diff:.6}, mean diff = {mean_diff:.6}, k_max = {k_max:.6}");
+        assert!(max_diff < 0.01, "uMean far from instantaneous u, max diff = {max_diff}");
+        assert!(mean_diff < 0.002, "uMean mean diff = {mean_diff}");
+        assert!(k_max < 1e-3, "steady k should be small, k_max = {k_max}");
+    }
+
+    #[test]
+    fn stats_recirc_matches_umean_and_zero_on_solid() {
+        let (grid, geom, cfg) = tiny_steady_setup(1500, 10);
+        let st = run_to(&grid, &geom, &cfg, 3000);
+        let (mean_u, _mean_v, _k, recirc) = st.stats_fields();
+        let n = grid.nx * grid.ny;
+        assert_eq!(recirc.len(), n);
+        for kk in 0..n {
+            assert!(recirc[kk] == 0.0 || recirc[kk] == 1.0, "recirc not binary at {kk}");
+            assert!(recirc[kk].is_finite());
+            if st.solid[kk] != 0 {
+                assert_eq!(recirc[kk], 0.0, "recirc must be 0 on solid at {kk}");
+                assert_eq!(mean_u[kk], 0.0, "mean_u must be 0 on solid at {kk}");
+            } else {
+                let expect = if (mean_u[kk] as f64) < 0.0 { 1.0 } else { 0.0 };
+                assert_eq!(recirc[kk], expect, "recirc mismatch at cell {kk}");
+            }
+        }
+    }
+
+    #[test]
+    fn stats_report_counts_and_null_strouhal() {
+        let (grid, geom, cfg) = tiny_steady_setup(100, 10);
+        let total = 500u64;
+        let st = run_to(&grid, &geom, &cfg, total);
+        let rep = st.stats_report();
+        let mut expect = 0u64;
+        for s in 1..=total {
+            if s >= cfg.stats_start_step && (s - cfg.stats_start_step) % cfg.sample_every == 0 {
+                expect += 1;
+            }
+        }
+        assert_eq!(rep.samples, expect, "samples mismatch");
+        assert_eq!(rep.start_step, cfg.stats_start_step);
+        assert_eq!(rep.step, total);
+        assert!(rep.recirc_fraction.is_finite());
+        assert!(rep.recirc_fraction >= 0.0 && rep.recirc_fraction <= 1.0);
+        assert!(rep.cd_mean.is_finite());
+        assert!(rep.cl_mean.is_finite());
+        assert!(rep.cl_rms.is_finite());
+        assert!(rep.cl_rms >= 0.0);
+        // Steady low Re flow has no measurable shedding yet.
+        assert!(rep.strouhal.is_none(), "strouhal should be null, got {:?}", rep.strouhal);
+    }
+
+    #[test]
+    fn stats_zero_sample_returns_zeros() {
+        let (grid, geom, cfg) = tiny_steady_setup(5000, 10);
+        let st = LbmState::new(&grid, &geom, &cfg).unwrap();
+        assert_eq!(st.step, 0);
+        let n = grid.nx * grid.ny;
+        let (mean_u, mean_v, k, recirc) = st.stats_fields();
+        assert_eq!(mean_u.len(), n);
+        assert_eq!(mean_v.len(), n);
+        assert_eq!(k.len(), n);
+        assert_eq!(recirc.len(), n);
+        for kk in 0..n {
+            assert_eq!(mean_u[kk], 0.0);
+            assert_eq!(mean_v[kk], 0.0);
+            assert_eq!(k[kk], 0.0);
+            assert_eq!(recirc[kk], 0.0);
+        }
+        let rep = st.stats_report();
+        assert_eq!(rep.samples, 0);
+        assert_eq!(rep.start_step, cfg.stats_start_step);
+        assert_eq!(rep.step, 0);
+        assert_eq!(rep.recirc_fraction, 0.0);
+        assert!(rep.strouhal.is_none());
+    }
+
+    #[test]
+    fn stats_fields_all_finite_for_real_run() {
+        let (grid, geom, cfg) = tiny_steady_setup(0, 10);
+        let st = run_to(&grid, &geom, &cfg, 1000);
+        let (mean_u, mean_v, k, recirc) = st.stats_fields();
+        for (name, arr) in [("uMean", &mean_u), ("vMean", &mean_v), ("k", &k), ("recirc", &recirc)] {
+            assert_eq!(arr.len(), grid.nx * grid.ny);
+            for (kk, val) in arr.iter().enumerate() {
+                assert!(val.is_finite(), "{name} nonfinite at cell {kk}: {val}");
+            }
+        }
+        let rep = st.stats_report();
+        assert!(rep.recirc_fraction.is_finite());
+        assert!(rep.cd_mean.is_finite());
+        assert!(rep.cl_mean.is_finite());
+        assert!(rep.cl_rms.is_finite());
+        if let Some(s) = rep.strouhal {
+            assert!(s.is_finite());
+        }
     }
 }
