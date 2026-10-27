@@ -3,6 +3,8 @@ import * as THREE from "three";
 import type { FieldMode, FlowField } from "@/contracts/types";
 import type { Point } from "@/geometry/parametric";
 import { createParticles, advectParticles, mulberry32, type ParticleSet } from "./particles";
+import { fitDomainView } from "./fitView";
+import type { Domain } from "@/contracts/types";
 import { particleRgb } from "./particleColor";
 import type { ParticleColorMode } from "@/contracts/types";
 import { buildStreamlines } from "./streamlines";
@@ -161,6 +163,10 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     const streamFlowRef = useRef<FlowField | null>(null);
     const speedMaxRef = useRef(1);
     const readyRef = useRef(false);
+    // Fit to domain framing: the mount element is the measured box, and this
+    // ref carries the fit closure from the mount effect to resize plus repaint.
+    const fitCameraRef = useRef<((domain: Domain) => void) | null>(null);
+    const domainKeyRef = useRef("");
 
     // Phase 5 render controls: visibility flags plus adaptive density.
     // pausedRef stays for the RAF guard below (tab hide plus offscreen).
@@ -220,6 +226,16 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
             if (texturesRef.current !== null) {
                 disposeFieldTextures(texturesRef.current);
                 texturesRef.current = null;
+            }
+        }
+        // Domain change: refit the camera so the new extents frame fully.
+        const dKey = `${f.domain.xMin}|${f.domain.xMax}|${f.domain.yMin}|${f.domain.yMax}`;
+        if (domainKeyRef.current !== dKey) {
+            domainKeyRef.current = dKey;
+            try {
+                fitCameraRef.current?.(f.domain);
+            } catch {
+                // Refit must never break repaint.
             }
         }
         lutRef.current = buildLut(cm);
@@ -402,6 +418,21 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         const camera = new THREE.OrthographicCamera(domain.xMin, domain.xMax, domain.yMax, domain.yMin, -10, 10);
         camera.position.z = 5;
         cameraRef.current = camera;
+        // Frame the whole domain with a small margin at the live aspect, so
+        // the full tunnel stays visible as rails collapse or the window moves.
+        const fitCamera = (d: Domain): void => {
+            const vw = mount.clientWidth || w;
+            const vh = mount.clientHeight || h;
+            const fit = fitDomainView(d, vw, vh);
+            camera.left = fit.left;
+            camera.right = fit.right;
+            camera.top = fit.top;
+            camera.bottom = fit.bottom;
+            camera.updateProjectionMatrix();
+        };
+        fitCameraRef.current = fitCamera;
+        fitCamera(f0.domain);
+        domainKeyRef.current = `${f0.domain.xMin}|${f0.domain.xMax}|${f0.domain.yMin}|${f0.domain.yMax}`;
 
         const segX = f0.nx;
         const segY = f0.ny;
@@ -610,11 +641,18 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         if (!reduced) raf = requestAnimationFrame(tick);
 
         // ResizeObserver keeps the canvas matched to its card on rail drags.
+        // The mount sits inset zero in the tunnel, so rail collapse changes
+        // its width directly and the observer fires without a window resize.
         const onResize = () => {
             const nw = mount.clientWidth || w;
             const availH = mount.clientHeight || 0;
             const targetH = availH > 100 ? availH : Math.max(320, Math.min(560, Math.round(nw * 0.55)));
             renderer.setSize(nw, targetH);
+            try {
+                fitCameraRef.current?.(flowRef.current.domain);
+            } catch {
+                // Refit must never break resize.
+            }
         };
         let ro: ResizeObserver | null = null;
         if (typeof ResizeObserver !== "undefined") {

@@ -729,3 +729,41 @@ Verdict: FAIL
 Checks: Index safety PASS, Numerical correctness PASS, Determinism PASS, Error handling FAIL (WASM cancel resume), Boundary implementation PASS with Minor, Memory PASS, WASM surface FAIL (cancel resume, missing diverged field in run_steps report), Tests FAIL (boundary and WASM gaps), Honesty PASS.
 
 Note recurring pattern: public-surface lifecycle behaviour (cancel and resume) is tested through direct field mutation rather than the API JS callers actually get, the same isolated-pass pattern flagged in earlier phases.
+
+## 2026-10-27 - Phase 12a: Collapsible Shell and LBM Stats Surface Review
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Scope: Phase 12a uncommitted work vs fb1bc91 (layoutStore, shellRegions, App shortcuts, fitView/FlowCanvas, styles.css, shell tests; Rust stats.rs/lbm.rs/lib.rs stats surface, DECISIONS)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major | src/App.tsx:1034-1040 with src/ui/shellRegions.tsx:213 | Duplicate id sceneBarsBody when bars expanded (SceneBars wrapper div plus App child div), aria-controls ambiguous, invalid HTML | frontend-dev: remove inner id in App or remove wrapper id in SceneBars, keep one owner, add App-level uniqueness test |
+| Major | src/ui/shellRegions.tsx:195-215, src/App.tsx:1033-1057 | SceneBars has no focus rescue: collapsing unmounts SolverBar/FieldBar subtree, focus inside is dropped to body, unlike RailShell rescue at shellRegions.tsx:116-129 | frontend-dev: rescue focus to barsHandle on collapse (ref plus effect checking contains activeElement), add jsdom focus test |
+| Minor | src/App.tsx:273-299 | No e.repeat guard, holding backtick/[ / ] auto-repeats and thrashes layout/persistence | frontend-dev: ignore e.repeat in App handler or resolveShellShortcut, add repeat test |
+| Minor | src/ui/shell.test.tsx:256-262 | Test named collapsed rail exposes no focusable controls only asserts hidden and aria-hidden on opening tag, would pass if setInert wiring removed; effects do not run under renderToStaticMarkup | tester: jsdom render, assert inert attribute/property and tabbable query empty, unmount/expand cleanup |
+| Minor | src/render/fitView.ts:18-35 | Degenerate domain (dw or dh <= 0 or non-finite) can yield zero/negative/NaN half extents despite safe viewport fallback | backend-dev: fallback half extents for non-positive/non-finite domain extents, add degenerate tests |
+| Minor | src/styles.css:194-256 | Dark latch/bars label uses --comment #6272a4 on --deep #0d0d12 (about 3.9:1) for 10px text, below AA 4.5:1; light theme similar borderline | frontend-dev: use --text or darker/lighter comment token for latch and barsHandle labels in both themes |
+
+Positive verification notes: layoutStore version/sanitize/private-mode and recovery via always-rendered TopNav FOCUS (TopNav.tsx:86-97), rail latches, barsHandle, focusExit (App.tsx:1104-1113) PASS, so all-collapsed plus focus persisted payload is recoverable. Rail aria ids unique per rail in App, setInert expands/unmounts coherently. Rust stats arrays length nx*ny on zero and sampled paths, solid zero, k formula, recircFraction share-of-fluid (stats.rs:173-198, matches DECISIONS.md:210), retained-window force means, strouhal null not 0/NaN, finite clamps at lib.rs:450-471 PASS. No solver/analytic change, no literature validation claim for Cd/St/Cl at Re 100 in new Rust strings.
+
+No em dashes.
+
+## 2026-10-27 - Phase 12a Fix Confirmation
+
+Date: 2026-10-27
+Reviewer: code-reviewer
+Verdict: FAIL
+
+| # | Finding | Status |
+|-|-|-|
+| 1 | duplicate sceneBarsBody PASS (src/App.tsx:1035-1041, src/ui/shellRegions.tsx:264-275) | PASS |
+| 2 | SceneBars focus rescue FAIL Major (src/ui/shellRegions.tsx:241-256 snapshot only updates on collapsed change, so focus entering bars after expansion is not recorded; fix frontend-dev: refresh hadFocusInsideRef on every expanded render or on focusin, add rerender focus test) | FAIL |
+| 3 | auto-repeat PASS (src/ui/shellRegions.tsx:56-62, src/App.tsx:273-283) | PASS |
+| 4 | inert test PASS with note (real improvement at markup level: declarative inert at src/ui/shellRegions.tsx:197 makes src/ui/shell.test.tsx:257-281 able to fail if the attribute wiring is removed; it is not behavioral tab order proof, no jsdom or happy-dom present) | PASS |
+| 5 | degenerate domain PASS (src/render/fitView.ts:24-29) | PASS |
+| 6 | contrast and dead rule PASS (src/styles.css:12,34,212,252 label token about 9.1:1 dark and 7.1:1 light; documented commented rule at src/styles.css:190-195) | PASS |
+| 7 | regressions PASS (shortcuts, focus mode, Settings interplay, print styles unchanged in behavior) | PASS |
+
+Overall FAIL solely due to item 2. Tests: reported by orchestrator npm test 49 files 593 tests PASS and npm run build clean, not rerun in this review.

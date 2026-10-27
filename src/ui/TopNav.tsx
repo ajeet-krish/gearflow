@@ -10,6 +10,8 @@ export interface TopNavProps {
     settingsOpen: boolean;
     onOpenSettings: () => void;
     wasmActive: boolean;
+    focusMode?: boolean;
+    onToggleFocus?: () => void;
 }
 
 function BrandMark() {
@@ -58,6 +60,8 @@ export default function TopNav({
     settingsOpen,
     onOpenSettings,
     wasmActive,
+    focusMode = false,
+    onToggleFocus,
 }: TopNavProps) {
     return (
         <header className="topNav">
@@ -79,6 +83,18 @@ export default function TopNav({
                 ))}
             </nav>
             <div className="navRight">
+                {onToggleFocus && (
+                    <button
+                        type="button"
+                        className={focusMode ? "navLink active" : "navLink"}
+                        aria-pressed={focusMode}
+                        onClick={onToggleFocus}
+                        aria-label={focusMode ? "Exit focus mode and restore panels" : "Enter focus mode and collapse panels"}
+                        title="Full tunnel view (backtick)"
+                    >
+                        FOCUS
+                    </button>
+                )}
                 <span
                     className="offlineChip"
                     role="status"

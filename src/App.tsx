@@ -22,6 +22,8 @@ import { LbmFlowProvider, type LbmProviderStatus } from "@/flow/lbmFlowProvider"
 import { SurrogateFlowProvider } from "@/flow/surrogate";
 import { useResolution } from "@/flow/gridController";
 import { useDisplayPrefs } from "@/ui/displayStore";
+import { useLayoutPrefs, shellVisibility } from "@/ui/layoutStore";
+import { RailShell, SceneBars, resolveShellShortcut } from "@/ui/shellRegions";
 import { applyTheme, storeTheme } from "@/ui/theme";
 import { maybeLoadWasm } from "@/flow/wasmSpike";
 import ValidationPanel, { type ValidationSummary } from "@/ui/ValidationPanel";
@@ -152,6 +154,11 @@ export default function App() {
 
     // Phase 6 display and resolution state. Dark theme default, persisted.
     const { prefs, patch } = useDisplayPrefs();
+    // Phase 12a collapsible shell. Collapse never touches widths, so expand
+    // restores the exact remembered rail size. Focus mode forces all three
+    // regions shut through shellVisibility.
+    const { prefs: layoutPrefs, patch: layoutPatch } = useLayoutPrefs();
+    const shell = shellVisibility(layoutPrefs);
     const { state: gridState, recordSolveMs, setMode: setGridMode, clearNotice } = useResolution();
     const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -242,6 +249,55 @@ export default function App() {
             // Private mode: width still applies to this session.
         }
     }, [rightW]);
+
+    // Collapsible shell toggles. Toggling any region while focus mode is on
+    // releases focus mode first, so every visible handle always works.
+    const toggleLeft = useCallback(() => {
+        if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
+        else layoutPatch({ leftCollapsed: !layoutPrefs.leftCollapsed });
+    }, [layoutPrefs.focusMode, layoutPrefs.leftCollapsed, layoutPatch]);
+    const toggleRight = useCallback(() => {
+        if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
+        else layoutPatch({ rightCollapsed: !layoutPrefs.rightCollapsed });
+    }, [layoutPrefs.focusMode, layoutPrefs.rightCollapsed, layoutPatch]);
+    const toggleBars = useCallback(() => {
+        if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
+        else layoutPatch({ barsCollapsed: !layoutPrefs.barsCollapsed });
+    }, [layoutPrefs.focusMode, layoutPrefs.barsCollapsed, layoutPatch]);
+    const toggleFocus = useCallback(() => {
+        layoutPatch({ focusMode: !layoutPrefs.focusMode });
+    }, [layoutPrefs.focusMode, layoutPatch]);
+
+    // Shell shortcuts: backtick focus, brackets rails, Escape exits focus.
+    // Ignored in fields, with modifiers, and while Settings owns the dialog.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            const action = resolveShellShortcut(e.key, {
+                settingsOpen,
+                target: e.target,
+                ctrl: e.ctrlKey,
+                meta: e.metaKey,
+                alt: e.altKey,
+                repeat: e.repeat,
+            });
+            if (action === null) return;
+            if (action === "focus") {
+                e.preventDefault();
+                toggleFocus();
+            } else if (action === "left") {
+                e.preventDefault();
+                toggleLeft();
+            } else if (action === "right") {
+                e.preventDefault();
+                toggleRight();
+            } else if (action === "exitFocus" && layoutPrefs.focusMode) {
+                e.preventDefault();
+                layoutPatch({ focusMode: false });
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [settingsOpen, layoutPrefs.focusMode, toggleFocus, toggleLeft, toggleRight, layoutPatch]);
 
     useEffect(() => {
         if (!offline) {
@@ -918,10 +974,21 @@ export default function App() {
                 settingsOpen={settingsOpen}
                 onOpenSettings={() => setSettingsOpen(true)}
                 wasmActive={isWasmActive}
+                focusMode={layoutPrefs.focusMode}
+                onToggleFocus={toggleFocus}
             />
 
             <main id="flow" className="layout workbench">
-                <aside className="railLeft" style={{ width: leftW }} aria-label="Agent console: conversational assistant">
+                <RailShell
+                    side="left"
+                    label="Agent console: conversational assistant"
+                    region="agent console"
+                    bladeLabel="AGENT"
+                    bodyId="railLeftBody"
+                    collapsed={shell.left}
+                    onToggle={toggleLeft}
+                    width={leftW}
+                >
                     <div className="railHead">
                         <span className="railTitle">AGENT CONSOLE</span>
                         <span className={offline ? "dot off" : "dot on"} aria-hidden="true" />
@@ -953,31 +1020,42 @@ export default function App() {
                             />
                         </ErrorBoundary>
                     </div>
-                </aside>
+                </RailShell>
 
-                <ResizeHandle
-                    id="gripLeft"
-                    label="Resize agent console, left and right arrows adjust width"
-                    onNudge={(d) => setLeftW((w) => clamp(d > 9000 ? LEFT_MAX : d < -9000 ? LEFT_MIN : w + d, LEFT_MIN, LEFT_MAX))}
-                    onDrag={(d) => setLeftW((w) => clamp(w + d, LEFT_MIN, LEFT_MAX))}
-                />
+                {!shell.left && (
+                    <ResizeHandle
+                        id="gripLeft"
+                        label="Resize agent console, left and right arrows adjust width"
+                        onNudge={(d) => setLeftW((w) => clamp(d > 9000 ? LEFT_MAX : d < -9000 ? LEFT_MIN : w + d, LEFT_MIN, LEFT_MAX))}
+                        onDrag={(d) => setLeftW((w) => clamp(w + d, LEFT_MIN, LEFT_MAX))}
+                    />
+                )}
 
                 <section className="tunnelCol" aria-label="Tunnel window">
-                    <SolverBar
-                        mode={mode}
-                        onMode={setMode}
-                        body={bodySelectValue}
-                        onBody={onBodySelect}
-                        alpha={spec.alphaDeg}
-                        onAlpha={onAlphaBar}
-                        reynolds={reynolds}
-                        onReynolds={onReynoldsBar}
-                        live={solveError === null}
-                    />
-                    <FieldBar
-                        variable={prefs.variable}
-                        onVariable={onVariable}
-                    />
+                    <SceneBars
+                        bodyId="sceneBarsBody"
+                        collapsed={shell.bars}
+                        summary={`FIELD ${prefs.variable.toUpperCase()} . ${engineLabel} . Re ${Math.round(debouncedRe)}`}
+                        onToggle={toggleBars}
+                    >
+                        <div>
+                            <SolverBar
+                                mode={mode}
+                                onMode={setMode}
+                                body={bodySelectValue}
+                                onBody={onBodySelect}
+                                alpha={spec.alphaDeg}
+                                onAlpha={onAlphaBar}
+                                reynolds={reynolds}
+                                onReynolds={onReynoldsBar}
+                                live={solveError === null}
+                            />
+                            <FieldBar
+                                variable={prefs.variable}
+                                onVariable={onVariable}
+                            />
+                        </div>
+                    </SceneBars>
                     <TelemetryBar
                         engine={engineLabel}
                         dotClass={dotClass}
@@ -1024,6 +1102,16 @@ export default function App() {
                         </div>
                     )}
                     <div className="tunnel" id="tunnel">
+                        {layoutPrefs.focusMode && (
+                            <button
+                                type="button"
+                                className="focusExit"
+                                onClick={toggleFocus}
+                                aria-label="Exit focus mode and restore panels"
+                            >
+                                EXIT FOCUS
+                            </button>
+                        )}
                         <ErrorBoundary resetKey={boundaryKey} label="flow canvas">
                             <FlowCanvas
                                 ref={canvasRef}
@@ -1102,14 +1190,25 @@ export default function App() {
                     </div>
                 </section>
 
-                <ResizeHandle
-                    id="gripRight"
-                    label="Resize instrument rack, left and right arrows adjust width"
-                    onNudge={(d) => setRightW((w) => clamp(d > 9000 ? RIGHT_MAX : d < -9000 ? RIGHT_MIN : w - d, RIGHT_MIN, RIGHT_MAX))}
-                    onDrag={(d) => setRightW((w) => clamp(w - d, RIGHT_MIN, RIGHT_MAX))}
-                />
+                {!shell.right && (
+                    <ResizeHandle
+                        id="gripRight"
+                        label="Resize instrument rack, left and right arrows adjust width"
+                        onNudge={(d) => setRightW((w) => clamp(d > 9000 ? RIGHT_MAX : d < -9000 ? RIGHT_MIN : w - d, RIGHT_MIN, RIGHT_MAX))}
+                        onDrag={(d) => setRightW((w) => clamp(w - d, RIGHT_MIN, RIGHT_MAX))}
+                    />
+                )}
 
-                <aside className="railRight" style={{ width: rightW }} aria-label="Analysis rail: geometry, display, validation, eval ledger, export">
+                <RailShell
+                    side="right"
+                    label="Analysis rail: geometry, display, validation, eval ledger, export"
+                    region="analysis rail"
+                    bladeLabel="ANALYSIS"
+                    bodyId="railRightBody"
+                    collapsed={shell.right}
+                    onToggle={toggleRight}
+                    width={rightW}
+                >
                     <ErrorBoundary resetKey="rack" label="analysis rail">
                         <AnalysisPanel
                             open={openSections}
@@ -1183,7 +1282,7 @@ export default function App() {
                             ]}
                         />
                     </ErrorBoundary>
-                </aside>
+                </RailShell>
             </main>
             <SettingsModal
                 open={settingsOpen}

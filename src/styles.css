@@ -9,6 +9,7 @@
   --card: #21222c;
   --dust: #44475a;
   --comment: #6272a4;
+  --label: #a3b1d8;
   --text: #f8f8f2;
   --purple: #bd93f9;
   --cyan: #8be9fd;
@@ -30,6 +31,7 @@
   --card: #ffffff;
   --dust: #b9c0cc;
   --comment: #5b6b8c;
+  --label: #3d4a6b;
   --text: #16161d;
   --purple: #7a3fd1;
   --cyan: #0b6e8c;
@@ -161,12 +163,122 @@ html, body, #root {
   flex: none;
   min-height: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   background: var(--deep);
   overflow: hidden;
 }
 .railLeft { border-right: 1px solid var(--dust); }
 .railRight { border-left: 1px solid var(--dust); }
+/* Content column inside a rail, beside the latch blade. */
+.railMain {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.railBody {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.railBody[hidden] { display: none; }
+/* Documented hiding layer for the collapsed rail body. The railMain rule
+   below used to duplicate this and never painted on its own, so it stays
+   commented as a record. Do not re-enable both. */
+.railLeft.isCollapsed, .railRight.isCollapsed { width: 44px; }
+/* Collapsed rails keep the blade while the content column hides. */
+/* .railLeft.isCollapsed .railMain, .railRight.isCollapsed .railMain { display: none; } */
+
+/* Rail latch blade: the one bold element, a machined strip with a notch.
+   The notch glows purple only while it holds a hidden rail. */
+.railLatch {
+  flex: none;
+  width: 28px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 12px 0;
+  background: var(--deep);
+  border: 0;
+  cursor: pointer;
+  color: var(--label);
+  font-family: var(--mono);
+}
+.railLeft .railLatch { border-left: 1px solid var(--dust); }
+.railRight .railLatch { border-right: 1px solid var(--dust); }
+.railLatch:hover { color: var(--text); background: var(--card); }
+.latchTick {
+  width: 10px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--dust);
+  flex: none;
+}
+.railLatch:hover .latchTick { background: var(--purple); }
+.railLatch[aria-expanded="false"] .latchTick {
+  background: var(--purple);
+  box-shadow: 0 0 6px rgba(189, 147, 249, 0.6);
+}
+.railLatch[aria-expanded="false"] { color: var(--text); }
+.latchWord {
+  writing-mode: vertical-rl;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  flex: none;
+}
+
+/* Scene bars handle: one slim strip over solver plus field bars. */
+.barsWrap { flex: none; display: flex; flex-direction: column; min-height: 0; }
+.barsHandle {
+  flex: none;
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 12px;
+  background: var(--deep);
+  border: 0;
+  border-bottom: 1px solid var(--dust);
+  color: var(--label);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.barsHandle:hover { color: var(--text); background: var(--card); }
+.barsTitle { flex: none; }
+.barsSummary { color: var(--cyan); text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barsHint { margin-left: auto; flex: none; }
+
+/* Focus exit: small unobtrusive affordance pinned in the tunnel corner. */
+.focusExit {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 12;
+  min-height: 44px;
+  padding: 2px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  background: var(--card);
+  border: 1px solid var(--purple);
+  border-radius: 2px;
+  color: var(--purple);
+  cursor: pointer;
+}
+.focusExit:hover { background: rgba(189, 147, 249, 0.15); }
 .railHead {
   flex: none;
   display: flex;
@@ -901,6 +1013,19 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 900px) {
   .workbench { flex-direction: column; overflow-y: auto; }
   .railLeft, .railRight { width: 100% !important; border: 0; border-bottom: 1px solid var(--dust); max-height: 46vh; }
+  /* Collapsed rails read as slim horizontal blades, never breaking layout. */
+  .railLeft.isCollapsed, .railRight.isCollapsed { width: 100% !important; max-height: 48px; flex-direction: column; }
+  .railLeft.isCollapsed .railLatch, .railRight.isCollapsed .railLatch {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 6px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--dust);
+    min-height: 44px;
+  }
+  .railLeft.isCollapsed .latchWord, .railRight.isCollapsed .latchWord { writing-mode: horizontal-tb; }
   .resizeHandle { display: none; }
   .tunnelCol { min-height: 60vh; order: -1; }
   .topNav { flex-wrap: wrap; height: auto; min-height: 56px; padding: 8px 12px; }
@@ -921,6 +1046,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 @media print {
   html, body { background: #ffffff; color: #000000; font-size: 11pt; }
   .skip, .topNav, .railLeft, .railRight, .resizeHandle, .noticeStack, .runCard, .colorbarDock { display: none !important; }
+  .railLatch, .barsHandle, .focusExit { display: none !important; }
   .side, .foot { display: none !important; }
   .workbench { display: block; }
   .tunnelCol { display: block; }
