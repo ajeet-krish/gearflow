@@ -646,3 +646,67 @@ Phase tests integrate with prior phase tests (all 756 pre-existing tests still p
 | wiring offline and spend assertions (initial run) | Test expected the generic offline note, but the explain input takes the engineer note variant | Assert the engineer note variant that the explain path really renders; fixed, now passes |
 | wiring baseten mount replacement (initial draft) | Draft used an invalid membership check on rendered HTML | Assert the Send control directly on the idle render; fixed, now passes |
 | busy guard mutation probe (temporary, restored) | Removed the busyRef early return to prove sensitivity, the busy lock test failed as intended | Guard restored byte for byte, production file untouched; probe confirms the test catches the regression |
+
+## 2026-10-27 - Phase B4: Test Report (freeze hardening verification, no production changes)
+
+### Test Results
+npm test: 69 files, 809 tests, all passed. Baseline at the prior entry was 766 tests; delta is Phase 12b UI and flow coverage (fieldBar12b, turbulenceSection12b, displayStore12b, SettingsModal, streamlines, lbm providers, baseten disabled, chat migration, session spend).
+npm run build: tsc noEmit plus vite build succeeded. dist index.html 1.01 kB, CSS 26.23 kB, JS split into lbmWorker 6.62 kB plus gearflow_wasm loader 6.12 kB plus glue 5.03 kB plus purify 30.47 kB plus react 141.00 kB plus index.es 150.93 kB plus index 274.73 kB plus html2canvas 201.42 kB plus jspdf 390.50 kB plus three 465.13 kB, wasm asset gearflow_wasm_bg 193.24 kB (chunk size warning only, pre-existing pattern).
+VITE_DEMO_OFFLINE=true npm run build: tsc noEmit plus vite build succeeded with identical asset set (index bundle 274.82 kB vs 274.73 kB, hash rename only). Worker chunk lbmWorker 6.62 kB and wasm asset 193.24 kB present in both builds.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| npm test (69 files, 809 tests) | PASS | Full suite green, no drift, 2.75s duration |
+| fieldBar12b.test.tsx (11) | PASS | FieldBar regression held, untouched by B4 |
+| turbulenceSection12b.test.tsx (7) | PASS | TURBULENCE section regression held, untouched by B4 |
+| agentConsoleWiring.test.tsx (9) | PASS | Confirm chip, busy guard, offline zero fetch, spend cap still green |
+| agentConsoleBaseten.test.tsx (18) | PASS | Pinned model id assertions still green |
+| basetenDisabled.test.ts (5) | PASS | Kill switch plus offline mapping still green |
+| npm run build | PASS | tsc plus vite, worker chunk plus wasm asset emitted |
+| VITE_DEMO_OFFLINE=true npm run build | PASS | Same asset set, offline default on, no key in bundle |
+
+### Manual Matrix (reasoned from code, no browser tool)
+| Case | Verdict | Notes |
+|------|---------|-------|
+| Offline static, no key, no network: console Explain completes | PASS | onSubmit routes forcedLocal (offline toggle, VITE_DEMO_OFFLINE, or spend cap) to pushOfflineAssistant, which calls pure local localReply with no fetch; engineer note variant cites live Cl, CpMin, Re, regime |
+| Offline static: Setup plus Apply with zero fetch | PASS | settleParsedEnvelope auto applies SETUP_KINDS via onAgentAction synchronously and renders Applied lines; run kinds park as pendingRuns; wiring tests assert zero client calls on all three offline paths (toggle, 503, fetch failure) |
+| Preview with key: streams | PASS | Live path calls port.streamChat with incremental flush every STREAM_FLUSH_MS, cached fallback on empty or invalid JSON, AbortError renders stopped badge; spend ledger records model, tokens, cost |
+| LBM run via agent confirm chip | PASS | run_lbm and cancel_lbm park on pendingRuns and render Confirm Run LBM chips; onConfirmRun fires onAgentAction once on click; gated fields and out of bounds alpha rejected with zero live state |
+| FieldBar plus TURBULENCE regression | PASS | Both suites green (11 plus 7); B4 made zero production changes so no interaction surface changed |
+| Print styles intact | PASS | src/styles.css @media print block present: white sheet, rails plus bars plus run card plus colorbar hidden, printValidation shown; phase5 hardening pins still green |
+
+### Grep Proofs
+| Proof | Verdict | Notes |
+|------|---------|-------|
+| No VITE_BASENET key | PASS | Zero BASENET references repo wide excluding node_modules, dist, and git; keys live server side only (BASETEN_API_KEY, META_API_KEY, no VITE prefix, read by vite proxy middleware) |
+| No secret in dist | PASS | Strict scan for BASETEN_API_KEY, META_API_KEY, and VITE key names across dist returns zero hits; only false positive is a dompurify license comment containing double hyphens |
+| No em dashes or double hyphens in chat templates and status copy | PASS | No U+2014 or U+2013 in src; no double hyphen sequences in src/agent outside comments and tests |
+| Model id pinned to meta-models/muse-spark-open-1026 in agent path | PASS | BASETEN_MODEL_ID constant in src/agent/basetenGate.ts, imported by AgentConsole, asserted verbatim in basetenGate.test.ts and both console suites; zero llama references in src/agent |
+
+### Coverage Summary
+Happy path covered (809 tests green, offline console completes Explain plus Setup plus Apply, live preview streams, LBM confirm fires once, print sheet intact).
+Edge cases covered (offline toggle plus env flag plus spend cap all force local, busy guard, Stop abort, spend boundary).
+Error conditions covered (503 proxy fallback, fetch failure fallback, gated run rejection, executor faults stay local to the confirm control).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 766 prior tests still pass plus 43 new, 809 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full suite green on this run, 809 passed, both builds green | No fix needed |
+
+### Notes for Orchestrator
+README Demo and Offline section describes the offline toggle and judged demo booth copy but never names the agent harness; noted as missing per B4 scope, docs left untouched.
+Pre-existing scope note, not blocking: legacy src/meta/sparkSpec, sparkEngineer, and sparkChat still import META_DEFAULT_SPARK_MODEL (Llama names in the cost table); the agent console path (src/agent plus AgentConsole) is fully pinned to meta-models/muse-spark-open-1026 and never touches the legacy default. Recommend a post freeze rename or removal of the legacy default, not a freeze change.
+No blocking defect found. No production changes made. Freeze ready for Nov 4.
+
+### Verification Checklist
+- [x] All tests pass (69 files, 809 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests
+- [x] Both builds green with worker chunk (6.62 kB) and wasm asset (193.24 kB)
+- [x] Grep proofs recorded (no key, no secret, no dashes, model pinned)

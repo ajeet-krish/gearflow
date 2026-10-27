@@ -37,7 +37,8 @@ Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKAT
 | Phase 9 | Settings modal, particle color, streamlines, bar cleanup | Complete |
 | Phase 10 | Rust LBM core (D2Q9, boundaries, forces, stats) | Complete |
 | Phase 11 | Worker wiring, engine mode, run controls | Complete |
-| Phase 12 | Turbulence stats UI, validation group, honest labels | In Progress |
+| Phase 12 | Turbulence stats UI, validation group, honest labels | Complete |
+| Phase 13 | Baseten agent chat harness (Spark console, guardrails) | Complete |
 
 ## Deep Docs
 * Rules: docs/HACKATHON_RULES.md
