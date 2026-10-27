@@ -259,7 +259,10 @@ function readText(json: unknown): string {
     return `${content}${reasoning}`;
 }
 
-function toHttpError(status: number): BasetenError {
+/** Map an HTTP status to a typed error. Any 503 (missing key or the
+ *  BASETEN_DISABLED kill switch) maps to the offline code, so the console
+ *  keeps answering from local state with zero network. */
+export function toHttpError(status: number): BasetenError {
     if (status === 503) {
         return new BasetenError("offline", "Baseten service unavailable, running offline", status, true);
     }

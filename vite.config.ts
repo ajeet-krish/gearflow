@@ -11,12 +11,14 @@ import {
     isSameOriginRequest,
 } from "./src/meta/proxyGate";
 import {
+    BASETEN_DISABLED_MESSAGE,
     BASETEN_MAX_BODY_BYTES,
     BASETEN_MAX_RESPONSE_BYTES,
     BASETEN_TIMEOUT_MS,
     BASETEN_UPSTREAM_URL,
     forceModel,
     g_basetenRateLimiter,
+    isBasetenDisabled,
     isBasetenPath,
     toGenericError,
 } from "./src/agent/basetenGate";
@@ -193,6 +195,12 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
             res.statusCode = 403;
             res.setHeader("content-type", "application/json");
             res.end(JSON.stringify({ error: "not found" }));
+            return;
+        }
+        if (isBasetenDisabled(process.env.BASETEN_DISABLED)) {
+            res.statusCode = 503;
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ error: BASETEN_DISABLED_MESSAGE }));
             return;
         }
         const ip = (req.socket?.remoteAddress ?? "local").toString();

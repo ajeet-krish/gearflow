@@ -13,6 +13,9 @@ import type { AgentContext } from "@/agent/agentContext";
 import { BasetenClient, type BasetenChatResult, type BasetenMessage, type BasetenStreamChunk } from "@/agent/basetenClient";
 import { BASETEN_MODEL_ID } from "@/agent/basetenGate";
 import { parseAgentEnvelope, type AgentValidationContext } from "@/agent/agentActions";
+import { cachedChat } from "@/agent/agentCache";
+import { localReply } from "@/agent/localAssistant";
+import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
 import { appendTurns, loadTurns, saveTurns } from "@/agent/chatStore";
 import { g_evalLog } from "@/meta/evalLog";
 
@@ -54,7 +57,7 @@ export interface AgentConsoleProps {
 export const BASETEN_FEATURE = "baseten-chat";
 export const BASETEN_TIMEOUT_MS = 15000;
 export const STREAM_FLUSH_MS = 50;
-export const SPEND_SOFT_STOP_USD = 5;
+export const SPEND_SOFT_STOP_USD = SESSION_SPEND_CAP_USD;
 export const TRANSCRIPT_CAP = 50;
 
 export const PRESET_CHIPS: ReadonlyArray<string> = [
@@ -104,10 +107,6 @@ function nowIso(): string {
     return new Date().toISOString();
 }
 
-function isFiniteNum(v: unknown): v is number {
-    return typeof v === "number" && Number.isFinite(v);
-}
-
 function envOffline(): boolean {
     try {
         const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
@@ -118,8 +117,7 @@ function envOffline(): boolean {
 }
 
 export function spendExceeded(costUsd: number, cap: number = SPEND_SOFT_STOP_USD): boolean {
-    if (!Number.isFinite(costUsd) || !Number.isFinite(cap)) return false;
-    return costUsd >= cap;
+    return isSoftStopped(costUsd, cap);
 }
 
 /** Validation context derived from the agent snapshot, engine flag first. */
@@ -171,22 +169,36 @@ export function buildBasetenMessages(
     return [system, ...tail, { role: "user", content: input.slice(0, 2000) }];
 }
 
-/** Deterministic local reply. Zero network, zero canvas writes. */
+/** Minimal context for the metrics only offline path, so the shared local
+ *  assistant cites the same numbers the embedded reply used to cite. */
+function metricsContext(metrics: { cl: number; cpMin: number; reynolds: number }): AgentContext {
+    const safe = (metrics ?? {}) as { cl?: unknown; cpMin?: unknown; reynolds?: unknown };
+    const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const re = num(safe.reynolds);
+    return {
+        spec: { kind: "unknown", alphaDeg: null, reynolds: re === null ? null : Math.round(re) },
+        reynolds: re === null ? null : Math.round(re),
+        regime: "unknown regime",
+        bodyLabel: "current body",
+        alphaDeg: null,
+        backend: "unknown backend",
+        engine: "analytic",
+        gridLabel: "unknown grid",
+        cl: num(safe.cl),
+        cpMin: num(safe.cpMin),
+        lbm: { status: "idle", hasSnapshot: false, effective: false, statsReady: false, stats: null },
+        field: { variable: "speed", effective: "speed", hasTke: false, hasRecirc: false },
+        validation: { pass: 0, warn: 0, fail: 0, info: 0 },
+        provenanceLabel: "unknown provenance",
+        offline: true,
+        honesty: [],
+    };
+}
+
+/** Deterministic local reply. Zero network, zero canvas writes. Delegates to
+ *  the shared local assistant so offline copy matches the console path. */
 export function localOfflineReply(input: string, metrics: { cl: number; cpMin: number; reynolds: number }): string {
-    const lower = input.toLowerCase();
-    const clText = isFiniteNum(metrics.cl) ? `Cl ${metrics.cl.toFixed(3)}` : "Cl pending a clean solve";
-    const cpText = isFiniteNum(metrics.cpMin) ? `CpMin ${metrics.cpMin.toFixed(3)}` : "CpMin pending a clean solve";
-    if (lower.includes("reynolds") || lower.includes("change re") || lower.includes("how do i change")) {
-        const reText = isFiniteNum(metrics.reynolds) ? `Re ${Math.round(metrics.reynolds)}` : "Re unset";
-        return `Offline note, local only. ${reText} lives in the solver bar RE field, edits recompute locally. Canvas unchanged.`;
-    }
-    if (lower.includes("naca 2412") || lower.includes("set up") || lower.includes("setup")) {
-        return "Offline note, local only. NACA 2412 at alpha 6 is the default Shape preset, pick it in the solver bar BODY select. Canvas unchanged while offline.";
-    }
-    if (lower.includes("explain")) {
-        return `Offline engineer note, local only. 2D potential flow plus a wake overlay. ${clText}, ${cpText}. Raise alpha a touch for more lift, watch the suction peak. Canvas unchanged.`;
-    }
-    return "Offline note, local only. Ask to explain the run, set up NACA 2412, or change Re, and the console answers from local state. Canvas unchanged.";
+    return localReply(input, metricsContext(metrics)).reply;
 }
 
 function describeAction(a: AgentAction): string {
@@ -300,16 +312,14 @@ export default function AgentConsole({
     function recordSpend(result: { usage: { inputTokens: number; outputTokens: number }; costUsd: number; model: string }): void {
         setSpend((prev) => ({
             model: result.model,
-            inputTokens: prev.inputTokens + result.usage.inputTokens,
-            outputTokens: prev.outputTokens + result.usage.outputTokens,
-            costUsd: prev.costUsd + (Number.isFinite(result.costUsd) ? result.costUsd : 0),
+            ...addSpend(prev, result.usage, result.costUsd),
         }));
     }
 
-    function settleEnvelope(id: string, rawText: string): void {
-        const envelope = parseAgentEnvelope(rawText, validationCtx);
+    function settleParsedEnvelope(id: string, envelope: { reply: string; actions: AgentAction[]; rejections: string[] }): void {
         const applied: string[] = [];
         const pending: AgentAction[] = [];
+        const rejections = [...envelope.rejections];
         for (const action of envelope.actions) {
             if (RUN_KINDS.has(action.kind)) {
                 pending.push(action);
@@ -321,15 +331,15 @@ export default function AgentConsole({
                     applied.push(`Applied: ${describeAction(action)}.`);
                 } catch {
                     // Executor faults render as a rejection line, never throw.
-                    envelope.rejections.push(`apply failed for ${action.kind}, canvas unchanged`);
+                    rejections.push(`apply failed for ${action.kind}, canvas unchanged`);
                 }
                 continue;
             }
-            envelope.rejections.push(`unknown action kind ${(action as { kind: string }).kind}, ignored`);
+            rejections.push(`unknown action kind ${(action as { kind: string }).kind}, ignored`);
         }
         const patch: Partial<TurnExtra> = {};
         if (applied.length > 0) patch.applied = applied;
-        if (envelope.rejections.length > 0) patch.rejections = envelope.rejections;
+        if (rejections.length > 0) patch.rejections = rejections;
         if (pending.length > 0) patch.pendingRuns = pending;
         patch.streaming = false;
         setExtra(id, patch);
@@ -343,15 +353,16 @@ export default function AgentConsole({
         }
     }
 
+    function settleEnvelope(id: string, rawText: string): void {
+        settleParsedEnvelope(id, parseAgentEnvelope(rawText, validationCtx));
+    }
+
     function pushOfflineAssistant(userText: string): void {
         const id = nextId();
-        const reply = localOfflineReply(userText, {
-            cl: isFiniteNum(cl) ? cl : Number.NaN,
-            cpMin: isFiniteNum(cpMin) ? cpMin : Number.NaN,
-            reynolds: isFiniteNum(reynolds) ? reynolds : Number.NaN,
-        });
-        pushTurn({ id, role: "assistant", at: nowIso(), text: reply, tool: "baseten", status: "offline" });
+        const envelope = localReply(userText, agentContext ?? null);
+        pushTurn({ id, role: "assistant", at: nowIso(), text: envelope.reply, tool: "baseten", status: "offline" });
         setExtra(id, makeExtra({ streaming: false }));
+        settleParsedEnvelope(id, { reply: "", actions: envelope.actions, rejections: envelope.rejections });
     }
 
     async function runStream(id: string, messages: BasetenMessage[], controller: AbortController): Promise<void> {
@@ -395,7 +406,7 @@ export default function AgentConsole({
             const needsFallback = failed.message.toLowerCase().includes("json") || failed.message.toLowerCase().includes("valid") || fullText.length === 0;
             if (needsFallback) {
                 try {
-                    const plain = await port.chat(messages, { feature: BASETEN_FEATURE, signal: controller.signal, timeoutMs: BASETEN_TIMEOUT_MS });
+                    const plain = await cachedChat(port, messages, { feature: BASETEN_FEATURE, signal: controller.signal, timeoutMs: BASETEN_TIMEOUT_MS });
                     lastResult = plain;
                     fullText = plain.text;
                 } catch {

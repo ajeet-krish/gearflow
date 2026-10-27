@@ -16,6 +16,26 @@ export const BASETEN_RATE_LIMIT_MAX = 10;
 export const BASETEN_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 export const BASETEN_RATE_LIMIT_MAX_ENTRIES = 5000;
 
+/** Proxy 503 message when the kill switch is set. The client maps any 503
+ *  to offline local mode through toHttpError, so this string only names the
+ *  cause for proxy logs and tests, never for browser error detail. */
+export const BASETEN_DISABLED_MESSAGE = "Baseten disabled";
+
+/**
+ * Kill switch predicate for the Baseten proxy. Reads the BASETEN_DISABLED
+ * server environment value: the exact string "true" disables the proxy with
+ * a 503, any other value (including unset) leaves the proxy live. The 503
+ * maps to offline local mode on the client, so the console keeps answering
+ * from local state with zero network. Pure and never throws.
+ */
+export function isBasetenDisabled(value: unknown): boolean {
+    try {
+        return value === "true";
+    } catch {
+        return false;
+    }
+}
+
 /** Allowlist: only POST to the single pinned chat completions path. */
 export function isBasetenPath(method: string | undefined, url: string | undefined): boolean {
     if ((method ?? "GET").toUpperCase() !== "POST") return false;
