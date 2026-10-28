@@ -70,7 +70,7 @@ function checkAlpha(alphaDeg: number, preset: CasePresetId): string | null {
  * yields ok false with no actions. shedding is a fixed cylinder at
  * alpha 0, Re 100, speed field. high_pressure is orifice by default (block
  * when requested) at alpha 0, Re 1000, cp field. airfoil is the named NACA
- * body or 2412 at the given alpha or 6 deg, Re 50000, speed field.
+ * body or 2412 at the given alpha or 6 deg, Re 2000, speed field.
  */
 export function expandCasePreset(request: CasePresetRequest): CasePresetResult {
     if (request === null || typeof request !== "object") {
@@ -110,10 +110,10 @@ export function expandCasePreset(request: CasePresetRequest): CasePresetResult {
         const actions: AgentAction[] = [
             { kind: "set_body", body: resolved as BodyToken },
             { kind: "set_alpha", alphaDeg: alpha },
-            { kind: "set_reynolds", reynolds: 50000 },
+            { kind: "set_reynolds", reynolds: 2000 },
             { kind: "set_field", field: "speed" as FieldMode },
         ];
-        return succeed(actions, resolved, alpha, 50000);
+        return succeed(actions, resolved, alpha, 2000);
     }
     return fail(`unknown case preset ${String((request as { preset?: unknown }).preset)}`);
 }

@@ -24,7 +24,7 @@ function makeCtx(over: Partial<AgentContext> = {}): AgentContext {
         honesty: [],
         neural: {
             available: false,
-            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block, orifice], alpha [-4, 12], Re [1000, 200000], no weights yet",
+            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block, duct, orifice], alpha [-4, 12], Re [20, 2000], no weights yet",
             path: "analytic",
         },
         ...over,

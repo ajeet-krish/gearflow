@@ -274,7 +274,7 @@ function statusResponse(status: number, retryAfter: string | null): Record<strin
 const RUN_ENVELOPE = "Ready to solve. The viscous run is staged.\n```action-json\n{\"kind\":\"run_lbm\"}\n```";
 const SETUP_ENVELOPE = "Tuning alpha now.\n```action-json\n{\"kind\":\"set_alpha\",\"alphaDeg\":6}\n```";
 const NEURAL_REJECTED_SETUP_ENVELOPE =
-    "Shedding case request.\n```action-json\n{\"kind\":\"setup_shedding\"}\n```";
+    "Airfoil case request.\n```action-json\n{\"kind\":\"setup_airfoil\",\"body\":\"naca4412\",\"alphaDeg\":45}\n```";
 
 describe("agent console run gating", () => {
     it("parks a run_lbm envelope on the confirm chip with zero executor calls", async () => {
@@ -380,13 +380,13 @@ describe("agent console run gating", () => {
             chatClient: streamingPort(NEURAL_REJECTED_SETUP_ENVELOPE, counter),
             initialTurns: [],
         });
-        typeText(m, "show vortex shedding while the neural path serves");
+        typeText(m, "show the airfoil at alpha 45 while the neural path serves");
         submitForm(m);
         await flush();
         try {
             expect(counter.streams).toBe(1);
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("Shedding case request.");
+            expect(m.text()).toContain("Airfoil case request.");
             expect(m.text()).not.toContain("action-json");
             expect(m.text()).toContain("Rejected:");
             expect(m.text()).toContain("Analytic path serves this case instead.");

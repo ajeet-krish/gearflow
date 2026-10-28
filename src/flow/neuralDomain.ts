@@ -25,20 +25,21 @@ export interface NeuralEnvelope {
 
 /**
  * Provisional neural envelope. NACA 0012, 2412, and 4412 plus cylinder,
- * block, and orifice; alpha in [-4, 12] deg; Re in [1000, 200000]. Custom
- * shapes are not covered and runId is null until weights land. Provisional:
- * treat any neural prediction inside this envelope as unvalidated.
+ * block, and orifice; alpha in [-4, 12] deg; Re in [20, 2000].
+ * Custom shapes are not covered and runId is null until weights land.
+ * Provisional planned coverage: coarse LES above Re 500. Treat any neural
+ * prediction inside this envelope as unvalidated, not validated physics.
  */
 export const PROVISIONAL_NEURAL_ENVELOPE: NeuralEnvelope = {
     kinds: ["naca0012", "naca2412", "naca4412", "cylinder", "block", "orifice"],
     alphaMin: -4,
     alphaMax: 12,
-    reMin: 1000,
-    reMax: 200000,
+    reMin: 20,
+    reMax: 2000,
     customAllowed: false,
     runId: null,
     provisional: true,
-    note: "Provisional envelope, no weights landed yet. Predictions inside it are still unvalidated.",
+    note: "Provisional planned coverage, no weights landed yet. Coarse LES above Re 500. Predictions inside are unvalidated, not validated physics.",
 };
 
 /** Domain verdict for one case against the envelope. */

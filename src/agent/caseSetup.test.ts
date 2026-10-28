@@ -33,7 +33,7 @@ function makeCtx(over: Partial<AgentContext> = {}): AgentContext {
         honesty: [],
         neural: {
             available: false,
-            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block, orifice], alpha [-4, 12], Re [1000, 200000], no weights yet",
+            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block, duct, orifice], alpha [-4, 12], Re [20, 2000], no weights yet",
             path: "analytic",
         },
         ...over,
@@ -43,7 +43,7 @@ function makeCtx(over: Partial<AgentContext> = {}): AgentContext {
 function snapshot(over: Partial<AppSnapshot> = {}): AppSnapshot {
     return {
         spec: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 },
-        reynolds: 50000,
+        reynolds: 1000,
         regime: "laminar, attached",
         bodyLabel: "NACA 2412",
         backend: "analytic live 128",
@@ -73,14 +73,10 @@ describe("validator envelope awareness", () => {
         expect(out.action).toEqual({ kind: "setup_shedding" });
     });
 
-    it("rejects setup_shedding while the neural path serves, naming the Re bound plus the nearest alternative", () => {
+    it("accepts setup_shedding while the neural path serves, since Re 100 sits inside the envelope", () => {
         const out = validateAgentAction({ kind: "setup_shedding" }, NEURAL);
-        expect(out.ok).toBe(false);
-        expect(out.action).toBeNull();
-        const reason = out.reason ?? "";
-        expect(reason).toContain("1000");
-        expect(reason).toContain("nearest in-domain case");
-        expect(reason).toContain("Analytic path serves this case");
+        expect(out.ok).toBe(true);
+        expect(out.action).toEqual({ kind: "setup_shedding" });
     });
 
     it("rejects a neural out of band airfoil alpha with the alpha bound, never a hallucinated body", () => {
@@ -111,7 +107,7 @@ describe("validator envelope awareness", () => {
 
     it("rejects out of domain setup envelopes with zero actions, so the executor stays idle", () => {
         const onAgentAction = vi.fn();
-        const raw = "Shedding please.\n```action-json\n{\"kind\": \"setup_shedding\"}\n```";
+        const raw = "Airfoil at alpha 45 please.\n```action-json\n{\"kind\": \"setup_airfoil\", \"body\": \"naca4412\", \"alphaDeg\": 45}\n```";
         const out = parseAgentEnvelope(raw, NEURAL);
         expect(out.actions).toEqual([]);
         expect(out.rejections.length).toBeGreaterThan(0);

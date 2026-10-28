@@ -281,7 +281,12 @@ def _require_v2_normalization(norm: dict) -> None:
 
 
 def split_case_ids(case_ids: list[str], train_frac: float = 0.8) -> tuple[list[str], list[str]]:
-    """Deterministic 80/20 split over sorted case ids (no stratification)."""
+    """Deterministic 80/20 split over sorted case ids (no stratification).
+
+    Kept for callers that only hold ids. LBM training and the verify gate
+    use split_completed_rows instead so status filtering and stratification
+    cannot disagree.
+    """
     ordered = sorted(case_ids)
     if len(ordered) < 2:
         raise ValueError("case split needs at least 2 case ids")
@@ -289,6 +294,114 @@ def split_case_ids(case_ids: list[str], train_frac: float = 0.8) -> tuple[list[s
     if cut >= len(ordered):
         cut = len(ordered) - 1
     return ordered[:cut], ordered[cut:]
+
+
+def is_completed_row(row: dict) -> bool:
+    """True when a manifest row is usable for training.
+
+    Absent status means legacy pilot compat and counts as completed.
+    Only the literal completed status (or absent) passes. Diverged,
+    setup_error, and any other status are excluded from both splits.
+    """
+    status = row.get("status", None)
+    if status is None:
+        return True
+    return str(status) == "completed"
+
+
+def _body_token_of(row: dict) -> str:
+    """Normalize the body family token used as the stratification key.
+
+    The v2 sweep stores 4412 rows as body naca4 with naca_code 4412, so
+    expand that pair to naca4412 to keep codes in separate families.
+    Literals naca0012 and naca2412 keep their token, and naca4 without
+    a valid four digit code falls back to naca4.
+    """
+    raw = str(row.get("body", "") or "").lower().strip()
+    if not raw:
+        return "unknown"
+    for token in ("cylinder", "block", "naca0012", "naca2412", "naca4412", "duct", "orifice"):
+        if raw == token:
+            return token
+    if raw == "naca4":
+        code_raw = row.get("naca_code", None)
+        if code_raw is None:
+            return "naca4"
+        code = str(code_raw).strip().lower()
+        if len(code) == 4 and code.isdigit():
+            return "naca" + code
+        return "naca4"
+    if raw.startswith("naca"):
+        return raw.split()[0]
+    if "airfoil" in raw:
+        return "airfoil"
+    return raw
+
+
+def _regime_of(row: dict) -> str:
+    """Regime bucket from Re: below 100 steady, 100 to 500 shedding, above 500 coarse."""
+    raw = row.get("re", row.get("Re", None))
+    try:
+        re = float(raw)
+    except (TypeError, ValueError):
+        return "unknown"
+    if not np.isfinite(re) or re <= 0.0:
+        return "unknown"
+    if re < 100.0:
+        return "steady"
+    if re <= 500.0:
+        return "shedding"
+    return "coarse"
+
+
+def _split_group_key(row: dict) -> tuple[str, str]:
+    return (_body_token_of(row), _regime_of(row))
+
+
+def split_completed_rows(rows: list[dict], train_frac: float = 0.8) -> tuple[list[str], list[str]]:
+    """Deterministic stratified split over completed manifest rows.
+
+    Keeps only rows whose status is absent or completed, groups by body
+    family plus Re regime, sorts ids inside each group, and takes
+    round(val_frac * n) for val with at least 1 when n is 2 or more and
+    at most n minus 1. Singleton groups go to train. Train is never left
+    empty. Raises when no completed rows remain.
+    """
+    if not 0.0 < float(train_frac) < 1.0:
+        raise ValueError(f"train_frac must be inside (0, 1), got {train_frac!r}")
+    val_frac = 1.0 - float(train_frac)
+    by_id: dict[str, dict] = {}
+    for row in rows:
+        if is_completed_row(row):
+            case_id = str(row.get("case_id", ""))
+            if not case_id:
+                raise ValueError("completed row without case_id")
+            by_id[case_id] = row
+    if not by_id:
+        raise ValueError("sweep has no completed rows, cannot split")
+    groups: dict[tuple[str, str], list[str]] = {}
+    for case_id, row in by_id.items():
+        groups.setdefault(_split_group_key(row), []).append(case_id)
+    train_all: list[str] = []
+    val_all: list[str] = []
+    for key in sorted(groups):
+        members = sorted(groups[key])
+        n = len(members)
+        if n < 2:
+            train_all.extend(members)
+            continue
+        n_val = int(round(val_frac * n))
+        n_val = max(1, min(n_val, n - 1))
+        train_all.extend(members[: n - n_val])
+        val_all.extend(members[n - n_val :])
+    train_ids = sorted(train_all)
+    val_ids = sorted(val_all)
+    if not train_ids and val_ids:
+        train_ids = val_ids[:1]
+        val_ids = val_ids[1:]
+    if not train_ids:
+        raise ValueError("stratified split left train empty")
+    return train_ids, val_ids
 
 
 def _read_manifest_rows(manifest_path: Path) -> list[dict]:
@@ -410,8 +523,11 @@ class LbmV2Dataset(Dataset):
         self.split = split
         self.sweep_dir = Path(sweep_dir)
         rows = _read_manifest_rows(self.sweep_dir / "manifest.jsonl")
-        by_case = {r["case_id"]: r for r in rows}
-        train_ids, val_ids = split_case_ids(list(by_case), train_frac)
+        completed = [r for r in rows if is_completed_row(r)]
+        if not completed:
+            raise ValueError(f"sweep {self.sweep_dir} has no completed rows, cannot split")
+        by_case = {str(r["case_id"]): r for r in completed}
+        train_ids, val_ids = split_completed_rows(list(by_case.values()), train_frac)
         wanted_ids = train_ids if split == "train" else val_ids
         self._rows = [by_case[c] for c in wanted_ids]
         self.ids = wanted_ids

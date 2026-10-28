@@ -15,6 +15,7 @@ import { BASETEN_MODEL_ID } from "@/agent/basetenGate";
 import { parseAgentEnvelope, type AgentValidationContext } from "@/agent/agentActions";
 import { cachedChat } from "@/agent/agentCache";
 import { localReply } from "@/agent/localAssistant";
+import { PROVISIONAL_NEURAL_ENVELOPE } from "@/flow/neuralDomain";
 import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
 import { appendTurns, loadTurns, saveTurns } from "@/agent/chatStore";
 import { g_evalLog } from "@/meta/evalLog";
@@ -178,6 +179,13 @@ export function buildBasetenMessages(
     return [system, ...tail, { role: "user", content: input.slice(0, 2000) }];
 }
 
+/** Offline envelope label derived from the provisional envelope so copy
+ *  cannot drift from the domain the app actually exposes. */
+function neuralEnvelopeLabel(): string {
+    const env = PROVISIONAL_NEURAL_ENVELOPE;
+    return `provisional neural envelope [${env.kinds.join(", ")}], alpha [${env.alphaMin}, ${env.alphaMax}], Re [${env.reMin}, ${env.reMax}], no weights yet`;
+}
+
 /** Minimal context for the metrics only offline path, so the shared local
  *  assistant cites the same numbers the embedded reply used to cite. */
 function metricsContext(metrics: { cl: number; cpMin: number; reynolds: number }): AgentContext {
@@ -203,7 +211,7 @@ function metricsContext(metrics: { cl: number; cpMin: number; reynolds: number }
         honesty: [],
         neural: {
             available: false,
-            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block, orifice], alpha [-4, 12], Re [1000, 200000], no weights yet",
+            envelope: neuralEnvelopeLabel(),
             path: "analytic",
         },
     };

@@ -83,11 +83,13 @@ from dataset_v2 import (
     canonical_norm_json,
     clean_finite,
     fit_norm,
+    is_completed_row,
     log_re_of,
     resample_continuous,
     resample_label,
     sdf_from_mask,
     split_case_ids,
+    split_completed_rows,
 )
 from merge_sweep import bin_order_for, recompute_sha
 
@@ -721,14 +723,37 @@ def v2_check_trends(rows: list[dict]) -> dict:
     return {"failures": failures, "warnings": warnings, "orderings": orderings}
 
 
-def v3_check_splits(case_ids: list[str], train_frac: float) -> dict:
+def v3_check_splits(cases: list, train_frac: float) -> dict:
+    """Deterministic stratified split check over completed rows.
+
+    Accepts manifest row dicts (preferred, same split_completed_rows as
+    training) or a plain id list (legacy path through split_case_ids).
+    Keeps the V3 determinism and zero overlap checks in both paths.
+    """
+    if cases and isinstance(cases[0], dict):
+        rows = cases
+        try:
+            train_ids, val_ids = split_completed_rows(rows, train_frac)
+        except ValueError as exc:
+            return {"failures": [str(exc)], "train": [], "val": []}
+        completed_ids = sorted({str(r["case_id"]) for r in rows if is_completed_row(r)})
+        failures: list[str] = []
+        if set(train_ids) & set(val_ids):
+            failures.append("train and val splits share ids")
+        if set(train_ids) | set(val_ids) != set(completed_ids):
+            failures.append("split union does not cover completed cases")
+        repeat_train, repeat_val = split_completed_rows(rows, train_frac)
+        if repeat_train != train_ids or repeat_val != val_ids:
+            failures.append("split is not deterministic")
+        return {"failures": failures, "train": train_ids, "val": val_ids}
+    case_ids = [str(c) for c in cases]
     if len(case_ids) < 2:
         return {"failures": ["fewer than 2 completed cases, cannot split"], "train": [], "val": []}
     try:
         train_ids, val_ids = split_case_ids(case_ids, train_frac)
     except ValueError as exc:
         return {"failures": [str(exc)], "train": [], "val": []}
-    failures: list[str] = []
+    failures = []
     if set(train_ids) & set(val_ids):
         failures.append("train and val splits share ids")
     if set(train_ids) | set(val_ids) != set(case_ids):
@@ -906,7 +931,7 @@ def verify_sweep(
     data_failures.extend(f"V2: {e}" for e in v2["failures"])
     warnings.extend(f"V2: {w}" for w in v2["warnings"])
     rows_by_id = {str(r["case_id"]): r for r in good_rows}
-    v3 = v3_check_splits([str(r["case_id"]) for r in ok_rows], train_frac)
+    v3 = v3_check_splits(ok_rows, train_frac)
     data_failures.extend(f"V3: {e}" for e in v3["failures"])
     v4 = v4_check_norm(sweep_dir, rows_by_id, v3.get("train", []), norm_path, frozen_path)
     adapter_failures.extend(f"V4: {e}" for e in v4["failures"])

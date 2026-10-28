@@ -13,11 +13,11 @@ describe("provisional neural envelope", () => {
         expect(PROVISIONAL_NEURAL_ENVELOPE.kinds).not.toContain("custom");
     });
 
-    it("spans alpha -4 to 12 deg and Re 1000 to 200000 with no run yet", () => {
+    it("spans alpha -4 to 12 deg and Re 20 to 2000 with no run yet", () => {
         expect(PROVISIONAL_NEURAL_ENVELOPE.alphaMin).toBe(-4);
         expect(PROVISIONAL_NEURAL_ENVELOPE.alphaMax).toBe(12);
-        expect(PROVISIONAL_NEURAL_ENVELOPE.reMin).toBe(1000);
-        expect(PROVISIONAL_NEURAL_ENVELOPE.reMax).toBe(200000);
+        expect(PROVISIONAL_NEURAL_ENVELOPE.reMin).toBe(20);
+        expect(PROVISIONAL_NEURAL_ENVELOPE.reMax).toBe(2000);
         expect(PROVISIONAL_NEURAL_ENVELOPE.runId).toBeNull();
     });
 
@@ -25,13 +25,17 @@ describe("provisional neural envelope", () => {
         expect(PROVISIONAL_NEURAL_ENVELOPE.provisional).toBe(true);
         expect(PROVISIONAL_NEURAL_ENVELOPE.note.length).toBeGreaterThan(0);
         expect(PROVISIONAL_NEURAL_ENVELOPE.note.toLowerCase()).toContain("provisional");
+        expect(PROVISIONAL_NEURAL_ENVELOPE.note.toLowerCase()).toContain("planned coverage");
+        expect(PROVISIONAL_NEURAL_ENVELOPE.note.toLowerCase()).toContain("no weights");
+        expect(PROVISIONAL_NEURAL_ENVELOPE.note).toContain("Re 500");
+        expect(PROVISIONAL_NEURAL_ENVELOPE.note.toLowerCase()).toContain("unvalidated");
     });
 });
 
 describe("classifyNeuralDomain", () => {
     it("accepts interior cases on every covered body", () => {
         for (const kind of PROVISIONAL_NEURAL_ENVELOPE.kinds) {
-            const verdict = classifyNeuralDomain(kind, 6, 50000);
+            const verdict = classifyNeuralDomain(kind, 6, 1000);
             expect(verdict.inDomain).toBe(true);
             expect(verdict.reason).toBeNull();
             expect(verdict.provisional).toBe(true);
@@ -39,32 +43,41 @@ describe("classifyNeuralDomain", () => {
     });
 
     it("accepts the exact alpha and Re boundaries", () => {
-        expect(classifyNeuralDomain("naca2412", -4, 1000).inDomain).toBe(true);
-        expect(classifyNeuralDomain("naca2412", 12, 200000).inDomain).toBe(true);
+        expect(classifyNeuralDomain("naca2412", -4, 20).inDomain).toBe(true);
+        expect(classifyNeuralDomain("naca2412", 12, 2000).inDomain).toBe(true);
         expect(classifyNeuralDomain("orifice", 0, 1000).inDomain).toBe(true);
+        expect(classifyNeuralDomain("naca4412", 6, 2000).inDomain).toBe(true);
     });
 
     it("rejects just outside each boundary with the honest range", () => {
-        const lowAlpha = classifyNeuralDomain("naca2412", -4.5, 50000);
+        const lowAlpha = classifyNeuralDomain("naca2412", -4.5, 1000);
         expect(lowAlpha.inDomain).toBe(false);
         expect(lowAlpha.reason).toContain("-4");
-        const highAlpha = classifyNeuralDomain("naca2412", 12.5, 50000);
+        const highAlpha = classifyNeuralDomain("naca2412", 12.5, 1000);
         expect(highAlpha.inDomain).toBe(false);
         expect(highAlpha.reason).toContain("12");
-        const lowRe = classifyNeuralDomain("naca2412", 6, 999);
+        const lowRe = classifyNeuralDomain("naca2412", 6, 19);
         expect(lowRe.inDomain).toBe(false);
-        expect(lowRe.reason).toContain("1000");
-        const highRe = classifyNeuralDomain("naca2412", 6, 200001);
+        expect(lowRe.reason).toContain("20");
+        const highRe = classifyNeuralDomain("naca2412", 6, 2001);
         expect(highRe.inDomain).toBe(false);
-        expect(highRe.reason).toContain("200000");
+        expect(highRe.reason).toContain("2000");
     });
 
     it("rejects custom and unknown bodies", () => {
-        for (const kind of ["custom", "duct", "plate"]) {
+        for (const kind of ["custom", "duct", "plate", "unknown"]) {
             const verdict = classifyNeuralDomain(kind, 0, 1000);
             expect(verdict.inDomain).toBe(false);
             expect(verdict.reason).toContain(kind);
         }
+    });
+
+    it("keeps duct out of domain as an unknown body while naca4412 stays in", () => {
+        const duct = classifyNeuralDomain("duct", 0, 1000);
+        expect(duct.inDomain).toBe(false);
+        expect(duct.reason ?? "").toContain("duct");
+        expect(classifyNeuralDomain("naca4412", -4, 20).inDomain).toBe(true);
+        expect(classifyNeuralDomain("naca4412", 12, 2000).inDomain).toBe(true);
     });
 
     it("rejects non-finite alpha and Re", () => {
@@ -81,7 +94,7 @@ describe("classifyNeuralDomain", () => {
 
     it("rejects a custom kind listed in kinds when customAllowed is false", () => {
         const envelope = { ...PROVISIONAL_NEURAL_ENVELOPE, kinds: [...PROVISIONAL_NEURAL_ENVELOPE.kinds, "custom" as const] };
-        const verdict = classifyNeuralDomain("custom", 0, 50000, envelope);
+        const verdict = classifyNeuralDomain("custom", 0, 1000, envelope);
         expect(verdict.inDomain).toBe(false);
         expect(verdict.reason ?? "").toContain("customAllowed");
     });
@@ -92,7 +105,7 @@ describe("classifyNeuralDomain", () => {
             kinds: [...PROVISIONAL_NEURAL_ENVELOPE.kinds, "custom" as const],
             customAllowed: true as const,
         };
-        const verdict = classifyNeuralDomain("custom", 0, 50000, envelope);
+        const verdict = classifyNeuralDomain("custom", 0, 1000, envelope);
         expect(verdict.inDomain).toBe(true);
         expect(verdict.reason).toBeNull();
     });

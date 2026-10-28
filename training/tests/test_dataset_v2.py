@@ -11,13 +11,16 @@ from dataset_v2 import (
     NORM_SCHEMA,
     AnalyticV2Dataset,
     LbmV2Dataset,
+    _body_token_of,
     canonical_norm_json,
     empty_norm,
     fit_norm,
+    is_completed_row,
     load_norm_sidecar,
     norm_hash,
     sdf_from_mask,
     split_case_ids,
+    split_completed_rows,
     with_refit_outputs,
     write_norm_sidecar,
 )
@@ -147,7 +150,8 @@ def _write_lbm_fixture(root: Path, n_cases: int = 5, nx: int = 16, ny: int = 16)
 
 def test_lbm_adapter_split_shapes_and_sources(tmp_path) -> None:
     sweep = _write_lbm_fixture(tmp_path)
-    train_ids, val_ids = split_case_ids([f"case_{c:03d}" for c in range(5)])
+    rows = [json.loads(line) for line in (sweep / "manifest.jsonl").read_text().splitlines()]
+    train_ids, val_ids = split_completed_rows(rows)
     assert len(train_ids) == 4 and len(val_ids) == 1
     assert set(train_ids).isdisjoint(set(val_ids))
     train = LbmV2Dataset(sweep, "train")
@@ -287,3 +291,132 @@ def test_sidecar_load_rejects_bad_normalization(tmp_path) -> None:
         path.write_text(canonical_norm_json(bad))
         with pytest.raises(ValueError, match="normalization"):
             load_norm_sidecar(path)
+
+
+def _body_of(rows: list[dict], case_id: str) -> str:
+    for row in rows:
+        if str(row["case_id"]) == case_id:
+            return str(row.get("body", ""))
+    raise AssertionError(f"unknown case {case_id}")
+
+
+def test_stratified_split_covers_families_on_real_spec() -> None:
+    from make_sweep_spec import build_cases
+
+    rows = build_cases()
+    assert len(rows) == 60
+    train_ids, val_ids = split_completed_rows(rows)
+    assert set(train_ids).isdisjoint(set(val_ids))
+    assert set(train_ids) | set(val_ids) == {str(r["case_id"]) for r in rows}
+    repeat_train, repeat_val = split_completed_rows(rows)
+    assert repeat_train == train_ids and repeat_val == val_ids
+    val_bodies = {_body_of(rows, c) for c in val_ids}
+    assert any(b == "cylinder" for b in val_bodies)
+    assert any(b == "block" for b in val_bodies)
+    assert any(b.startswith("naca") for b in val_bodies)
+    assert any(b == "orifice" for b in val_bodies)
+
+
+def test_stratified_split_excludes_bad_status() -> None:
+    from make_sweep_spec import build_cases
+
+    rows = [dict(r) for r in build_cases()]
+    bad_diverged = dict(rows[0])
+    bad_setup = dict(rows[1])
+    bad_diverged["status"] = "diverged"
+    bad_setup["status"] = "setup_error"
+    rows[0] = bad_diverged
+    rows[1] = bad_setup
+    train_ids, val_ids = split_completed_rows(rows)
+    assert bad_diverged["case_id"] not in train_ids
+    assert bad_diverged["case_id"] not in val_ids
+    assert bad_setup["case_id"] not in train_ids
+    assert bad_setup["case_id"] not in val_ids
+    expected = {str(r["case_id"]) for r in rows if is_completed_row(r)}
+    assert set(train_ids) | set(val_ids) == expected
+    assert set(train_ids).isdisjoint(set(val_ids))
+
+
+def test_stratified_split_legacy_absent_status_included() -> None:
+    rows = [
+        {"case_id": "cyl_a", "body": "cylinder", "re": 40.0},
+        {"case_id": "cyl_b", "body": "cylinder", "re": 40.0, "status": "completed"},
+    ]
+    train_ids, val_ids = split_completed_rows(rows)
+    assert set(train_ids) | set(val_ids) == {"cyl_a", "cyl_b"}
+    assert all(is_completed_row(r) for r in rows)
+
+
+def test_stratified_split_singleton_group_to_train() -> None:
+    train_ids, val_ids = split_completed_rows(
+        [{"case_id": "only", "body": "duct", "re": 40.0}]
+    )
+    assert train_ids == ["only"]
+    assert train_ids != []
+
+
+def test_lbm_dataset_excludes_non_completed_rows(tmp_path) -> None:
+    sweep = _write_lbm_fixture(tmp_path, n_cases=3, nx=8, ny=8)
+    rows = [json.loads(line) for line in (sweep / "manifest.jsonl").read_text().splitlines()]
+    ghost_diverged = dict(rows[0])
+    ghost_diverged["case_id"] = "ghost_diverged"
+    ghost_diverged["status"] = "diverged"
+    ghost_setup = dict(rows[1])
+    ghost_setup["case_id"] = "ghost_setup"
+    ghost_setup["status"] = "setup_error"
+    rows.append(ghost_diverged)
+    rows.append(ghost_setup)
+    (sweep / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    train = LbmV2Dataset(sweep, "train")
+    val = LbmV2Dataset(sweep, "val", norm=train.norm)
+    assert "ghost_diverged" not in train.ids
+    assert "ghost_setup" not in train.ids
+    assert "ghost_diverged" not in val.ids
+    assert "ghost_setup" not in val.ids
+    assert len(train) + len(val) == 3
+
+
+def test_lbm_dataset_no_completed_rows_fails(tmp_path) -> None:
+    sweep = _write_lbm_fixture(tmp_path, n_cases=2, nx=8, ny=8)
+    rows = [json.loads(line) for line in (sweep / "manifest.jsonl").read_text().splitlines()]
+    for row in rows:
+        row["status"] = "diverged"
+    (sweep / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    with pytest.raises(ValueError, match="no completed rows"):
+        LbmV2Dataset(sweep, "train")
+
+
+def test_legacy_id_split_still_available() -> None:
+    train_ids, val_ids = split_case_ids([f"case_{c:03d}" for c in range(5)])
+    assert len(train_ids) == 4 and len(val_ids) == 1
+    assert set(train_ids).isdisjoint(set(val_ids))
+
+
+def test_naca4_code_groups_separately() -> None:
+    assert _body_token_of({"body": "naca4", "naca_code": "4412"}) == "naca4412"
+    assert _body_token_of({"body": "naca4", "naca_code": "0012"}) == "naca0012"
+    assert _body_token_of({"body": "naca0012"}) == "naca0012"
+    assert _body_token_of({"body": "naca4"}) == "naca4"
+
+
+def test_naca4_malformed_code_falls_back() -> None:
+    assert _body_token_of({"body": "naca4", "naca_code": "12"}) == "naca4"
+    assert _body_token_of({"body": "naca4", "naca_code": None}) == "naca4"
+
+
+def test_split_naca4412_singleton_and_pair() -> None:
+    solo_rows = [
+        {"case_id": "cyl_a", "body": "cylinder", "re": 40.0},
+        {"case_id": "cyl_b", "body": "cylinder", "re": 40.0},
+        {"case_id": "solo4412", "body": "naca4", "naca_code": "4412", "re": 200.0},
+    ]
+    train_ids, val_ids = split_completed_rows(solo_rows)
+    assert "solo4412" in train_ids
+    assert "solo4412" not in val_ids
+    pair_rows = [
+        {"case_id": "pair4412_a", "body": "naca4", "naca_code": "4412", "re": 200.0},
+        {"case_id": "pair4412_b", "body": "naca4", "naca_code": "4412", "re": 200.0},
+    ]
+    pair_train, pair_val = split_completed_rows(pair_rows)
+    assert len(pair_train) == 1 and len(pair_val) == 1
+    assert set(pair_train) | set(pair_val) == {"pair4412_a", "pair4412_b"}

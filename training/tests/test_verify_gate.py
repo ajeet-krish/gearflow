@@ -398,6 +398,23 @@ def test_gate_missing_ref_length_v2_fails(tmp_path: Path) -> None:
     assert any("cyl_r040" in f and "ref_length" in f for f in report["gate"]["data_failures"])
 
 
+def test_gate_split_matches_training_split(tmp_path: Path) -> None:
+    from dataset_v2 import split_completed_rows
+
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    builder.add_case("cyl_r040", "cylinder", 40.0, 0.0, 2.0618)
+    builder.add_case("block_r040", "block", 40.0, 0.0, 2.3447)
+    builder.add_case("naca0012_a04", "naca0012", 100.0, 4.0, 0.2058)
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    report = _report(out)
+    train_ids, val_ids = split_completed_rows(builder.rows)
+    assert report["v3_splits"]["train"] == train_ids
+    assert report["v3_splits"]["val"] == val_ids
+
+
 def test_native_div_rms_uniform_flow_is_clean() -> None:
     from verify_lbm_dataset import _native_div_rms
 

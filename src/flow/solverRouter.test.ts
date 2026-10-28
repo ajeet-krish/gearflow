@@ -10,14 +10,14 @@ import {
 
 describe("decideFastPath", () => {
     it("routes ready plus in-domain to neural-v2", () => {
-        const decision = decideFastPath({ body: "naca2412", alphaDeg: 6, reynolds: 50000, neuralStatus: "ready" });
+        const decision = decideFastPath({ body: "naca2412", alphaDeg: 6, reynolds: 2000, neuralStatus: "ready" });
         expect(decision.path).toBe("neural-v2");
         expect(decision.inDomain).toBe(true);
         expect(decision.reason).toBe("neural-v2 weights ready and case inside the provisional envelope");
     });
 
     it("routes ready but out-of-domain to analytic with the envelope reason", () => {
-        const decision = decideFastPath({ body: "naca2412", alphaDeg: 30, reynolds: 50000, neuralStatus: "ready" });
+        const decision = decideFastPath({ body: "naca2412", alphaDeg: 30, reynolds: 1000, neuralStatus: "ready" });
         expect(decision.path).toBe("analytic");
         expect(decision.inDomain).toBe(false);
         expect(decision.reason).toBe(
@@ -26,11 +26,11 @@ describe("decideFastPath", () => {
     });
 
     it("routes an out-of-envelope Re to analytic even when ready", () => {
-        const decision = decideFastPath({ body: "cylinder", alphaDeg: 0, reynolds: 100, neuralStatus: "ready" });
+        const decision = decideFastPath({ body: "cylinder", alphaDeg: 0, reynolds: 19, neuralStatus: "ready" });
         expect(decision.path).toBe("analytic");
         expect(decision.inDomain).toBe(false);
         expect(decision.reason).toBe(
-            "case outside the provisional neural envelope (Re 100 is outside the provisional envelope [1000, 200000]), analytic fallback",
+            "case outside the provisional neural envelope (Re 19 is outside the provisional envelope [20, 2000]), analytic fallback",
         );
     });
 

@@ -134,13 +134,13 @@ describe("neural request key and result math", () => {
 
 describe("router decisions via adapter mock", () => {
     it("ready plus in domain routes neural, every other status falls back", () => {
-        const inDomain = decideFastPath({ body: "naca2412", alphaDeg: 6, reynolds: 50000, neuralStatus: "ready" });
+        const inDomain = decideFastPath({ body: "naca2412", alphaDeg: 6, reynolds: 2000, neuralStatus: "ready" });
         expect(inDomain.path).toBe("neural-v2");
-        const out = decideFastPath({ body: "naca2412", alphaDeg: 30, reynolds: 50000, neuralStatus: "ready" });
+        const out = decideFastPath({ body: "naca2412", alphaDeg: 30, reynolds: 1000, neuralStatus: "ready" });
         expect(out.path).toBe("analytic");
         expect(out.reason).toContain("outside the provisional neural envelope");
         for (const s of ["loading", "failed", "unavailable"] as const) {
-            const d = decideFastPath({ body: "naca2412", alphaDeg: 6, reynolds: 50000, neuralStatus: s });
+            const d = decideFastPath({ body: "naca2412", alphaDeg: 6, reynolds: 2000, neuralStatus: s });
             expect(d.path).toBe("analytic");
         }
     });
@@ -162,7 +162,7 @@ describe("router decisions via adapter mock", () => {
         const decision = decideFastPath({
             body: "naca2412",
             alphaDeg: 6,
-            reynolds: 50000,
+            reynolds: 2000,
             neuralStatus: status,
         });
         expect(decision.path).toBe("neural-v2");

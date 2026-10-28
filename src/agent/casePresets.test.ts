@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { expandCasePreset } from "@/agent/casePresets";
 
 describe("expandCasePreset shedding", () => {
-    it("expands to cylinder alpha 0 Re 100 speed field", () => {
+    it("sits inside the envelope at cylinder alpha 0 Re 100 speed field", () => {
         const result = expandCasePreset({ preset: "shedding" });
         expect(result.ok).toBe(true);
         expect(result.reason).toBeNull();
@@ -18,10 +18,9 @@ describe("expandCasePreset shedding", () => {
         ]);
     });
 
-    it("carries an honest domain note because Re 100 sits below the envelope", () => {
+    it("carries a null domain note because Re 100 sits inside the envelope", () => {
         const result = expandCasePreset({ preset: "shedding" });
-        expect(result.domainNote).not.toBeNull();
-        expect(result.domainNote).toContain("100");
+        expect(result.domainNote).toBeNull();
     });
 });
 
@@ -54,13 +53,13 @@ describe("expandCasePreset high_pressure", () => {
 });
 
 describe("expandCasePreset airfoil", () => {
-    it("defaults to 2412 at alpha 6 Re 50000 speed field", () => {
+    it("defaults to 2412 at alpha 6 Re 2000 speed field", () => {
         const result = expandCasePreset({ preset: "airfoil" });
         expect(result.ok).toBe(true);
         expect(result.actions).toEqual([
             { kind: "set_body", body: "naca2412" },
             { kind: "set_alpha", alphaDeg: 6 },
-            { kind: "set_reynolds", reynolds: 50000 },
+            { kind: "set_reynolds", reynolds: 2000 },
             { kind: "set_field", field: "speed" },
         ]);
         expect(result.domainNote).toBeNull();

@@ -60,15 +60,16 @@ def _local_git_sha() -> str:
 
 BASE_LOCKED = 8
 PRETRAIN_DEFAULTS = {"epochs": 60, "batch": 32, "lr": 3e-4, "div_weight": 0.0}
-FINETUNE_DEFAULTS = {"epochs": 30, "batch": 16, "lr": 5e-5, "div_weight": 0.01}
+FINETUNE_DEFAULTS = {"epochs": 200, "batch": 8, "lr": 5e-5, "div_weight": 0.01}
 ADAMW_WEIGHT_DECAY = 1e-4
+ARTIFACT_NAMES = ("best.pt", "norm.json", "run_log.json")
 
 
 def _validate_hparams(stage: str, base: int, epochs: int, batch: int, lr: float) -> None:
     if base != BASE_LOCKED:
         raise ValueError(f"{stage}: base must equal {BASE_LOCKED}, got {base}")
-    if not 1 <= epochs <= 200:
-        raise ValueError(f"{stage}: epochs {epochs} out of range [1, 200]")
+    if not 1 <= epochs <= 300:
+        raise ValueError(f"{stage}: epochs {epochs} out of range [1, 300]")
     if not 1 <= batch <= 64:
         raise ValueError(f"{stage}: batch {batch} out of range [1, 64]")
     if not 1e-6 <= lr <= 1e-2:
@@ -334,43 +335,87 @@ def _lbm_raw_targets(sweep_dir: Path, split: str) -> tuple[list, list]:
     return ds._load_all_raw()
 
 
+def _pretrain_checkpoint_remote(run_id: str) -> str:
+    """Remote volume path for the pretrain best checkpoint."""
+    return f"{run_id}/pretrain/best.pt"
+
+
+def _require_pretrain_checkpoint(run_id: str) -> None:
+    """Fail closed when finetune only has no pretrain checkpoint to resume."""
+    try:
+        probe = ckpt_volume.read_file(_pretrain_checkpoint_remote(run_id))
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"finetune: pretrain checkpoint missing for run {run_id!r}") from exc
+    if not probe:
+        raise ValueError(f"finetune: pretrain checkpoint missing for run {run_id!r}")
+
+
+def _download_routes(action: str, run_id: str) -> list:
+    """Pure routing table for checkpoint downloads, no volume access.
+
+    Combined train and finetune only resolve to the root contract with
+    finetune artifacts. Pretrain only resolves to the pretrain subdir so a
+    user can inspect pretrain before paying for finetune.
+    """
+    base = Path("training") / "checkpoints" / "v2" / run_id
+    if action == "pretrain":
+        return [(f"{run_id}/pretrain/{name}", base / "pretrain" / name) for name in ARTIFACT_NAMES]
+    if action in ("train", "finetune"):
+        return [(f"{run_id}/finetune/{name}", base / name) for name in ARTIFACT_NAMES]
+    raise ValueError(f"action must be train, pretrain, finetune, or sweep, got {action!r}")
+
+
+def _download_artifacts(routes: list) -> Path | None:
+    """Fetch each (remote path, local path) pair from the checkpoint volume."""
+    dest: Path | None = None
+    for remote_path, local_path in routes:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        data = ckpt_volume.read_file(remote_path)
+        local_path.write_bytes(data if isinstance(data, bytes) else data.encode())
+        dest = local_path.parent
+    return dest
+
+
 @app.local_entrypoint()
 def main(action: str = "train", run_id: str = "dev", sweep_id: str = "pilot") -> None:
     if action == "sweep":
-        raise NotImplementedError("sweep is a C-2 stub: run training/modal_sweep.py (not built yet)")
-    if action != "train":
-        raise ValueError(f"action must be train or sweep, got {action!r}")
+        raise NotImplementedError("sweep runs in training/modal_sweep.py, run that module with a sweep id")
+    if action not in ("train", "pretrain", "finetune"):
+        raise ValueError(f"action must be train, pretrain, finetune, or sweep, got {action!r}")
 
     git_sha = _local_git_sha()
-    print(f"v2 train: local git sha {git_sha}")
+    print(f"v2 {action}: local git sha {git_sha}")
 
-    pre = run_stage.remote(
-        "pretrain",
-        run_id,
-        sweep_id,
-        BASE_LOCKED,
-        PRETRAIN_DEFAULTS["epochs"],
-        PRETRAIN_DEFAULTS["batch"],
-        PRETRAIN_DEFAULTS["lr"],
-        PRETRAIN_DEFAULTS["div_weight"],
-        git_sha,
-    )
-    print(f"v2 pretrain done: {pre}")
-    ft = run_stage.remote(
-        "finetune",
-        run_id,
-        sweep_id,
-        BASE_LOCKED,
-        FINETUNE_DEFAULTS["epochs"],
-        FINETUNE_DEFAULTS["batch"],
-        FINETUNE_DEFAULTS["lr"],
-        FINETUNE_DEFAULTS["div_weight"],
-        git_sha,
-    )
-    print(f"v2 finetune done: {ft}")
-    dest = Path("training") / "checkpoints" / "v2" / run_id
-    dest.mkdir(parents=True, exist_ok=True)
-    for name in ("best.pt", "norm.json", "run_log.json"):
-        data = ckpt_volume.read_file(f"{run_id}/finetune/{name}")
-        (dest / name).write_bytes(data if isinstance(data, bytes) else data.encode())
-    print(f"v2 train: downloaded to {dest}")
+    if action in ("train", "pretrain"):
+        pre = run_stage.remote(
+            "pretrain",
+            run_id,
+            sweep_id,
+            BASE_LOCKED,
+            PRETRAIN_DEFAULTS["epochs"],
+            PRETRAIN_DEFAULTS["batch"],
+            PRETRAIN_DEFAULTS["lr"],
+            PRETRAIN_DEFAULTS["div_weight"],
+            git_sha,
+        )
+        print(f"v2 pretrain done: {pre}")
+    if action in ("train", "finetune"):
+        if action == "finetune":
+            _require_pretrain_checkpoint(run_id)
+        ft = run_stage.remote(
+            "finetune",
+            run_id,
+            sweep_id,
+            BASE_LOCKED,
+            FINETUNE_DEFAULTS["epochs"],
+            FINETUNE_DEFAULTS["batch"],
+            FINETUNE_DEFAULTS["lr"],
+            FINETUNE_DEFAULTS["div_weight"],
+            git_sha,
+        )
+        print(f"v2 finetune done: {ft}")
+    routes = _download_routes(action, run_id)
+    dest = _download_artifacts(routes)
+    print(f"v2 {action}: downloaded to {dest}")
