@@ -1,10 +1,11 @@
 // GearFlow top navbar, Zenith instrument-room style. 56px tall, deep
-// background, purple active states. No window access during render.
+// background, purple active states. Single STUDIO link plus FOCUS, the
+// settings gear, and the WASM badge. No network state here: the offline
+// chip lives in the agent rail behind the debug flag.
 
-export type NavId = "studio" | "validate" | "export";
+export type NavId = "studio";
 
 export interface TopNavProps {
-    offline: boolean;
     active: NavId;
     onNav: (id: NavId) => void;
     settingsOpen: boolean;
@@ -49,12 +50,9 @@ function BrandMark() {
 
 const NAV_ITEMS: Array<{ id: NavId; label: string }> = [
     { id: "studio", label: "STUDIO" },
-    { id: "validate", label: "VALIDATE" },
-    { id: "export", label: "EXPORT" },
 ];
 
 export default function TopNav({
-    offline,
     active,
     onNav,
     settingsOpen,
@@ -95,25 +93,6 @@ export default function TopNav({
                         FOCUS
                     </button>
                 )}
-                <span
-                    className="offlineChip"
-                    role="status"
-                    aria-label={offline ? "Offline, local only" : "Online"}
-                >
-                    <span
-                        className={offline ? "dot off" : "dot on"}
-                        aria-hidden="true"
-                    />
-                    {offline ? "OFFLINE" : "ONLINE"}
-                </span>
-                <button
-                    type="button"
-                    className="navExport"
-                    onClick={() => onNav("export")}
-                    aria-label="Open the export section"
-                >
-                    Export
-                </button>
                 <button
                     type="button"
                     className="navIcon"

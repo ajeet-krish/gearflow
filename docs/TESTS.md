@@ -741,3 +741,35 @@ Phase tests integrate with prior phase tests (all 809 prior tests still pass plu
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-10-28 - Phase 16: Test Report (Settings manual toggle behavioral coverage, no production changes)
+
+### Test Results
+npm test: 88 files, 1076 tests, all passed. Baseline at the prior full run was lower; delta on this task is src/ui/settingsManualToggle.test.tsx (11 tests). No production code touched. No commit made.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| settingsManualToggle.test.tsx (11) | PASS | Rendered checkbox handlers invoked through the real component tree with a minimal hook dispatcher (repo has no DOM renderer); Contours on from fresh speed defaults yields contours true plus streamlines true; Streamlines off yields both false; Streamlines on from cp defaults keeps contours on; uncheck from pinned both on keeps streamlines on; captured patch resolves to user pinned both on; Reset restores contract defaults plus grid auto; reset clears pin back to auto source; closed modal returns null; debug truth table plus VALIDATION and EXPORT inside the debug gate plus telemetry and terminal outside the gate |
+| all other Node suites (1065) | PASS | No regressions, 1076 total |
+
+### Coverage Summary
+Happy path covered (Contours on from fresh speed defaults pins both overlays on for speed; Streamlines on from cp defaults keeps contours on).
+Edge cases covered (second toggle from a pinned pair follows the effective pair; closed modal returns null; debug flag combined with engine flag).
+Error conditions covered (Reset from a pinned non default state restores every default field and returns grid to auto; stale pin clears back to the auto source).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1065 prior tests still pass plus 11 new, 1076 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| settingsManualToggle initial transform (before run) | Filler test removal left a brace mismatch at the end of the new file | Repaired the closing braces; no production impact, suite green |
+| (none further) | Full suite green on this run, 1076 passed | No fix needed |
+
+### Verification Checklist
+- [x] All tests pass (88 files, 1076 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

@@ -405,6 +405,32 @@ html, body, #root {
 }
 .chip:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
 .chip.active { background: rgba(189, 147, 249, 0.3); color: var(--purple); }
+.sceneBar.fieldBar .chip.active {
+  border-color: rgba(189, 147, 249, 0.6);
+  box-shadow: 0 0 8px rgba(189, 147, 249, 0.55);
+  text-shadow: 0 0 8px rgba(189, 147, 249, 0.6);
+}
+/* FIELD bar coupling note: the quiet readout beside the glowing chips.
+   Cyan for the auto overlay, amber while a manual pin holds. */
+.fieldCoupling {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--comment);
+  white-space: nowrap;
+  flex: none;
+  margin-left: auto;
+}
+.fieldCoupling.auto { color: var(--cyan); }
+.fieldCoupling.manual { color: var(--orange); }
+/* Settings overlay source tag beside the effective checkboxes. */
+.settingsSource {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--comment);
+  margin-left: 8px;
+}
 .chip.cyan.active { background: rgba(139, 233, 253, 0.2); color: var(--cyan); }
 .chip:disabled {
   color: var(--comment);
@@ -1050,6 +1076,8 @@ html, body, #root {
   font-weight: 600;
 }
 .settingsRow { display: grid; gap: 6px; }
+.settingsRow input[type="range"] { width: 100%; min-height: 44px; accent-color: var(--purple); background: transparent; }
+.settingsRow output { color: var(--cyan); font-size: 11px; font-variant-numeric: tabular-nums; }
 .settingsLabel { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--comment); }
 .settingsSection .barSelect { width: 100%; }
 .segRow { display: flex; gap: 8px; }

@@ -17,10 +17,9 @@ import { DEFAULT_DOMAIN } from "@/contracts/types";
 const noop = () => {};
 
 describe("GearFlow shell", () => {
-    it("renders a top navbar with the GearFlow wordmark", () => {
+    it("renders a top navbar with the GearFlow wordmark and a single STUDIO link", () => {
         const html = renderToStaticMarkup(
             <TopNav
-                offline={false}
                 active="studio"
                 onNav={noop}
                 settingsOpen={false}
@@ -30,14 +29,16 @@ describe("GearFlow shell", () => {
         );
         expect(html).toContain("GearFlow");
         expect(html).toContain("STUDIO");
-        expect(html).toContain("VALIDATE");
-        expect(html).toContain("EXPORT");
+        expect(html).not.toContain("VALIDATE");
+        expect(html).not.toContain("EXPORT");
+        expect(html).not.toContain("ONLINE");
+        expect(html).not.toContain("OFFLINE");
+        expect(html).not.toContain("navExport");
     });
 
     it("top navbar renders a Settings button bound to the dialog", () => {
         const html = renderToStaticMarkup(
             <TopNav
-                offline={false}
                 active="studio"
                 onNav={noop}
                 settingsOpen={true}
@@ -88,14 +89,14 @@ describe("GearFlow shell", () => {
         expect(html).not.toContain(">128<");
     });
 
-    it("field bar contains SPEED, PRESSURE, VORTICITY", () => {
+    it("field bar contains VELOCITY, PRESSURE, VORTICITY", () => {
         const html = renderToStaticMarkup(
             <FieldBar
                 variable="speed"
                 onVariable={noop}
             />
         );
-        expect(html).toContain("SPEED");
+        expect(html).toContain("VELOCITY");
         expect(html).toContain("PRESSURE");
         expect(html).toContain("VORTICITY");
     });

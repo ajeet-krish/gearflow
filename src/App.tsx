@@ -8,6 +8,8 @@ import SettingsModal from "@/ui/SettingsModal";
 import TopNav, { type NavId } from "@/ui/TopNav";
 import { LbmEntryNotice, LbmFailoverNotice } from "@/ui/LbmSetupRow";
 import { fallbackVariableFor } from "@/ui/FieldBar";
+import FieldBar from "@/ui/FieldBar";
+import { overlayPatchForFieldChange, resolveOverlays } from "@/ui/fieldOverlay";
 import RunTerminal, { type TerminalRow, type TerminalStatus } from "@/ui/RunTerminal";
 import TelemetryBar from "@/ui/TelemetryBar";
 import AnalysisPanel from "@/ui/AnalysisPanel";
@@ -39,7 +41,7 @@ import { classifyNeuralDomain } from "@/flow/neuralDomain";
 import { useResolution } from "@/flow/gridController";
 import { useDisplayPrefs } from "@/ui/displayStore";
 import { useLayoutPrefs, shellVisibility } from "@/ui/layoutStore";
-import { RailShell, resolveShellShortcut, shouldCloseTerminalOnEscape } from "@/ui/shellRegions";
+import { RailShell, SceneBars, resolveShellShortcut, shouldCloseTerminalOnEscape } from "@/ui/shellRegions";
 import { applyTheme, storeTheme } from "@/ui/theme";
 import ValidationPanel, { type ValidationSummary } from "@/ui/ValidationPanel";
 import ExportBar from "@/ui/ExportBar";
@@ -233,6 +235,18 @@ export function readLbmArmed(search: string): boolean {
     }
 }
 
+/** Debug panels hatch: ?debug=1 mounts VALIDATION and EXPORT plus the rail
+ *  presence dot, every other value is the clean default view. Read once at
+ *  startup, never a route. */
+export function readDebugPanels(search: string): boolean {
+    try {
+        const q = search.startsWith("?") ? search : `?${search}`;
+        return new URLSearchParams(q).get("debug") === "1";
+    } catch {
+        return false;
+    }
+}
+
 /** Fixture debug override: ?fixture=1 shows the baked pack, never in controls. */
 export function readFixtureDebug(search: string): boolean {
     try {
@@ -295,6 +309,15 @@ export default function App() {
     const [fixtureDebug] = useState<boolean>(() => {
         try {
             return readFixtureDebug(window.location.search);
+        } catch {
+            return false;
+        }
+    });
+    // Debug panels: VALIDATION, EXPORT, and the rail presence dot mount only
+    // behind ?debug=1. Read once at startup, the default view stays clean.
+    const [debugPanels] = useState<boolean>(() => {
+        try {
+            return readDebugPanels(window.location.search);
         } catch {
             return false;
         }
@@ -384,6 +407,10 @@ export default function App() {
         if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
         else layoutPatch({ rightCollapsed: !layoutPrefs.rightCollapsed });
     }, [layoutPrefs.focusMode, layoutPrefs.rightCollapsed, layoutPatch]);
+    const toggleBars = useCallback(() => {
+        if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
+        else layoutPatch({ barsCollapsed: !layoutPrefs.barsCollapsed });
+    }, [layoutPrefs.focusMode, layoutPrefs.barsCollapsed, layoutPatch]);
     const toggleFocus = useCallback(() => {
         layoutPatch({ focusMode: !layoutPrefs.focusMode });
     }, [layoutPrefs.focusMode, layoutPatch]);
@@ -472,8 +499,10 @@ export default function App() {
     useEffect(() => g_evalLog.subscribe(setEvalEntries), []);
 
     // Zenith style stacked analysis rail. Multiple sections open at once,
-    // default open GEOMETRY. Navbar VALIDATE and EXPORT links
-    // open the matching section. Content stays mounted when collapsed.
+    // default open GEOMETRY. The STUDIO navbar link opens geometry and
+    // expands the rail. VALIDATION and EXPORT mount only behind ?debug=1,
+    // the default rail stays on simulation, geometry, turbulence, and eval.
+    // Content stays mounted when collapsed.
     const [openSections, setOpenSections] = useState<Set<string>>(
         () => new Set(["geometry"])
     );
@@ -491,10 +520,9 @@ export default function App() {
     }, []);
     const handleNav = useCallback((id: NavId) => {
         setNavActive(id);
-        if (id === "validate") openSection("validation");
-        else if (id === "export") openSection("export");
-        else openSection("geometry");
-    }, [openSection]);
+        openSection("geometry");
+        layoutPatch({ focusMode: false, rightCollapsed: false });
+    }, [openSection, layoutPatch]);
 
     const cacheRef = useRef<HashCache | null>(null);
     if (cacheRef.current === null) cacheRef.current = new HashCache(true);
@@ -1134,11 +1162,14 @@ export default function App() {
     const lbmStats = lbmStatsReady ? (lbmProviderLive?.stats() ?? null) : null;
     const turbulenceDef = turbulenceSectionDef(lbmEffective, lbmStatsReady, lbmStats);
 
-    // Effective field variable, derived during render: a selected channel
-    // the current frame does not carry paints speed on this very pass.
+    // Effective field variable plus effective overlays, derived during
+    // render: a selected channel the current frame does not carry paints
+    // speed on this very pass, and each field ships its overlay default.
     // The stored preference stays untouched, so returning to LBM mode
-    // restores the user's choice.
+    // restores the user's choice. Manual overlay toggles pin until the
+    // field changes again.
     const effectiveVariable = fallbackVariableFor(prefs.variable, flow);
+    const effectiveOverlays = resolveOverlays(effectiveVariable, prefs);
 
     // LBM run controls. Run starts the worker loop, Cancel latches the
     // current state and keeps the last snapshot on screen. Run first passes
@@ -1222,7 +1253,10 @@ export default function App() {
         return buildAppExportData(base, isFixture, isFixture && pack ? pack.provenance : null);
     }, [debouncedSpec, debouncedRe, regime, frame, backendName, provenanceLabel, flow, valSummary, isFixture, pack]);
 
-    const onVariable = (next: typeof prefs.variable) => patch({ variable: next });
+    // Single field funnel: a chip click recouple the overlays to the next
+    // field default and clears any pin, so stale manual flags never leak
+    // across fields.
+    const onVariable = (next: typeof prefs.variable) => patch(overlayPatchForFieldChange(next));
     const handlePatch = useCallback((next: Partial<typeof prefs>) => {        if (next.theme !== undefined) storeTheme(next.theme);
         patch(next);
     }, [patch]);
@@ -1352,7 +1386,6 @@ export default function App() {
         <div className="page">
             <a className="skip" href="#tunnel">Skip to flow canvas</a>
             <TopNav
-                offline={offline}
                 active={navActive}
                 onNav={handleNav}
                 settingsOpen={settingsOpen}
@@ -1375,8 +1408,12 @@ export default function App() {
                 >
                     <div className="railHead">
                         <span className="railTitle">AGENT CONSOLE</span>
-                        <span className={offline ? "dot off" : "dot on"} aria-hidden="true" />
-                        <span className="mono railState">{offline ? "OFFLINE" : "LIVE"}</span>
+                        {debugPanels && (
+                            <>
+                                <span className={offline ? "dot off" : "dot on"} aria-hidden="true" />
+                                <span className="mono railState">{offline ? "OFFLINE" : "LIVE"}</span>
+                            </>
+                        )}
                     </div>
                     <div className="agentBody">
                         {offline && offlinePackError !== null && (
@@ -1418,6 +1455,20 @@ export default function App() {
                 )}
 
                 <section className="tunnelCol" aria-label="Tunnel window">
+                    <SceneBars
+                        bodyId="sceneBars"
+                        collapsed={shell.bars}
+                        summary={`${effectiveVariable.toUpperCase()} . ${engineLabel} . Re ${Math.round(debouncedRe).toLocaleString("en-US")}`}
+                        onToggle={toggleBars}
+                    >
+                        <FieldBar
+                            variable={effectiveVariable}
+                            onVariable={onVariable}
+                            hasTke={hasTke}
+                            hasRecirc={hasRecirc}
+                            overlays={effectiveOverlays}
+                        />
+                    </SceneBars>
                     <TelemetryBar
                         engine={engineLabel}
                         dotClass={dotClass}
@@ -1455,8 +1506,9 @@ export default function App() {
                                 fieldVisible={prefs.fieldVisible}
                                 particleCount={prefs.particleCount}
                                 particleColor={prefs.particleColor}
-                                showContours={prefs.contours}
-                                showStreamlines={prefs.showStreamlines}
+                                particleSize={prefs.particleSize}
+                                showContours={effectiveOverlays.contours}
+                                showStreamlines={effectiveOverlays.showStreamlines}
                                 streamlineColormap={prefs.colormap}
                             />
                         </ErrorBoundary>
@@ -1617,30 +1669,38 @@ export default function App() {
                                     ),
                                 },
                                 ...(turbulenceDef === null ? [] : [turbulenceDef]),
-                                {
-                                    id: "validation",
-                                    label: "VALIDATION",
-                                    content: (
-                                        <div>
-                                            <ErrorBoundary resetKey="validation" label="validation panel">
-                                                <ValidationPanel onSummary={setValSummary} />
-                                            </ErrorBoundary>
-                                            <p className="visuallyHidden" role="status">
-                                                {valSummary.blocking === 0 ? "No blocking validation failures." : `${valSummary.blocking} blocking validation failures.`}
-                                            </p>
-                                        </div>
-                                    ),
-                                },
+                                ...(debugPanels
+                                    ? [
+                                        {
+                                            id: "validation",
+                                            label: "VALIDATION",
+                                            content: (
+                                                <div>
+                                                    <ErrorBoundary resetKey="validation" label="validation panel">
+                                                        <ValidationPanel onSummary={setValSummary} />
+                                                    </ErrorBoundary>
+                                                    <p className="visuallyHidden" role="status">
+                                                        {valSummary.blocking === 0 ? "No blocking validation failures." : `${valSummary.blocking} blocking validation failures.`}
+                                                    </p>
+                                                </div>
+                                            ),
+                                        },
+                                    ]
+                                    : []),
                                 {
                                     id: "eval",
                                     label: "EVAL LEDGER",
                                     content: <EvalLogPanel entries={evalEntries} />,
                                 },
-                                {
-                                    id: "export",
-                                    label: "EXPORT",
-                                    content: <ExportBar getSnapshot={getSnapshot} data={exportData} />,
-                                },
+                                ...(debugPanels
+                                    ? [
+                                        {
+                                            id: "export",
+                                            label: "EXPORT",
+                                            content: <ExportBar getSnapshot={getSnapshot} data={exportData} />,
+                                        },
+                                    ]
+                                    : []),
                             ]}
                         />
                     </ErrorBoundary>
@@ -1657,9 +1717,6 @@ export default function App() {
                 gridNotice={gridState.notice}
                 onGridMode={setGridMode}
                 variable={effectiveVariable}
-                onVariable={onVariable}
-                hasTke={hasTke}
-                hasRecirc={hasRecirc}
             />
         </div>
     );

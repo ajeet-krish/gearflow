@@ -23,9 +23,9 @@ function buttonTag(html: string, label: string): string {
 }
 
 describe("FieldBar TKE and RECIRC gating", () => {
-    it("renders TKE and RECIRC chips beside the existing three", () => {
+    it("renders VELOCITY, PRESSURE, VORTICITY, TKE, and RECIRC chips", () => {
         const html = render();
-        for (const label of ["SPEED", "PRESSURE", "VORTICITY", "TKE", "RECIRC"]) {
+        for (const label of ["VELOCITY", "PRESSURE", "VORTICITY", "TKE", "RECIRC"]) {
             expect(html).toContain(label);
         }
     });
@@ -55,6 +55,11 @@ describe("FieldBar TKE and RECIRC gating", () => {
         expect(buttonTag(tke, "TKE")).toContain("active");
         const recirc = render("recirc", { hasTke: true, hasRecirc: true });
         expect(buttonTag(recirc, "RECIRC")).toContain("active");
+    });
+
+    it("marks VELOCITY active for the speed variable", () => {
+        const html = render("speed", {});
+        expect(buttonTag(html, "VELOCITY")).toContain("active");
     });
 
     it("a disabled chip cannot change the variable", () => {

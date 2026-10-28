@@ -80,3 +80,25 @@ export function overlayPatchForManualToggle(field: FieldMode, next: Partial<Over
     if (typeof next.showStreamlines === "boolean") patch.showStreamlines = next.showStreamlines;
     return patch;
 }
+
+/**
+ * Manual patch built from the full effective pair with only the toggled
+ * flag replaced. Stored prefs need not equal the displayed effective pair
+ * (fresh defaults store showStreamlines false while speed effectively
+ * shows streamlines on), so patching only the toggled flag would let the
+ * other flag fall back to a stale stored value. Pass the resolved
+ * effective overlays and the toggled flag, and both flags are pinned.
+ */
+export function manualPatchForToggle(
+    field: FieldMode,
+    effective: OverlaySet,
+    next: Partial<OverlaySet>,
+): Partial<DisplayPrefs> {
+    return {
+        contours: typeof next.contours === "boolean" ? next.contours : effective.contours,
+        showStreamlines:
+            typeof next.showStreamlines === "boolean" ? next.showStreamlines : effective.showStreamlines,
+        overlayPinned: true,
+        overlayPinnedField: field,
+    };
+}

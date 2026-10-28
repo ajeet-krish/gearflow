@@ -43,7 +43,7 @@ function buttonTag(html: string, label: string): string {
 }
 
 describe("effective field variable on the first pass", () => {
-    it("renders speed when k is selected but the frame lacks k, with no effect", () => {
+    it("renders velocity when k is selected but the frame lacks k, with no effect", () => {
         const flow = makeFlow();
         const effective = fallbackVariableFor("k", flow);
         expect(effective).toBe("speed");
@@ -51,18 +51,18 @@ describe("effective field variable on the first pass", () => {
         const html = renderToStaticMarkup(
             <FieldBar variable={effective} onVariable={noop} hasTke={false} hasRecirc={false} />,
         );
-        expect(buttonTag(html, "SPEED")).toContain("active");
+        expect(buttonTag(html, "VELOCITY")).toContain("active");
         expect(buttonTag(html, "TKE")).not.toContain("active");
     });
 
-    it("renders speed when recirc is selected but the frame lacks recirc, with no effect", () => {
+    it("renders velocity when recirc is selected but the frame lacks recirc, with no effect", () => {
         const flow = makeFlow();
         const effective = fallbackVariableFor("recirc", flow);
         expect(effective).toBe("speed");
         const html = renderToStaticMarkup(
             <FieldBar variable={effective} onVariable={noop} hasTke={false} hasRecirc={false} />,
         );
-        expect(buttonTag(html, "SPEED")).toContain("active");
+        expect(buttonTag(html, "VELOCITY")).toContain("active");
         expect(buttonTag(html, "RECIRC")).not.toContain("active");
     });
 
@@ -78,23 +78,21 @@ describe("effective field variable on the first pass", () => {
 });
 
 describe("App effective variable wiring", () => {
-    it("derives the effective variable during render instead of patching prefs", async () => {
+    it("derives the effective variable during render and recouples overlays through the funnel", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).toContain("const effectiveVariable = fallbackVariableFor(prefs.variable, flow)");
-        expect(src).not.toContain("if (next !== prefs.variable)");
-        // The only remaining prefs patch for the variable is the chip click
-        // handler, which intentionally stores the user's choice.
-        expect(src).toContain("const onVariable = (next: typeof prefs.variable) => patch({ variable: next })");
+        expect(src).toContain("resolveOverlays(effectiveVariable, prefs)");
+        // The single chip funnel recouple the overlays and clears the pin.
+        expect(src).toContain("overlayPatchForFieldChange(next)");
     });
 
-    it("passes the effective variable to the settings chips, canvas, and colorbar", async () => {
+    it("passes the effective variable to the FIELD bar, canvas, and colorbar", async () => {
         const src = await readFile(appPath, "utf8");
-        // SettingsModal chips plus the vertical colorbar share the derived
-        // variable, the canvas takes it as the field mode. The old scene
-        // summary bar is gone, the terminal strip carries engine/grid/Re/step.
+        // FIELD bar chips plus the vertical colorbar share the derived
+        // variable, the canvas takes it as the field mode. The terminal
+        // strip carries engine/grid/Re/step.
         expect(src).toContain("fieldMode={effectiveVariable}");
         expect(src.match(/variable=\{effectiveVariable\}/g)?.length).toBeGreaterThanOrEqual(2);
-        expect(src).not.toContain("FIELD ${effectiveVariable.toUpperCase()}");
         expect(src).toContain("<RunTerminal");
     });
 

@@ -28,6 +28,7 @@ interface Props {
     useShader?: boolean;
     particleCount?: number;
     particleColor?: ParticleColorMode;
+    particleSize?: number;
     showContours?: boolean;
     showStreamlines?: boolean;
     streamlineColormap?: ColormapName;
@@ -139,6 +140,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         useShader = true,
         particleCount = 3000,
         particleColor = "auto",
+        particleSize = 0.018,
         showContours = false,
         showStreamlines = false,
         streamlineColormap,
@@ -158,6 +160,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     const useShaderRef = useRef(useShader);
     const particleCountRef = useRef(particleCount);
     const particleColorRef = useRef<ParticleColorMode>(particleColor);
+    const particleSizeRef = useRef(particleSize);
     const showContoursRef = useRef(showContours);
     const showStreamlinesRef = useRef(showStreamlines);
     const streamlineColormapRef = useRef<ColormapName>(streamlineColormap ?? colormap);
@@ -171,6 +174,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     useShaderRef.current = useShader;
     particleCountRef.current = particleCount;
     particleColorRef.current = particleColor;
+    particleSizeRef.current = particleSize;
     showContoursRef.current = showContours;
     showStreamlinesRef.current = showStreamlines;
     streamlineColormapRef.current = streamlineColormap ?? colormap;
@@ -509,7 +513,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         pGeo.setAttribute("color", new THREE.BufferAttribute(pCol, 3));
         pGeo.setDrawRange(0, COUNT);
         pGeoRef.current = pGeo;
-        const pMat = new THREE.PointsMaterial({ size: 0.018, vertexColors: true, transparent: true, opacity: 0.9, sizeAttenuation: true });
+        const pMat = new THREE.PointsMaterial({ size: particleSizeRef.current, vertexColors: true, transparent: true, opacity: 0.9, sizeAttenuation: true });
         const points = new THREE.Points(pGeo, pMat);
         pointsRef.current = points;
         points.position.z = 0.2;
@@ -765,6 +769,16 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         const points = pointsRef.current;
         if (points) points.visible = next > 0;
     }, [particleCount]);
+
+    // Effect 4: particle size follows the display control. Material only,
+    // no geometry rebuild, so the field never repaints on a size change.
+    useEffect(() => {
+        const mat = pointsRef.current?.material as THREE.PointsMaterial | null | undefined;
+        if (mat) {
+            mat.size = particleSize;
+            mat.needsUpdate = true;
+        }
+    }, [particleSize]);
 
     return <div ref={mountRef} className="flowcanvas" role="img" aria-label="Live particle flow canvas over analytic field" />;
 });

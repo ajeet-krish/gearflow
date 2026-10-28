@@ -3,11 +3,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { COLORMAPS, type ColormapName } from "@/flow/colormap";
-import { DEFAULT_DISPLAY_PREFS, type DisplayPrefs, type FieldMode, type ParticleColorMode } from "@/contracts/types";
+import { DEFAULT_DISPLAY_PREFS, PARTICLE_SIZE_MAX, PARTICLE_SIZE_MIN, type DisplayPrefs, type FieldMode, type ParticleColorMode } from "@/contracts/types";
 import { PARTICLE_COLOR_OPTIONS } from "@/render/particleColor";
 import { parseCustomGrid, type GridMode } from "@/flow/gridController";
 import type { GridSize } from "@/contracts/types";
-import FieldBar from "./FieldBar";
+import { manualPatchForToggle, resolveOverlays } from "./fieldOverlay";
 
 export interface SettingsModalProps {
     open: boolean;
@@ -20,9 +20,6 @@ export interface SettingsModalProps {
     gridNotice?: string | null;
     onGridMode: (next: GridMode, customRaw?: unknown) => void;
     variable: FieldMode;
-    onVariable: (next: FieldMode) => void;
-    hasTke?: boolean;
-    hasRecirc?: boolean;
 }
 
 const THEMES: Array<{ value: DisplayPrefs["theme"]; label: string }> = [
@@ -66,9 +63,6 @@ export default function SettingsModal({
     gridNotice = null,
     onGridMode,
     variable,
-    onVariable,
-    hasTke = false,
-    hasRecirc = false,
 }: SettingsModalProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
     const closeRef = useRef<HTMLButtonElement>(null);
@@ -145,10 +139,25 @@ export default function SettingsModal({
             contours: DEFAULT_DISPLAY_PREFS.contours,
             particleCount: DEFAULT_DISPLAY_PREFS.particleCount,
             particleColor: DEFAULT_DISPLAY_PREFS.particleColor,
+            particleSize: DEFAULT_DISPLAY_PREFS.particleSize,
             showStreamlines: DEFAULT_DISPLAY_PREFS.showStreamlines,
             meanFields: DEFAULT_DISPLAY_PREFS.meanFields,
+            overlayPinned: DEFAULT_DISPLAY_PREFS.overlayPinned,
+            overlayPinnedField: DEFAULT_DISPLAY_PREFS.overlayPinnedField,
         });
         onGridMode("auto");
+    };
+
+    // Effective overlays for the active field: the checkboxes below reflect
+    // the resolved value, and any manual change pins to this field until the
+    // field changes again.
+    const effective = resolveOverlays(variable, prefs);
+    const overlaySource = effective.source === "user-pinned" ? "Manual until field change" : "Auto from field";
+    const onToggleContours = (next: boolean) => {
+        onPatch(manualPatchForToggle(variable, effective, { contours: next }));
+    };
+    const onToggleStreamlines = (next: boolean) => {
+        onPatch(manualPatchForToggle(variable, effective, { showStreamlines: next }));
     };
 
     return (
@@ -224,15 +233,6 @@ export default function SettingsModal({
                                 ))}
                             </select>
                         </div>
-                        <div className="settingsRow">
-                            <span className="settingsLabel" id="settingsFieldLabel">Field quantity</span>
-                            <FieldBar
-                                variable={variable}
-                                onVariable={onVariable}
-                                hasTke={hasTke}
-                                hasRecirc={hasRecirc}
-                            />
-                        </div>
                         <div className="settingsRow toggleRow">
                             <input
                                 id="settingsFieldVis"
@@ -246,20 +246,21 @@ export default function SettingsModal({
                             <input
                                 id="settingsContours"
                                 type="checkbox"
-                                checked={prefs.contours}
-                                onChange={(e) => onPatch({ contours: e.target.checked })}
+                                checked={effective.contours}
+                                onChange={(e) => onToggleContours(e.target.checked)}
                             />
-                            <label htmlFor="settingsContours">Contour lines</label>
+                            <label htmlFor="settingsContours">Contour lines <span className="settingsSource mono">{overlaySource}</span></label>
                         </div>
                         <div className="settingsRow toggleRow">
                             <input
                                 id="settingsStream"
                                 type="checkbox"
-                                checked={prefs.showStreamlines}
-                                onChange={(e) => onPatch({ showStreamlines: e.target.checked })}
+                                checked={effective.showStreamlines}
+                                onChange={(e) => onToggleStreamlines(e.target.checked)}
                             />
-                            <label htmlFor="settingsStream">Streamlines</label>
+                            <label htmlFor="settingsStream">Streamlines <span className="settingsSource mono">{overlaySource}</span></label>
                         </div>
+                        <p className="hint mono" role="status">Overlays: {overlaySource}.</p>
                         <div className="settingsRow toggleRow">
                             <input
                                 id="settingsMeanFields"
@@ -286,6 +287,22 @@ export default function SettingsModal({
                                     <option key={n} value={n}>{n === 0 ? "Off" : n}</option>
                                 ))}
                             </select>
+                        </div>
+                        <div className="settingsRow">
+                            <label className="settingsLabel" htmlFor="settingsParticleSize">Particle size</label>
+                            <input
+                                id="settingsParticleSize"
+                                type="range"
+                                min={PARTICLE_SIZE_MIN}
+                                max={PARTICLE_SIZE_MAX}
+                                step={0.002}
+                                value={prefs.particleSize}
+                                onChange={(e) => onPatch({ particleSize: Number(e.target.value) })}
+                                aria-describedby="settingsParticleSizeValue"
+                            />
+                            <output id="settingsParticleSizeValue" className="mono" htmlFor="settingsParticleSize">
+                                {prefs.particleSize.toFixed(3)}
+                            </output>
                         </div>
                         <div className="settingsRow">
                             <span className="settingsLabel" id="particleColorLabel">Particle color</span>
@@ -371,7 +388,7 @@ export default function SettingsModal({
                                 )}
                             </div>
                         )}
-                        <p className="hint mono" id="settingsGridHint">Active grid {activeGrid} x {activeGrid}. Surrogate and fixture stay at 128.</p>
+                        <p className="hint mono" id="settingsGridHint">Active grid {activeGrid} x {activeGrid}.</p>
                         {gridNotice !== null && (
                             <p className="hint mono" role="status">{gridNotice}</p>
                         )}

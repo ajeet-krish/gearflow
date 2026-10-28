@@ -1308,3 +1308,65 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Final verdict: PASS. All 3 prior Majors and the 1 prior Minor are closed in source and pinned by tests. Delegation: none required; the faithful copy test doubles in src/phase2.minor.test.ts are a non blocking maintainability note for tester and frontend-dev to keep in sync if the App guard or executor branch changes.
+
+## 2026-10-28 - Phase 3: Display Coupling Review (uncommitted, HEAD e4de7fa)
+
+Date: 2026-10-28
+Reviewer: code-reviewer
+Scope: Uncommitted Phase 3 display coupling (src/ui/FieldBar.tsx, src/App.tsx, src/ui/TopNav.tsx, src/ui/SettingsModal.tsx, src/render/FlowCanvas.tsx, src/styles.css, src/ui/displayCoupling13.test.tsx). Ground truth accepted from orchestrator, not rerun: 87 files, 1061 tests green, tsc clean, builds emit worker chunk and wasm.
+Verdict: FAIL
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| 1. FIELD bar mapping, coupling note, TKE/RECIRC gating, single funnel | PASS | VELOCITY, PRESSURE, VORTICITY map to speed, cp, omega at src/ui/FieldBar.tsx:23-27 and clicks fire onVariable at lines 66-77; TKE and RECIRC fire k and recirc only when enabled at lines 78-97, otherwise disabled with the first sample reason. App gating still requires LBM effective, snapshot, stats ready, and channel presence at src/App.tsx:1159-1161. FIELD chips receive App onVariable at src/App.tsx:1464-1466, the single funnel at src/App.tsx:1256-1259 that applies overlayPatchForFieldChange; the agent set_field path also routes through it at src/App.tsx:1317-1321. Coupling note matches fieldOverlay defaults (speed streamlines, cp, omega, k, recirc contours) at src/ui/fieldOverlay.ts:28-36 and src/ui/FieldBar.tsx:45-52, with MANUAL naming at lines 46-47. |
+| 2. Effective overlays derived during render, manual pin, recoupling, no stored effective state | PASS | effectiveVariable and effectiveOverlays are plain render derivations at src/App.tsx:1171-1172, with no stored effective state; resolveOverlays honors a pin only for its own field at src/ui/fieldOverlay.ts:47-53 and overlayPatchForFieldChange recouples and clears the pin at lines 61-70. Canvas, colorbar, FieldBar, and Settings all consume effectiveVariable at src/App.tsx:1465, 1504, 1571, 1719, and the canvas consumes effectiveOverlays at lines 1510-1511. The pin creation defect is recorded under check 3. |
+| 3. Settings effective rows, Auto/Manual source, live particle size | FAIL | Checkboxes bind effective.contours and effective.showStreamlines with Auto from field or Manual until field change at src/ui/SettingsModal.tsx:160-167, 251-268. Particle size flows App to canvas at src/App.tsx:1509 and the dedicated effect mutates only the existing PointsMaterial at src/render/FlowCanvas.tsx:773-781, with no particleSize entry in the repaint effect at line 758 and no geometry rebuild. However a manual toggle patches only the toggled flag at src/ui/SettingsModal.tsx:162-167 via src/ui/fieldOverlay.ts:77-81, so the other flag comes from stored prefs, which need not equal the displayed effective pair: fresh defaults store showStreamlines false at src/contracts/types.ts:322-335 while speed effectively shows streamlines on, so toggling Contours on pins streamlines off. See Findings. |
+| 4. Trimmed TopNav, debug gated rail | PASS | NavId and NAV_ITEMS carry STUDIO only at src/ui/TopNav.tsx:6, 51-53; FOCUS, settings gear, and conditional WASM badge render at lines 83-122. App wires STUDIO through handleNav (opens geometry, exits focus, expands right rail) at src/App.tsx:521-525, focus at lines 1394-1395, settings at lines 1391-1392. App deliberately passes wasmActive false at src/App.tsx:1393, so the badge capability is component tested but silent in the shell. VALIDATION and EXPORT sections spread into the rail only when debugPanels at src/App.tsx:1672-1703, read once from ?debug=1 at lines 316-324 and src/App.tsx:241-248; no legacy nav routes remain in the default view. |
+| 5. No regressions to shell collapse, terminal, turbine stats, LBM controls | PASS | Shell visibility and toggles remain at src/App.tsx:287-288, 402-416 with RailShell mounts at lines 1399-1446 and 1604-1707; RunTerminal stays mounted outside the debug gate at lines 1582-1592; the turbulence section spreads whenever its def exists at line 1671; SIMULATION with all LBM controls stays first in the rail at lines 1619-1658. Accepted ground truth: full suite green, tsc clean, worker and wasm build outputs present. |
+| 6. Tests behavioral | FAIL | Strong behavior: chip clicks captured through direct element calls at src/ui/displayCoupling13.test.tsx:81-96, coupling and recouple transitions at lines 112-170, TopNav click behavior at lines 261-282, readDebugPanels values at lines 298-305. Weak pins: the Settings toggle funnel is a source string assertion at lines 220-224 with no captured onPatch from a checkbox change, the canvas size effect is a source string assertion at lines 227-235, and debug mounting plus telemetry placement are source string assertions at lines 307-320. The source only Settings pin is exactly why the check 3 toggle defect stays green. |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Major | src/ui/SettingsModal.tsx:162-167, src/ui/fieldOverlay.ts:77-81, src/contracts/types.ts:322-335 | Manual overlay toggle drops the untouched effective flag. overlayPatchForManualToggle writes only the toggled flag plus the pin, so resolveOverlays then reads the other flag from stored prefs. Stored prefs are not guaranteed to equal the effective pair (fresh defaults and Reset store contours false, showStreamlines false while speed effectively displays streamlines on; any fallback effective field has the same mismatch). Toggling Contours on for speed therefore also turns streamlines off, contradicting the checkbox state shown a moment earlier. | frontend-dev: build the manual patch from the full effective pair, for example pass both effective flags with the one flag replaced (overlayPatchForManualToggle(variable, { contours: next, showStreamlines: effective.showStreamlines }) and the mirror), or change overlayPatchForManualToggle to accept the full OverlaySet. Add a captured onPatch test starting from DEFAULT_DISPLAY_PREFS and from Reset state. Delegate to frontend-dev, tests to tester. |
+| Minor | src/ui/displayCoupling13.test.tsx:220-235, 307-320 | Canvas particle size, Settings toggle funnel, and debug rail mounting are pinned by source substring reads rather than behavior, so wiring regressions that keep the substrings (wrong effect scope, wrong patch payload, sections mounted in the wrong array) stay green. | tester: capture onPatch payloads by invoking the rendered checkbox onChange handlers, assert the FlowCanvas size effect through an extracted hook or material double if practical, and render the App section list or an extracted sections builder under debug on and off. Delegate to tester. |
+| Minor | src/ui/SettingsModal.tsx:22-25, 68-71 | The onVariable, hasTke, and hasRecirc props are accepted but never used inside SettingsModal (variable alone feeds resolveOverlays at line 160), a dead prop surface that implies a Settings field selector that does not exist. | frontend-dev: drop the unused props and their App pass through, or document why the contract is retained. Delegate to frontend-dev. |
+
+### Verification Checklist
+- [ ] All checks passed (4 of 6 PASS, checks 3 and 6 FAIL)
+- [ ] No critical issues found (no Critical, one Major)
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases (settings manual pin seam fails check 3)
+
+Final verdict: FAIL. Delegate the Major fix to frontend-dev (full effective pair in the manual toggle patch) and the behavioral test additions to tester, then re-review. Ground truth suite, tsc, and build results were accepted from the orchestrator and not rerun in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: source substring wiring pins keep certifying seams whose payload behavior is untested, the same integration gap flagged in earlier phases; the Settings toggle defect is the latest instance.
+
+## 2026-10-28 - Phase 3: Fix Confirmation Re-review
+
+Date: 2026-10-28
+Reviewer: code-reviewer
+Scope: Re-review of Phase 3 display coupling fixes for the prior FAIL (manual toggle patch plus weak pins). Ground truth accepted from orchestrator, not rerun: 88 files, 1076 tests green, tsc clean.
+Verdict: PASS
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| 1. manualPatchForToggle builds from full effective pair (fresh defaults speed case) | PASS | manualPatchForToggle takes the full effective OverlaySet plus the toggled flag and always emits both flags plus the pin at src/ui/fieldOverlay.ts:92-103. SettingsModal resolves effective first at src/ui/SettingsModal.tsx:154 and passes it with only the toggled flag at lines 156-161. Fresh defaults case: DEFAULT_DISPLAY_PREFS stores contours false, showStreamlines false at src/contracts/types.ts:322-335, resolveOverlays for speed yields contours false, showStreamlines true, so toggling Contours on yields contours true, showStreamlines true, overlayPinned true, overlayPinnedField speed, pinned exactly at src/ui/fieldOverlay.test.ts:135-151 and mirrored for streamlines off at lines 154-162 and cp at lines 118-133. |
+| 2. Dead props removed | PASS | SettingsModalProps at src/ui/SettingsModal.tsx:12-23 carries only open, onClose, prefs, onPatch, gridMode, activeGrid, customSize, gridNotice, onGridMode, variable; no onVariable, hasTke, or hasRecirc remains in SettingsModal.tsx, and App passes only variable (effectiveVariable) at src/App.tsx:1709-1720. The remaining onVariable, hasTke, hasRecirc matches in src are the live FieldBar props, not SettingsModal. |
+| 3. Captured onPatch behavioral tests | PASS | src/ui/settingsManualToggle.test.tsx:130-237 renders the real SettingsModal tree, invokes the rendered settingsContours and settingsStream checkbox onChange handlers, and captures onPatch payloads: fresh speed Contours on pins both on (lines 131-152), fresh speed Streamlines off pins both off (lines 154-171), cp Streamlines on keeps contours on (lines 173-192), unchecking from a pinned both on pair keeps streamlines on (lines 194-219), and the captured patch resolves to user-pinned both on (lines 221-237). Reset behavior is also captured behaviorally at lines 245-301. The older source substring pin remains at src/ui/displayCoupling13.test.tsx:220-225 but is now supplementary, not the sole pin. |
+| 4. Debug truth table | PASS | readDebugPanels returns true only for debug exactly 1 at src/App.tsx:241-248. Behavioral truth table at src/ui/settingsManualToggle.test.tsx:303-313 covers ?debug=1 true, empty false, ?debug=0 false, ?debug=yes false, ?engine=lbm false, and debug combined with engine in either order true, plus bare debug=1 true. Gate placement is pinned at lines 315-334: VALIDATION and EXPORT section ids sit inside the ...(debugPanels spread (production gate at src/App.tsx:1672-1703), while TelemetryBar and RunTerminal lines carry no debugPanels condition. Prior displayCoupling13 truth table at lines 317-324 is consistent. |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| None | n/a | No FAIL items remain. Note: the legacy overlayPatchForManualToggle at src/ui/fieldOverlay.ts:77-82 remains exported and test pinned, but production SettingsModal no longer calls it; it is not the manual toggle path anymore. | None required. Optional cleanup later if the legacy helper loses all callers. |
+
+### Verification Checklist
+- [x] All checks passed (4 of 4)
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Final verdict: PASS. All prior Phase 3 FAIL items (Major manual toggle dropping the untouched effective flag, Minor dead SettingsModal props, Minor source only pins) are closed in source and pinned behaviorally. Tests inspected, not executed, in this reviewer session; the 88 files, 1076 tests green and tsc clean ground truth is accepted from the orchestrator. No code changes made by the reviewer.

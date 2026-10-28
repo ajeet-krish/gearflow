@@ -495,7 +495,6 @@ describe("Settings grid extension", () => {
                 activeGrid={256}
                 onGridMode={noop}
                 variable="speed"
-                onVariable={noop}
                 {...over}
             />
         );

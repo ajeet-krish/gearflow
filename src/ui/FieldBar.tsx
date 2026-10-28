@@ -1,24 +1,29 @@
 // FieldBar: pinned scene bar for the field layer. Quantity chips only.
-// Field visibility, contours, particles, and colormap live in Settings.
-// TKE and RECIRC chips enable only when the active frame carries the
-// channel and the first LBM statistics sample exists (the worker always
+// VELOCITY (speed), PRESSURE (cp), VORTICITY (omega) plus gated TKE and
+// RECIRC. TKE and RECIRC chips enable only when the active frame carries
+// the channel and the first LBM statistics sample exists (the worker always
 // ships the channels, all zero before sampling, so the channel alone
 // never enables them); otherwise they render disabled with a reason so
 // a judge can see the capability exists and why it is unavailable.
+// The active chip glows purple as the one bold element; a quiet coupling
+// note beside the chips names the auto overlay (streamlines on for speed,
+// contours on elsewhere) or MANUAL when the overlays are pinned.
 
 import type { FieldMode } from "@/contracts/types";
+import type { EffectiveOverlays } from "./fieldOverlay";
 
 export interface FieldBarProps {
     variable: FieldMode;
     onVariable: (next: FieldMode) => void;
     hasTke?: boolean;
     hasRecirc?: boolean;
+    overlays?: EffectiveOverlays;
 }
 
-const BASE: Array<{ value: FieldMode; label: string }> = [
-    { value: "speed", label: "SPEED" },
-    { value: "cp", label: "PRESSURE" },
-    { value: "omega", label: "VORTICITY" },
+const BASE: Array<{ value: FieldMode; label: string; title: string }> = [
+    { value: "speed", label: "VELOCITY", title: "Speed, velocity magnitude" },
+    { value: "cp", label: "PRESSURE", title: "Pressure coefficient" },
+    { value: "omega", label: "VORTICITY", title: "Vorticity" },
 ];
 
 /** Fallback rule: a selected mean channel without frame data drops to
@@ -35,12 +40,25 @@ export function fallbackVariableFor(
     return variable;
 }
 
+/** Coupling note for the FIELD bar and tests. Auto names the overlay the
+ *  field ships with; pinned names the manual hold. Pure. */
+export function couplingNoteFor(overlays: EffectiveOverlays): { text: string; tone: "auto" | "manual" } {
+    if (overlays.source === "user-pinned") {
+        return { text: "MANUAL until field change", tone: "manual" };
+    }
+    if (overlays.showStreamlines) return { text: "AUTO streamlines on", tone: "auto" };
+    if (overlays.contours) return { text: "AUTO contours on", tone: "auto" };
+    return { text: "AUTO field only", tone: "auto" };
+}
+
 export default function FieldBar({
     variable,
     onVariable,
     hasTke = false,
     hasRecirc = false,
+    overlays,
 }: FieldBarProps) {
+    const note = overlays !== undefined ? couplingNoteFor(overlays) : null;
     return (
         <div className="sceneBar fieldBar" role="toolbar" aria-label="Field display controls">
             <span className="barLabel">FIELD</span>
@@ -51,6 +69,7 @@ export default function FieldBar({
                         type="button"
                         className={variable === q.value ? "chip active" : "chip"}
                         aria-pressed={variable === q.value}
+                        title={q.title}
                         onClick={() => onVariable(q.value)}
                     >
                         {q.label}
@@ -77,6 +96,11 @@ export default function FieldBar({
                     RECIRC
                 </button>
             </div>
+            {note !== null && (
+                <span className={`fieldCoupling mono ${note.tone}`} role="status">
+                    {note.text}
+                </span>
+            )}
         </div>
     );
 }

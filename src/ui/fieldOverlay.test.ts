@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
     FIELD_OVERLAY_DEFAULTS,
+    manualPatchForToggle,
     overlayPatchForFieldChange,
     overlayPatchForManualToggle,
     resolveOverlays,
@@ -110,5 +111,53 @@ describe("fieldOverlay pin and recouple", () => {
         const prefs = { ...DEFAULT_DISPLAY_PREFS, ...overlayPatchForFieldChange("speed"), ...patch };
         expect(resolveOverlays("speed", prefs).source).toBe("user-pinned");
         expect(resolveOverlays("cp", prefs).source).toBe("field-default");
+    });
+});
+
+describe("manualPatchForToggle from the effective pair", () => {
+    it("builds the patch from the full effective pair with only the toggled flag replaced", () => {
+        expect(manualPatchForToggle("speed", { contours: false, showStreamlines: true }, { contours: true })).toEqual({
+            contours: true,
+            showStreamlines: true,
+            overlayPinned: true,
+            overlayPinnedField: "speed",
+        });
+        expect(
+            manualPatchForToggle("cp", { contours: true, showStreamlines: false }, { showStreamlines: true }),
+        ).toEqual({
+            contours: true,
+            showStreamlines: true,
+            overlayPinned: true,
+            overlayPinnedField: "cp",
+        });
+    });
+
+    it("keeps the untouched effective flag from fresh defaults when toggling Contours on for speed", () => {
+        const effective = resolveOverlays("speed", DEFAULT_DISPLAY_PREFS);
+        expect(effective).toEqual({ contours: false, showStreamlines: true, source: "field-default" });
+        const patch = manualPatchForToggle("speed", effective, { contours: true });
+        expect(patch).toEqual({
+            contours: true,
+            showStreamlines: true,
+            overlayPinned: true,
+            overlayPinnedField: "speed",
+        });
+        const prefs = { ...DEFAULT_DISPLAY_PREFS, ...patch };
+        expect(resolveOverlays("speed", prefs)).toEqual({
+            contours: true,
+            showStreamlines: true,
+            source: "user-pinned",
+        });
+    });
+
+    it("keeps the untouched effective flag from fresh defaults when toggling streamlines off for speed", () => {
+        const effective = resolveOverlays("speed", DEFAULT_DISPLAY_PREFS);
+        const patch = manualPatchForToggle("speed", effective, { showStreamlines: false });
+        expect(patch).toEqual({
+            contours: false,
+            showStreamlines: false,
+            overlayPinned: true,
+            overlayPinnedField: "speed",
+        });
     });
 });

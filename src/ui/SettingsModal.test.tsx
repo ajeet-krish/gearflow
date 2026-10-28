@@ -18,7 +18,6 @@ function render(prefs = DEFAULT_DISPLAY_PREFS) {
             activeGrid={256}
             onGridMode={noop}
             variable="speed"
-            onVariable={noop}
         />,
     );
 }
@@ -41,7 +40,7 @@ describe("SettingsModal", () => {
         const html = render();
         expect(html).toContain("RESOLUTION");
         expect(html).toContain("256 x 256");
-        expect(html).toContain("Surrogate and fixture stay at 128.");
+        expect(html).not.toContain("Surrogate and fixture stay at 128.");
     });
 
     it("renders particle count and color swatches", () => {
@@ -68,12 +67,23 @@ describe("SettingsModal", () => {
         expect(html).toContain("Streamlines");
     });
 
-    it("renders the field quantity chips beside the colormap", () => {
+    it("renders effective overlay toggles with their source instead of quantity chips", () => {
         const html = render();
-        expect(html).toContain("Field quantity");
-        for (const label of ["SPEED", "PRESSURE", "VORTICITY", "TKE", "RECIRC"]) {
-            expect(html).toContain(label);
-        }
+        expect(html).toContain("Contour lines");
+        expect(html).toContain("Streamlines");
+        expect(html).toContain("Auto from field");
+        expect(html).not.toContain("Field quantity");
+        expect(html).not.toContain("VELOCITY");
+        expect(html).not.toContain("RECIRC");
+    });
+
+    it("renders the particle size slider with a readout", () => {
+        const html = render();
+        expect(html).toContain("Particle size");
+        expect(html).toContain('id="settingsParticleSize"');
+        expect(html).toContain('id="settingsParticleSizeValue"');
+        expect(html).toContain('min="0.008"');
+        expect(html).toContain('max="0.036"');
     });
 
     it("offers Reset defaults", () => {
@@ -98,7 +108,6 @@ describe("SettingsModal", () => {
                 activeGrid={256}
                 onGridMode={noop}
                 variable="speed"
-                onVariable={noop}
             />,
         );
         expect(html).toBe("");
