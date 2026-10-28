@@ -229,8 +229,8 @@ BLUFF_BODIES = ("cylinder", "block")
 DUCT_BODIES = ("duct",)
 HARMONIC_BINS = ("ucos", "usin", "vcos", "vsin")
 HARMONIC_RMS_FLOOR_FACTOR = 0.002
-HARMONIC_EXPLAINED_ABS_TOL = 0.05
-HARMONIC_EXPLAINED_REL_TOL = 0.10
+HARMONIC_EXPLAINED_IDENTITY_ABS_TOL = 0.02
+HARMONIC_STATIONARITY_REL_TOL = 0.25
 HARMONIC_ST_MIN = 0.03
 HARMONIC_ST_MAX = 0.50
 HARMONIC_MIN_CYCLES = 3
@@ -1077,14 +1077,20 @@ def v8_check_harmonic(sweep_dir: Path, rows: list[dict]) -> dict:
         tke = loaded["tke"].astype(np.float64)
         a2 = ucos * ucos + usin * usin + vcos * vcos + vsin * vsin
         fluid_count = int(fluid.sum())
+        htke_raw = row.get("harmonic_tke")
+        try:
+            htke_f = float(htke_raw) if htke_raw is not None else float("nan")
+        except (TypeError, ValueError):
+            htke_f = float("nan")
         if fluid_count > 0:
             rms = float(np.sqrt(np.mean(a2[fluid] / 2.0)))
-            numer = float(np.sum(a2[fluid] / 4.0))
-            denom = float(np.sum(tke[fluid]))
-            if denom <= 0.0:
-                recomputed = 0.0 if numer == 0.0 else float("inf")
+            numer_mean = float(np.mean(a2[fluid] / 4.0))
+            tke_mean = float(np.mean(tke[fluid]))
+            denom_sum = float(np.sum(tke[fluid]))
+            if denom_sum <= 0.0:
+                legacy_recomputed = 0.0 if numer_mean == 0.0 else float("inf")
             else:
-                recomputed = numer / denom
+                legacy_recomputed = float(np.sum(a2[fluid] / 4.0)) / denom_sum
             union = np.zeros(fluid_count, dtype=bool)
             for h in HARMONIC_BINS:
                 dimless = np.abs(loaded[h][fluid].astype(np.float64)) / float(u_ref)
@@ -1092,13 +1098,17 @@ def v8_check_harmonic(sweep_dir: Path, rows: list[dict]) -> dict:
             clip_sat = float(union.sum()) / float(fluid_count)
         else:
             rms = 0.0
-            recomputed = 0.0
+            numer_mean = 0.0
+            tke_mean = 0.0
+            legacy_recomputed = 0.0
             clip_sat = 0.0
         cases[case_id] = {
             "harmonic_valid": valid,
             "rms": rms,
-            "recomputed_explained_variance": recomputed,
+            "recomputed_explained_variance": legacy_recomputed,
             "manifest_explained_variance": row.get("explained_variance"),
+            "harmonic_tke": htke_f if np.isfinite(htke_f) else None,
+            "tke_bin_mean": tke_mean,
             "clip_saturation": clip_sat,
             "fluid_cells": fluid_count,
         }
@@ -1112,9 +1122,9 @@ def v8_check_harmonic(sweep_dir: Path, rows: list[dict]) -> dict:
                 data_failures.append(
                     f"{case_id}: harmonic contract nonzero harmonic values on invalid case"
                 )
-            if np.isfinite(recomputed) and recomputed > HARMONIC_HIGH_EXPLAINED_WARN:
+            if np.isfinite(legacy_recomputed) and legacy_recomputed > HARMONIC_HIGH_EXPLAINED_WARN:
                 warnings.append(
-                    f"{case_id}: recomputed explained variance {recomputed:.3f} above "
+                    f"{case_id}: recomputed explained variance {legacy_recomputed:.3f} above "
                     f"{HARMONIC_HIGH_EXPLAINED_WARN} with valid false"
                 )
             continue
@@ -1139,16 +1149,31 @@ def v8_check_harmonic(sweep_dir: Path, rows: list[dict]) -> dict:
                 f"{case_id}: harmonic contract explained_variance unreadable"
             )
             manifest_f = float("nan")
-        if np.isfinite(manifest_f):
-            tol = max(HARMONIC_EXPLAINED_ABS_TOL, HARMONIC_EXPLAINED_REL_TOL * abs(manifest_f))
-            if not np.isfinite(recomputed) or abs(recomputed - manifest_f) > tol:
+        if np.isfinite(htke_f) and htke_f > 0.0:
+            recomputed = numer_mean / htke_f
+            cases[case_id]["recomputed_explained_variance"] = recomputed
+            if np.isfinite(manifest_f):
+                if not np.isfinite(recomputed) or abs(recomputed - manifest_f) > HARMONIC_EXPLAINED_IDENTITY_ABS_TOL:
+                    adapter_failures.append(
+                        f"{case_id}: harmonic contract explained_variance mismatch "
+                        f"recomputed {recomputed:.6f} vs manifest {manifest_f:.6f} "
+                        f"tol {HARMONIC_EXPLAINED_IDENTITY_ABS_TOL:.6f}"
+                    )
+            else:
                 adapter_failures.append(
-                    f"{case_id}: harmonic contract explained_variance mismatch "
-                    f"recomputed {recomputed:.6f} vs manifest {manifest_f:.6f} tol {tol:.6f}"
+                    f"{case_id}: harmonic contract explained_variance unreadable"
                 )
+            if np.isfinite(tke_mean) and tke_mean > 0.0:
+                drift = abs(tke_mean - htke_f) / htke_f
+                if drift > HARMONIC_STATIONARITY_REL_TOL:
+                    warnings.append(
+                        f"{case_id}: harmonic stationarity drift {drift * 100.0:.1f}% "
+                        f"between tke_bin_mean {tke_mean:.6f} and harmonic_tke {htke_f:.6f}"
+                    )
         else:
-            adapter_failures.append(
-                f"{case_id}: harmonic contract explained_variance unreadable"
+            data_failures.append(
+                f"{case_id}: harmonic contract missing or non-positive harmonic_tke "
+                f"with valid true"
             )
         strouhal = row.get("strouhal")
         try:

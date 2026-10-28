@@ -1,4 +1,4 @@
-"""Deterministic 73 case stability allowlist sweep spec generator.
+"""Deterministic 71 case stability allowlist sweep spec generator.
 
 Local only, stdlib only, no Modal, no network, no randomness. Reads
 nothing, writes data/sweep/<sweep_id>/cases.jsonl (CaseSpecV1 JSON lines).
@@ -13,15 +13,17 @@ data sweep location.
 Coverage follows local stability probes of the real solver, so the
 spec holds only cells the solver can reach. Orifice is gone entirely
 (it never completes at any gap or Re) and duct is retired (it only
-survives Re 40 and left the app). Layout (73 rows, deterministic
+survives Re 40 and left the app). Layout (71 rows, deterministic
 order, no randomness):
 
-  bluff 26 rows on 160 by 128 over width 4.0:
-    cylinder r 0.2: Re 20, 40, 60 BGK (u 0.06) plus Re 100, 200, 400,
+  bluff 24 rows on 160 by 128 over width 4.0:
+    cylinder r 0.2: Re 20, 40, 60 BGK (u 0.06) plus Re 200, 400,
       600, 700 LES (u 0.08)
     cylinder r 0.15: Re 20, 40, 60 BGK (u 0.06) plus Re 100, 200,
       400 LES (u 0.08)
-    block 0.3 and 0.4: Re 20, 40, 60 BGK (u 0.06) plus Re 100, 200,
+    block 0.3: Re 20, 40, 60 BGK (u 0.06) plus Re 100, 200,
+      400 LES (u 0.08)
+    block 0.4: Re 20, 40, 60 BGK (u 0.06) plus Re 100,
       400 LES (u 0.08)
   airfoil 47 rows on 384 by 192 over width 2.55:
     naca0012 and naca2412: alpha -4, 0, 4, 8 at Re 100, 400, 700
@@ -32,7 +34,20 @@ order, no randomness):
 
 Alpha 12 is excluded everywhere (it diverges at Re 600 and Re 1200).
 
-Transient 8000, window 12000, substitutes_for null throughout.
+Excluded bluff cells (measured, not guessed, with the release runner
+at transient 8000 and window 12000): cyl_r020_a00_re100_les diverges
+at step 4800 (and still diverges at step 6272 with u 0.06), and
+block_040_a00_re200_les diverges at step 4470. Re 100 coverage
+survives through cyl_r015_a00_re100_les and block_030_a00_re100_les.
+cyl_r015_a00_re400_les completes but does not support a phase average
+(harmonics invalid with reason no_period, explained 0); it is kept
+because an honest invalid row is data.
+
+Transient 16000 for airfoil rows (naca0012_a00_re700_airfoil leaves a
+25.7 percent stats versus fit variance gap at transient 8000, falling
+to about 2 percent with explained rising from 0.7496 to 0.8024 at
+transient 16000), transient 8000 for bluff rows, window 12000
+everywhere, substitutes_for null throughout.
 Case ids read as <body>_<tag>_a<alpha>_re<re>_<branch>, for example
 cyl_r020_a00_re020_resolved, block_040_a00_re400_les, and
 naca4412_am04_re1200_airfoil. Negative alpha uses m in place of the
@@ -74,6 +89,7 @@ except ImportError:
     from make_sweep_spec import validate_case as _validate_case_v1
 
 TRANSIENT = 8000
+TRANSIENT_AIRFOIL = 16000
 WINDOW = 12000
 U_BGK = 0.06
 U_LES = 0.08
@@ -233,6 +249,7 @@ def _make_row(
     naca_code: Optional[str],
     ref_length: float,
     note: str,
+    transient: int = TRANSIENT,
 ) -> dict:
     return {
         "case_id": case_id,
@@ -249,7 +266,7 @@ def _make_row(
         "height": None if height is None else float(height),
         "naca_code": naca_code,
         "ref_length": float(ref_length),
-        "transient": int(TRANSIENT),
+        "transient": int(transient),
         "window": int(WINDOW),
         "substitutes_for": None,
         "note": str(note),
@@ -270,6 +287,8 @@ def build_cases() -> list:
         if radius > 0.16:
             levels = levels + list(CYL_R020_EXTRA_RES)
         for re in levels:
+            if radius > 0.16 and abs(float(re) - 100.0) < 1e-12:
+                continue
             u, les, branch = _bluff_re_u_les(re)
             case_id = (
                 "cyl_r"
@@ -291,6 +310,8 @@ def build_cases() -> list:
     for size in (0.3, 0.4):
         tag = "030" if size < 0.35 else "040"
         for re in list(BGK_RES) + list(BLUFF_LES_RES):
+            if size > 0.35 and abs(float(re) - 200.0) < 1e-12:
+                continue
             u, les, branch = _bluff_re_u_les(re)
             case_id = (
                 "block_"
@@ -330,6 +351,7 @@ def build_cases() -> list:
                         case_id, body, re, u, alpha, True,
                         AIR_NX, AIR_NY, AIRFOIL_WIDTH,
                         None, None, None, code, CHORD, note,
+                        TRANSIENT_AIRFOIL,
                     )
                 )
     return rows

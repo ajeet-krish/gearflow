@@ -121,6 +121,14 @@ pub struct LbmState {
     pub warnings: Vec<String>,
     pub cfg: LbmConfig,
     pub geom_kind: String,
+    /// Optional end of the stats window. When set, steps past this end
+    /// keep stepping the solver but no longer feed the mean field, TKE,
+    /// recirculation, or force history averages, so the reported
+    /// transient and window keep describing the shipped statistics.
+    /// The harmonic accumulator and the stability scan keep seeing
+    /// every step. The dataset runner sets this to transient + window
+    /// before running the dedicated harmonic fitting window.
+    pub stats_end_step: Option<u64>,
 }
 
 impl LbmState {
@@ -217,7 +225,7 @@ impl LbmState {
                     d_lat: params.d_lat,
                     u_lattice: cfg.u_lattice,
                     skip_cycles: 2,
-                    min_cycles: 3,
+                    min_cycles: 4,
                 },
             )?)
         } else {
@@ -248,6 +256,7 @@ impl LbmState {
             warnings,
             cfg: *cfg,
             geom_kind: geom.kind.clone(),
+            stats_end_step: None,
         };
         st.init_populations()?;
         Ok(st)
@@ -294,6 +303,7 @@ impl LbmState {
         self.cancelled = false;
         self.poisoned = false;
         self.poison_step = 0;
+        self.stats_end_step = None;
         self.force.reset();
         self.stats.reset();
         if let Some(harm) = self.harmonic.as_mut() {
@@ -491,14 +501,27 @@ impl LbmState {
             }
         }
         // 7. Normalise force, history, harmonic, stats, stability scan.
+        // Steps past stats_end_step keep stepping the solver but feed
+        // neither the force history nor the mean field accumulators, so
+        // the shipped transient and window keep describing the reported
+        // force means, Strouhal, and mean fields. The harmonic
+        // accumulator and the stability scan keep seeing every step.
         self.force.normalise_step();
         let cl_now = self.force.cl;
         if let Some(harm) = self.harmonic.as_mut() {
             harm.note_cl(self.step, cl_now);
         }
-        self.force.push_history(self.step);
-        self.stats
-            .sample(self.step, &self.rho, &self.u, &self.v, &self.solid);
+        let stats_open = match self.stats_end_step {
+            Some(end) => self.step <= end,
+            None => true,
+        };
+        if stats_open {
+            self.force.push_history(self.step);
+        }
+        if stats_open {
+            self.stats
+                .sample(self.step, &self.rho, &self.u, &self.v, &self.solid);
+        }
         if let Some(harm) = self.harmonic.as_mut() {
             harm.sample(self.step, &self.u, &self.v, &self.solid);
         }
@@ -652,6 +675,37 @@ impl LbmState {
     pub fn harmonic_strouhal(&self) -> Option<f64> {
         let harm = self.harmonic.as_ref()?;
         harm.strouhal()
+    }
+
+    /// Fix the end of the stats window. Steps past this end keep
+    /// stepping the solver but feed neither the force history nor the
+    /// mean field accumulators. Additive, None restores the legacy
+    /// behaviour of accumulating on every step.
+    pub fn set_stats_end_step(&mut self, end: Option<u64>) {
+        self.stats_end_step = end;
+    }
+
+    /// Close the harmonic measurement at the current step and open the
+    /// dedicated fitting window. Returns the extra step count the
+    /// caller must run before finalise, 0 when the harmonic flag is
+    /// off or the close guards fail.
+    pub fn close_harmonic_measurement(&mut self) -> u64 {
+        match self.harmonic.as_mut() {
+            Some(h) => h.close_measurement(self.step),
+            None => 0,
+        }
+    }
+
+    /// Extra step count returned by the harmonic close, 0 when the
+    /// harmonic flag is off or no fitting window was opened.
+    pub fn harmonic_extra_steps(&self) -> u64 {
+        self.harmonic.as_ref().map(|h| h.extra_steps()).unwrap_or(0)
+    }
+
+    /// Start of the harmonic fitting window, None when the harmonic
+    /// flag is off or the close opened no window.
+    pub fn harmonic_window_start(&self) -> Option<u64> {
+        self.harmonic.as_ref().and_then(|h| h.window_start())
     }
 
     /// Stats report for the UI. Never panics, never returns NaN or
@@ -2452,7 +2506,7 @@ mod tests {
             d_lat: st.params.d_lat,
             u_lattice: cfg.u_lattice,
             skip_cycles: 2,
-            min_cycles: 3,
+            min_cycles: 4,
         };
         let mut harm = HarmonicAccumulator::new(
             grid.nx,
@@ -2463,18 +2517,27 @@ mod tests {
         )
         .unwrap();
         // Shedding consistent period from St 0.2 at the state's d_lat.
+        // Measure over a full 12000 step window, close, then fit the
+        // returned extra steps with synthetic first harmonic fields.
         let period = st.params.d_lat / (0.2 * cfg.u_lattice);
         assert!(period.is_finite() && period > 0.0, "period = {period}");
         let cells = grid.nx * grid.ny;
         let solid = st.solid.clone();
-        let total = (11.0 * period).ceil() as u64;
-        for t in 0..=total {
+        let measure = 12000u64;
+        for t in 0..=measure {
             let cl = 0.5 * (2.0 * std::f64::consts::PI * t as f64 / period).cos();
             harm.note_cl(t, cl);
-            if t % cfg.sample_every != 0 {
+        }
+        let extra = harm.close_measurement(measure);
+        assert!(extra > 0, "close must open a fit window");
+        let se = cfg.sample_every;
+        for t in (measure + 1)..=(measure + extra) {
+            let cl = 0.5 * (2.0 * std::f64::consts::PI * t as f64 / period).cos();
+            harm.note_cl(t, cl);
+            if (t - measure) % se != 0 {
                 continue;
             }
-            let phi = 2.0 * std::f64::consts::PI * t as f64 / period;
+            let phi = 2.0 * std::f64::consts::PI * (t - measure) as f64 / period;
             let uval = (0.06 + 0.03 * (phi + 0.3).cos()) as f32;
             let vval = (0.005 + 0.02 * (phi - 0.5).cos()) as f32;
             harm.sample(t, &vec![uval; cells], &vec![vval; cells], &solid);

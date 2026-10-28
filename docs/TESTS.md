@@ -1,5 +1,5 @@
 # GearFlow Test Results
-Last updated: 2026-10-27
+Last updated: 2026-10-28
 
 ## 2026-10-26 - Phase 1: Test Report (contracts+skeleton Vite shell, NACA kernel, fake flow, fixtures, particles, textures, loader hardened)
 
@@ -773,3 +773,117 @@ Phase tests integrate with prior phase tests (all 1065 prior tests still pass pl
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-10-28 - E2E Dataset Dry Run e2e01: Test Report (7 case local pilot to merge to verification gate)
+
+### Test Results
+Spec generator reported 73 cases (BGK 12, LES 14, airfoil 47) with min tau 0.505407 at naca0012_a00_re1200_airfoil. Filter preserved spec order to 7 cases, all present, no substitution needed. Release pilot ran 6 of 7 completed (1 diverged) in 243.7 seconds total wall. Merge failed closed with exit 2 on 5 phase contract errors, so no manifest was written. Gate on data/lbm/e2e01 reports DATA_FAILURE exit 2 for missing manifest. Raw pilot rows show 5 harmonic valid of 7 measured with median explained 0.749588 on valid rows. Gate does not approve training.
+
+Exact commands use a temp root recorded at /tmp/e2e01_tmp_path.txt (example /tmp/e2e01_hzuwfP). Output lands under that temp root plus gitignored data/lbm/e2e01. No source, spec, or config file was modified.
+
+```
+uv run --project training python training/make_sweep_spec_v2.py e2e01 --out <tmp>/cases_full.jsonl
+python3 filter to <tmp>/cases.jsonl preserving spec order for the 7 case ids
+./rust/gearflow-wasm/target/release/dataset_pilot cases <tmp>/cases.jsonl out <tmp>/raw transient 8000 window 12000
+python3 assemble <tmp>/workers/<case_id>/fragment.jsonl plus <tmp>/workers/<case_id>/case/*.f32 from <tmp>/raw
+uv run --project training python training/merge_sweep.py e2e01 --spec <tmp>/cases.jsonl --workers <tmp>/workers --out data/lbm/e2e01
+uv run --project training python training/verify_lbm_dataset.py data/lbm/e2e01 --out <tmp>/verify
+```
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| spec 73 cases plus min tau line | PASS | 73 lines, BGK 12 plus LES 14 plus airfoil 47, min tau 0.505407 at naca0012_a00_re1200_airfoil |
+| filter 7 ids present in order | PASS | All 7 requested ids found, order preserved, no substitution needed |
+| pilot cyl_r020_a00_re020_resolved | PASS | Completed, steady BGK, harmonic invalid as expected |
+| pilot cyl_r020_a00_re100_les | PASS | Diverged at step 4800, recorded as data, no retry |
+| pilot cyl_r020_a00_re400_les | PASS | Completed, harmonic valid |
+| pilot cyl_r020_a00_re700_les | PASS | Completed, harmonic valid |
+| pilot block_040_a00_re400_les | PASS | Completed, harmonic valid |
+| pilot naca0012_a00_re700_airfoil | PASS | Completed, harmonic valid |
+| pilot naca0012_a04_re700_airfoil | PASS | Completed, harmonic valid |
+| merge sweep e2e01 | FAIL | Exit 2, failed closed, 5 phase contract errors, no manifest written |
+| gate data/lbm/e2e01 | FAIL | Exit 2, DATA_FAILURE, V0 manifest missing |
+
+Per case pilot detail from <tmp>/raw/manifest.jsonl (St is strouhal, Exp is explained_variance, Cyc is harmonic_cycles, Samp is harmonic_samples):
+
+| Case | Status | St | Exp | Cyc/Samp | Valid | Reason | Wall s |
+|------|--------|----|-----|----------|-------|--------|--------|
+| cyl_r020_a00_re020_resolved | completed | 0.22710 | 0.000000 | 0/0 | false | no_period | 13.89 |
+| cyl_r020_a00_re100_les | diverged step 4800 | null | 0 | 0/0 | false | not_shedding | 4.20 |
+| cyl_r020_a00_re400_les | completed | 0.23489 | 0.901295 | 6/508 | true | ok | 21.96 |
+| cyl_r020_a00_re700_les | completed | 0.23975 | 0.879793 | 6/498 | true | ok | 21.93 |
+| block_040_a00_re400_les | completed | 0.15738 | 0.542302 | 6/758 | true | ok | 24.11 |
+| naca0012_a00_re700_airfoil | completed | 0.25818 | 0.749588 | 6/524 | true | ok | 79.10 |
+| naca0012_a04_re700_airfoil | completed | 0.28121 | 0.633178 | 6/525 | true | ok | 78.45 |
+
+Merge report (data/lbm/e2e01/merge_report.json, status failed, exit 2):
+
+| Field | Value |
+|-------|-------|
+| total | 7 |
+| completed | 1 |
+| diverged | 1 |
+| setup_error | 0 |
+| substituted | 0 |
+| harmonic_valid | 0 |
+| harmonic_invalid | 1 |
+| errors | 5 identical shape: <case_id> malformed phase_ref_step outside [transient, transient plus window] for cyl Re400, cyl Re700, block Re400, naca a00 Re700, naca a04 Re700 |
+
+Measured phase values that the merge rejected (transient 8000, window 12000, window start 20000):
+
+| Case | phase_ref_step | harmonic_window_start | harmonic_extra_steps |
+|------|----------------|-----------------------|----------------------|
+| cyl_r020_a00_re400_les | 21682 | 20000 | 5080 |
+| cyl_r020_a00_re700_les | 23504 | 20000 | 4980 |
+| block_040_a00_re400_les | 23979 | 20000 | 7580 |
+| naca0012_a00_re700_airfoil | 22089 | 20000 | 5240 |
+| naca0012_a04_re700_airfoil | 20287 | 20000 | 5250 |
+
+Gate report (<tmp>/verify/verify_report.json, exit 2):
+
+| Field | Value |
+|-------|-------|
+| status | DATA_FAILURE |
+| exit_code | 2 |
+| v8_harmonic.n_valid | absent (no manifest, no usable rows) |
+| completed rows | 0 (manifest missing) |
+| split sizes | train 0, val 0 (no V3 section emitted on manifest missing path) |
+| median manifest_explained_variance over valid rows | undefined (no valid rows through the gate) |
+| total warnings | 0 |
+| data failures | 1: V0 manifest missing |
+| adapter failures | 0 |
+
+Raw measured harmonic summary used only for projection (bypasses the failed merge, not a gate pass):
+
+| Metric | Value |
+|--------|-------|
+| valid of measured | 5 of 7 (71.4 percent) |
+| valid explained values sorted | 0.542302, 0.633178, 0.749588, 0.879793, 0.901295 |
+| median over 5 valid | 0.749588 |
+
+### Coverage Summary
+Happy path covered (spec generation, ordered filter, 6 completed pilot rows with sha v3 twelve bin layout, worker layout workers per case id with fragment plus case bins matching merge_sweep expectations).
+Edge cases covered (steady BGK correctly harmonic invalid with no_period, diverged Re100 preserved verbatim with fragment only and no case dir, high Re LES and airfoil shedding valid with 6 cycles).
+Error conditions covered (merge fail closed on phase contract with no manifest and no cases written, gate fail closed on manifest missing with exit 2).
+No em dashes, double hyphens, or dash equivalents in prose; proper punctuation used. Code fences hold the exact commands verbatim.
+Phase tests integrate with prior phase tests (no prior suite rerun on this dry run task; this entry records the paid pipeline local proof only).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| merge 5 phase_ref_step rejections | Solver fitting window sits past the main window. Close anchors at step 20000 (transient plus window), extra steps run to about 25000 to 27500, and phase_ref_step records the Cl maximum inside the fitting window (20287 to 23979). Merge check allows only [8000, 20000], and verify V8 repeats the same bound, so every shedding valid row is rejected | Delegate to backend-dev: widen the accepted phase range to the fitting window, for example [transient, transient plus window plus harmonic_extra_steps] or [harmonic_window_start, harmonic_window_start plus harmonic_extra_steps], in both training/merge_sweep.py and training/verify_lbm_dataset.py, with a review of whether phase should instead be reported inside the main window. Do not run the 73 case paid sweep until the merge passes on this 7 case set |
+| gate manifest missing | Consequence of the merge failure, not an independent data problem. Failed merge removes manifest and cases, leaving only merge_report.json, so the gate has nothing to certify | Fix the phase contract above, rerun merge, then rerun the gate. No training spend before gate exit 0 |
+
+### Verification Checklist
+- [ ] All tests pass (merge exit 2, gate exit 2, gate does not approve training)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents in prose; proper punctuation used
+- [x] Phase tests integrate with prior phase tests (dry run only, no suite regression claimed)
+
+### Gate Approval and Runbook Stop Conditions
+Gate does not approve training. Exit code is 2, not 0. Harmonic valid count through the gate is 0 usable (manifest missing), which is below the 20 valid threshold. Median explained through the gate is undefined, so the 0.45 threshold cannot be met. All three runbook stop conditions therefore hold in the stop sense: do not spend on training.
+
+Projection from measured rows, stated honestly with uncertainty: 5 valid of 7 measured is 71.4 percent, and a naive scale to 73 cases gives about 52 valid. That naive number is optimistic because the 7 were selected for shedding (3 bluff high Re plus 2 airfoil Re700) plus one known steady invalid plus one known confined Re100 diverged case. The full 73 holds 12 steady BGK rows that should stay harmonic invalid like cyl Re020, plus bluff Re100 rows at the same confined divergence risk seen here, plus unmeasured Re200, Re600, and airfoil Re100, Re400, Re1200 behavior. A stratified read is: high Re shedding looks healthy (5 of 5 shedding candidates valid, median 0.749588 well above 0.45), while steady and Re100 confined rows contribute near zero. Twenty valid across 73 remains plausible if high Re airfoil and bluff shedding hold, but it is not proven by n equals 7, and the merge contract bug blocks any paid sweep conclusion. Rerun this exact 7 case set after the phase range fix and require merge exit 0 plus gate exit 0 before the user spends on the 73 case sweep.

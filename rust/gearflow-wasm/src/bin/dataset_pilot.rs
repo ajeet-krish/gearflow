@@ -488,7 +488,7 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
         Err(e) => {
             let wall_s = 0.0;
             let row = format!(
-                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\"}}",
+                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\",\"harmonic_extra_steps\":0,\"harmonic_window_start\":null,\"harmonic_tke\":null}}",
                 esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
                 case.alpha_deg, case.les, case.transient, case.window, esc(&e), wall_s,
                 case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for)
@@ -519,7 +519,7 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
         Err(e) => {
             let wall_s = t0.elapsed().as_secs_f64();
             let row = format!(
-                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\"}}",
+                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\",\"harmonic_extra_steps\":0,\"harmonic_window_start\":null,\"harmonic_tke\":null}}",
                 esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
                 case.alpha_deg, case.les, transient, window, esc(&e), wall_s,
                 case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for)
@@ -548,10 +548,42 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
             }
         }
     }
+    // Close the harmonic measurement over the full main window, then
+    // run the dedicated fitting window on the same solver state. The
+    // extra steps are gated out of the stats and force histories (see
+    // stats_end_step), so transient and window keep describing the
+    // shipped mean, TKE, recirculation, and force averages.
+    let mut extra = 0u64;
+    let mut window_start: Option<u64> = None;
+    if diverged.is_none() {
+        st.set_stats_end_step(Some(total));
+        extra = st.close_harmonic_measurement();
+        window_start = st.harmonic_window_start();
+        let mut extra_done = 0u64;
+        while extra_done < extra {
+            let want = (extra - extra_done).min(2048);
+            match st.run_steps(want) {
+                Ok(rep) => {
+                    extra_done += rep.steps_done;
+                    if rep.steps_done == 0 {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    diverged = Some(e);
+                    break;
+                }
+            }
+        }
+    }
+    let window_start_json = match window_start {
+        Some(s) => format!("{s}"),
+        None => "null".to_string(),
+    };
     let wall_s = t0.elapsed().as_secs_f64();
     if let Some(e) = diverged {
         let row = format!(
-            "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"status\":\"diverged\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\",\"note\":\"{}\"}}",
+            "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"status\":\"diverged\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\",\"harmonic_extra_steps\":{extra},\"harmonic_window_start\":{window_start_json},\"harmonic_tke\":null,\"note\":\"{}\"}}",
             esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
             case.alpha_deg, case.les, fmt_f(tau), fmt_f(ma), fmt_f(d_lat), fmt_f(blockage),
             transient, window, st.step, st.stats.samples, esc(&e), wall_s,
@@ -560,15 +592,6 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
         return CaseResult { row_json: row, console_line: format!("{} DIVERGED at step {} ({}), wall {:.1}s", case.id, st.step, e, wall_s), ok: false };
     }
     let full = st.force_summary(transient);
-    if std::env::var("GEARFLOW_DUMP_CL").is_ok() {
-        let mut txt = String::new();
-        let hs = st.force.history_steps();
-        let hc = st.force.cl_history();
-        for (s, c) in hs.iter().zip(hc.iter()) {
-            txt.push_str(&format!("{s} {c:.6}\n"));
-        }
-        let _ = fs::write(format!("/tmp/harmfix/cl_{}.txt", case.id), txt);
-    }
     let mut tails: Vec<(u64, f64)> = Vec::new();
     let mut tt = transient;
     while tt < total {
@@ -610,12 +633,17 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
     };
     let harm_valid_json = if harm.valid { "true" } else { "false" };
     let harm_reason = harm.reason.clone();
+    let tke_json = if harm.valid && harm.harmonic_tke.is_finite() && harm.harmonic_tke > 0.0 {
+        format!("{}", harm.harmonic_tke)
+    } else {
+        "null".to_string()
+    };
     let snap = st.snapshot();
     let sdf = match sdf_for_case(&grid, &geom) {
         Ok(s) => s,
         Err(e) => {
             let row = format!(
-                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":{},\"status\":\"setup_error\",\"error\":\"sdf: {}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\"}}",
+                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":{},\"status\":\"setup_error\",\"error\":\"sdf: {}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\",\"harmonic_extra_steps\":0,\"harmonic_window_start\":null,\"harmonic_tke\":null}}",
                 esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
                 case.alpha_deg, case.les, transient, window, samples, esc(&e), wall_s,
                 case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for)
@@ -667,7 +695,7 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
     }
     let sha = sha256_hex(&hash_input);
     let meta = format!(
-        "{{\n  \"case_id\": \"{}\",\n  \"body\": \"{}\",\n  \"re\": {},\n  \"u_lattice\": {},\n  \"alpha_deg\": {},\n  \"les\": {},\n  \"nx\": {},\n  \"ny\": {},\n  \"x_min\": {:.6},\n  \"x_max\": {:.6},\n  \"y_min\": {:.6},\n  \"y_max\": {:.6},\n  \"transient\": {},\n  \"window\": {},\n  \"steps\": {},\n  \"samples\": {},\n  \"tau\": {},\n  \"ma\": {},\n  \"d_lat\": {},\n  \"blockage\": {},\n  \"cd_mean\": {:.4},\n  \"cl_mean\": {:.4},\n  \"cl_amp\": {:.4},\n  \"strouhal\": {},\n  \"shedding_freq_per_step\": {},\n  \"explained_variance\": {:.6},\n  \"phase_ref_step\": {},\n  \"harmonic_valid\": {},\n  \"harmonic_cycles\": {},\n  \"harmonic_samples\": {},\n  \"harmonic_reason\": \"{}\",\n  \"wall_s\": {:.2},\n  \"sha256\": \"{}\",\n  \"sha_version\": {},\n  \"ref_length\": {},\n  \"substitutes_for\": {},\n  \"note\": \"{}\"\n}}\n",
+        "{{\n  \"case_id\": \"{}\",\n  \"body\": \"{}\",\n  \"re\": {},\n  \"u_lattice\": {},\n  \"alpha_deg\": {},\n  \"les\": {},\n  \"nx\": {},\n  \"ny\": {},\n  \"x_min\": {:.6},\n  \"x_max\": {:.6},\n  \"y_min\": {:.6},\n  \"y_max\": {:.6},\n  \"transient\": {},\n  \"window\": {},\n  \"steps\": {},\n  \"samples\": {},\n  \"tau\": {},\n  \"ma\": {},\n  \"d_lat\": {},\n  \"blockage\": {},\n  \"cd_mean\": {:.4},\n  \"cl_mean\": {:.4},\n  \"cl_amp\": {:.4},\n  \"strouhal\": {},\n  \"shedding_freq_per_step\": {},\n  \"explained_variance\": {:.6},\n  \"phase_ref_step\": {},\n  \"harmonic_valid\": {},\n  \"harmonic_cycles\": {},\n  \"harmonic_samples\": {},\n  \"harmonic_reason\": \"{}\",\n  \"harmonic_extra_steps\": {extra},\n  \"harmonic_window_start\": {window_start_json},\n  \"harmonic_tke\": {tke_json},\n  \"wall_s\": {:.2},\n  \"sha256\": \"{}\",\n  \"sha_version\": {},\n  \"ref_length\": {},\n  \"substitutes_for\": {},\n  \"note\": \"{}\"\n}}\n",
         esc(&case.id), esc(&case.body), case.re, case.u, case.alpha_deg, case.les,
         case.nx, case.ny, grid.domain.x_min, grid.domain.x_max, grid.domain.y_min, grid.domain.y_max,
         transient, window, st.step, samples,
@@ -678,7 +706,7 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
     );
     let _ = fs::write(case_dir.join("meta.json"), meta.as_bytes());
     let row = format!(
-        "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"alpha_deg\":{},\"les\":{},\"nx\":{},\"ny\":{},\"width\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"cd_mean\":{:.4},\"cl_mean\":{:.4},\"cl_amp\":{:.4},\"tail_cd_blocks\":[{}],\"strouhal\":{},\"shedding_freq_per_step\":{},\"explained_variance\":{:.6},\"phase_ref_step\":{},\"harmonic_valid\":{},\"harmonic_cycles\":{},\"harmonic_samples\":{},\"harmonic_reason\":\"{}\",\"status\":\"completed\",\"wall_s\":{:.2},\"sha256\":\"{}\",\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"note\":\"{}\"}}",
+        "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"alpha_deg\":{},\"les\":{},\"nx\":{},\"ny\":{},\"width\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"cd_mean\":{:.4},\"cl_mean\":{:.4},\"cl_amp\":{:.4},\"tail_cd_blocks\":[{}],\"strouhal\":{},\"shedding_freq_per_step\":{},\"explained_variance\":{:.6},\"phase_ref_step\":{},\"harmonic_valid\":{},\"harmonic_cycles\":{},\"harmonic_samples\":{},\"harmonic_reason\":\"{}\",\"harmonic_extra_steps\":{extra},\"harmonic_window_start\":{window_start_json},\"harmonic_tke\":{tke_json},\"status\":\"completed\",\"wall_s\":{:.2},\"sha256\":\"{}\",\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"note\":\"{}\"}}",
         esc(&case.id), esc(&case.body), case.re, case.u, case.alpha_deg, case.les,
         case.nx, case.ny, case.width, fmt_f(tau), fmt_f(ma), fmt_f(d_lat), fmt_f(blockage),
         transient, window, st.step, samples,
@@ -796,6 +824,10 @@ fn main() {
                     transient = args[i]["transient=".len()..].parse().unwrap_or(8000);
                 } else if args[i].starts_with("window=") {
                     window = args[i]["window=".len()..].parse().unwrap_or(12000);
+                } else {
+                    eprintln!("dataset_pilot: unrecognised argument {:?}", args[i]);
+                    print_usage();
+                    std::process::exit(2);
                 }
             }
         }
@@ -1031,6 +1063,9 @@ mod tests {
         assert!(meta["harmonic_cycles"].is_u64());
         assert!(meta["harmonic_samples"].is_u64());
         assert!(meta["harmonic_reason"].is_string());
+        assert!(meta["harmonic_extra_steps"].is_u64());
+        assert!(meta["harmonic_window_start"].is_null() || meta["harmonic_window_start"].is_u64());
+        assert!(meta["harmonic_tke"].is_null() || meta["harmonic_tke"].is_number());
         let row: serde_json::Value = serde_json::from_str(&res.row_json).unwrap();
         assert_eq!(row["sha_version"], serde_json::json!(3));
         assert_eq!(row["sha256"], serde_json::json!(sha_hex));
@@ -1040,6 +1075,10 @@ mod tests {
         assert!(row["harmonic_reason"].is_string());
         assert!(row["explained_variance"].is_number());
         assert!(row["phase_ref_step"].is_null() || row["phase_ref_step"].is_u64());
+        // Steady short case sheds nothing: no extra steps, no window.
+        assert_eq!(row["harmonic_extra_steps"], serde_json::json!(0));
+        assert!(row["harmonic_window_start"].is_null());
+        assert!(row["harmonic_tke"].is_null(), "steady case has no fit window");
         let _ = fs::remove_dir_all(&out_root);
     }
 }

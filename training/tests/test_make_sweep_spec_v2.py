@@ -1,11 +1,13 @@
-"""Tests for training/make_sweep_spec_v2.py, the 73 case allowlist sweep.
+"""Tests for training/make_sweep_spec_v2.py, the 71 case allowlist sweep.
 
 No Modal, no network, no randomness, no data writes outside tmp_path.
-Pins the 73 row count, unique readable ids, bluff and airfoil counts,
+Pins the 71 row count, unique readable ids, bluff and airfoil counts,
 the exact airfoil alpha by Re allowlist per family, alpha 12 absent,
-orifice and duct absent, determinism, CaseSpecV1 validity plus grid
-and branch rules, the solver mirrored tau gate with its two geometry
-calibration points, and sweep id sanitation.
+orifice and duct absent, the two measured unstable bluff cells absent,
+per family transient (8000 bluff, 16000 airfoil), determinism,
+CaseSpecV1 validity plus grid and branch rules, the solver mirrored
+tau gate with its two geometry calibration points, and sweep id
+sanitation.
 """
 
 import json
@@ -23,6 +25,7 @@ from make_sweep_spec_v2 import (
     LES_TAG,
     OUT_FLAG,
     TAU_FLOOR,
+    TRANSIENT_AIRFOIL,
     build_cases,
     check_tau_floor,
     compute_tau,
@@ -34,9 +37,10 @@ from make_sweep_spec_v2 import (
     write_cases,
 )
 
-CYL_R020_RES = (20.0, 40.0, 60.0, 100.0, 200.0, 400.0, 600.0, 700.0)
+CYL_R020_RES = (20.0, 40.0, 60.0, 200.0, 400.0, 600.0, 700.0)
 CYL_R015_RES = (20.0, 40.0, 60.0, 100.0, 200.0, 400.0)
-BLOCK_RES = (20.0, 40.0, 60.0, 100.0, 200.0, 400.0)
+BLOCK_030_RES = (20.0, 40.0, 60.0, 100.0, 200.0, 400.0)
+BLOCK_040_RES = (20.0, 40.0, 60.0, 100.0, 400.0)
 AIR_MAIN_RES = (100.0, 400.0, 700.0, 1200.0)
 AIR_4412_A08_RES = (100.0, 400.0, 700.0)
 MAIN_ALPHAS = (-4.0, 0.0, 4.0, 8.0)
@@ -54,8 +58,8 @@ def _airfoil_key_set(rows: list, code: str) -> set:
     }
 
 
-def test_row_count_is_73() -> None:
-    assert len(build_cases()) == 73
+def test_row_count_is_71() -> None:
+    assert len(build_cases()) == 71
 
 
 def test_ids_unique_and_deterministic() -> None:
@@ -66,7 +70,13 @@ def test_ids_unique_and_deterministic() -> None:
         json.dumps(r, sort_keys=True) for r in second
     ]
     ids = [str(r["case_id"]) for r in first]
-    assert len(set(ids)) == 73
+    assert len(set(ids)) == 71
+
+
+def test_removed_unstable_cells_absent() -> None:
+    by_id = _by_id(build_cases())
+    assert "cyl_r020_a00_re100_les" not in by_id
+    assert "block_040_a00_re200_les" not in by_id
 
 
 def test_case_ids_readable_format() -> None:
@@ -91,7 +101,7 @@ def test_body_and_family_counts() -> None:
     for row in rows:
         bodies[str(row["body"])] = bodies.get(str(row["body"]), 0) + 1
     assert bodies == {
-        "cylinder": 14, "block": 12,
+        "cylinder": 13, "block": 11,
         "naca0012": 16, "naca2412": 16, "naca4": 15,
     }
     codes: dict = {}
@@ -112,8 +122,8 @@ def test_bluff_allowlist_combos() -> None:
 
     assert res_for("cylinder", "radius", 0.2) == set(CYL_R020_RES)
     assert res_for("cylinder", "radius", 0.15) == set(CYL_R015_RES)
-    assert res_for("block", "width", 0.4) == set(BLOCK_RES)
-    assert res_for("block", "width", 0.3) == set(BLOCK_RES)
+    assert res_for("block", "width", 0.4) == set(BLOCK_040_RES)
+    assert res_for("block", "width", 0.3) == set(BLOCK_030_RES)
 
 
 def test_airfoil_alpha_re_combinations_present() -> None:
@@ -163,12 +173,12 @@ def test_naca_body_code_mapping() -> None:
 def test_grids_windows_u_les_and_ref() -> None:
     for row in build_cases():
         case_id = str(row["case_id"])
-        assert int(row["transient"]) == 8000
         assert int(row["window"]) == 12000
         assert row["substitutes_for"] is None
         body = str(row["body"])
         airfoil = body in ("naca0012", "naca2412", "naca4")
         if airfoil:
+            assert int(row["transient"]) == TRANSIENT_AIRFOIL == 16000
             assert case_id.endswith("_" + AIRFOIL_TAG)
             assert (int(row["nx"]), int(row["ny"])) == (384, 192)
             assert abs(float(row["domain_width"]) - 2.55) < 1e-12
@@ -180,6 +190,7 @@ def test_grids_windows_u_les_and_ref() -> None:
                 assert abs(float(row["u_lattice"]) - 0.08) < 1e-12
             assert abs(float(row["ref_length"]) - 1.0) < 1e-12
         else:
+            assert int(row["transient"]) == 8000
             assert (int(row["nx"]), int(row["ny"])) == (160, 128)
             assert abs(float(row["domain_width"]) - 4.0) < 1e-12
             if row["les"] is True:
@@ -229,12 +240,12 @@ def test_tau_gate_rejects_bad_row() -> None:
         assert "tau" in str(exc)
 
 
-def test_writer_writes_73_lines_in_tmp(tmp_path: Path) -> None:
+def test_writer_writes_71_lines_in_tmp(tmp_path: Path) -> None:
     out = tmp_path / "cases.jsonl"
-    target = write_cases("allowlist73", out_path=out)
+    target = write_cases("allowlist71", out_path=out)
     assert target == out
     lines = out.read_text().splitlines()
-    assert len(lines) == 73
+    assert len(lines) == 71
     reloaded = [json.loads(line) for line in lines]
     assert validate_all_v2(reloaded) == []
     assert [r["case_id"] for r in reloaded] == [
@@ -244,10 +255,10 @@ def test_writer_writes_73_lines_in_tmp(tmp_path: Path) -> None:
 
 def test_main_writes_and_reports_min_tau(tmp_path: Path, capsys) -> None:
     out = tmp_path / "cases.jsonl"
-    assert main(["allowlist73", OUT_FLAG, str(out)]) == 0
-    assert len(out.read_text().splitlines()) == 73
+    assert main(["allowlist71", OUT_FLAG, str(out)]) == 0
+    assert len(out.read_text().splitlines()) == 71
     said = capsys.readouterr().out
-    assert "73 cases" in said
+    assert "71 cases" in said
     assert "min tau" in said
     assert "naca0012_a00_re1200_airfoil" in said
 
@@ -332,6 +343,6 @@ def test_sweep_id_sanitation_rejects_paths(sweep_id: str, tmp_path: Path) -> Non
 
 def test_valid_sweep_id_writes_to_tmp(tmp_path: Path) -> None:
     out = tmp_path / "cases.jsonl"
-    target = write_cases("allowlist73", out_path=out)
+    target = write_cases("allowlist71", out_path=out)
     assert target == out
-    assert len(out.read_text().splitlines()) == 73
+    assert len(out.read_text().splitlines()) == 71

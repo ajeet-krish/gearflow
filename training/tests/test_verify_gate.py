@@ -230,6 +230,7 @@ def _v3_row(
     phase: int | None = 25,
     cycles: int = 5,
     samples: int = 200,
+    harmonic_tke: float | None = 1e-4,
 ) -> dict:
     return {
         "case_id": case_id,
@@ -263,6 +264,7 @@ def _v3_row(
         "phase_ref_step": phase,
         "harmonic_cycles": cycles,
         "harmonic_samples": samples,
+        "harmonic_tke": harmonic_tke,
         "tail_cd_blocks": [],
     }
 
@@ -718,6 +720,108 @@ def test_gate_v3_tampered_explained_is_adapter_failure(tmp_path: Path) -> None:
     report = _report(out)
     assert any(
         "explained_variance" in f for f in report["gate"]["adapter_failures"]
+    )
+
+
+def test_gate_v3_identity_holds_exactly(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_exact", amp=0.02, tke_val=4e-4)
+    builder.rows.append(
+        _v3_row(
+            "cyl_r040_exact",
+            sha,
+            re=40.0,
+            cd_mean=2.0618,
+            explained=0.25,
+            harmonic_tke=4e-4,
+        )
+    )
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    report = _report(out)
+    assert report["status"] == "TRAIN_APPROVED"
+    entry = report["v8_harmonic"]["cases"]["cyl_r040_exact"]
+    assert abs(entry["recomputed_explained_variance"] - 0.25) < 1e-6
+
+
+def test_gate_v3_wrong_harmonic_tke_is_adapter_failure(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_wrongtke", amp=0.01, tke_val=1e-4)
+    builder.rows.append(
+        _v3_row(
+            "cyl_r040_wrongtke",
+            sha,
+            re=40.0,
+            cd_mean=2.0618,
+            explained=0.25,
+            harmonic_tke=2e-4,
+        )
+    )
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_ADAPTER
+    report = _report(out)
+    assert any(
+        "explained_variance" in f and "cyl_r040_wrongtke" in f
+        for f in report["gate"]["adapter_failures"]
+    )
+
+
+def test_gate_v3_null_harmonic_tke_is_data_failure(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_notke", amp=0.01, tke_val=1e-4)
+    builder.rows.append(
+        _v3_row(
+            "cyl_r040_notke",
+            sha,
+            re=40.0,
+            cd_mean=2.0618,
+            explained=0.25,
+            harmonic_tke=None,
+        )
+    )
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
+    report = _report(out)
+    assert any(
+        "harmonic_tke" in f and "cyl_r040_notke" in f
+        for f in report["gate"]["data_failures"]
+    )
+
+
+def test_gate_v3_stationarity_drift_warns_only(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_drift", amp=0.01, tke_val=1e-4)
+    builder.rows.append(
+        _v3_row(
+            "cyl_r040_drift",
+            sha,
+            re=40.0,
+            cd_mean=2.0618,
+            explained=0.25 / 1.4,
+            harmonic_tke=1.4e-4,
+        )
+    )
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    report = _report(out)
+    assert report["status"] == "TRAIN_APPROVED"
+    assert report["gate"]["data_failures"] == []
+    assert report["gate"]["adapter_failures"] == []
+    assert any(
+        "stationarity" in w and "cyl_r040_drift" in w
+        for w in report["gate"]["warnings"]
     )
 
 
