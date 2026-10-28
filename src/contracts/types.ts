@@ -263,7 +263,10 @@ export type AgentAction =
     | { kind: "set_field"; field: FieldMode }
     | { kind: "run_lbm" }
     | { kind: "cancel_lbm" }
-    | { kind: "set_spec"; spec: ParametricSpec };
+    | { kind: "set_spec"; spec: ParametricSpec }
+    | { kind: "setup_shedding" }
+    | { kind: "setup_high_pressure"; body?: BodyToken }
+    | { kind: "setup_airfoil"; body?: BodyToken; alphaDeg?: number };
 
 /** Selectable field quantity rendered on the tunnel canvas. */
 export type FieldMode = "speed" | "cp" | "omega" | "u" | "v" | "k" | "recirc";
@@ -305,7 +308,15 @@ export interface DisplayPrefs {
     particleColor: ParticleColorMode;
     showStreamlines: boolean;
     meanFields: boolean;
+    particleSize: number;
+    overlayPinned: boolean;
+    overlayPinnedField: FieldMode | null;
 }
+
+/** Particle point size in world units. Clamped to the usable band below. */
+export const PARTICLE_SIZE_DEFAULT = 0.018;
+export const PARTICLE_SIZE_MIN = 0.008;
+export const PARTICLE_SIZE_MAX = 0.036;
 
 /** Default Phase 6 display preferences. Dark is the default; the theme toggle also offers light. */
 export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
@@ -319,6 +330,9 @@ export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
     particleColor: "auto",
     showStreamlines: false,
     meanFields: false,
+    particleSize: PARTICLE_SIZE_DEFAULT,
+    overlayPinned: false,
+    overlayPinnedField: null,
 };
 
 /** Binary LBM1 frame spec (parser deferred to Phase 2). Documented here so Phase 1 fixtures stay compatible. */

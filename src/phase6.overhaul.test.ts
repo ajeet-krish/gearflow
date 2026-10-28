@@ -108,7 +108,7 @@ describe("phase6 display prefs and theme", () => {
     });
 
     it("defaults to viridis, speed, dark, legend on", () => {
-        expect(DEFAULT_DISPLAY_PREFS).toEqual({ colormap: "viridis", variable: "speed", theme: "dark", showLegend: true, fieldVisible: true, contours: false, particleCount: 3000, particleColor: "auto", showStreamlines: false, meanFields: false });
+        expect(DEFAULT_DISPLAY_PREFS).toEqual({ colormap: "viridis", variable: "speed", theme: "dark", showLegend: true, fieldVisible: true, contours: false, particleCount: 3000, particleColor: "auto", showStreamlines: false, meanFields: false, particleSize: 0.018, overlayPinned: false, overlayPinnedField: null });
         expect(loadDisplayPrefs()).toEqual(DEFAULT_DISPLAY_PREFS);
     });
 

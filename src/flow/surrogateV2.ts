@@ -471,12 +471,14 @@ export class SurrogateV2Provider implements FrameSource {
         validateGeometrySpec(geom);
         this.geom = cloneGeometry(geom);
         this.field = null;
+        this.provenanceNote = null;
     }
 
     setRe(Re: number): void {
         if (!Number.isFinite(Re) || Re <= 0) fail(`Re must be a positive finite number, got ${String(Re)}`);
         this.Re = Re;
         this.field = null;
+        this.provenanceNote = null;
     }
 
     /** Fetch and validate the bundle, then create the ORT session. Rejects with the cause named. */

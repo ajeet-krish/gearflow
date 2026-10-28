@@ -462,6 +462,9 @@ describe("Settings grid extension", () => {
         particleColor: "auto",
         showStreamlines: false,
         meanFields: false,
+        particleSize: 0.018,
+        overlayPinned: false,
+        overlayPinnedField: null,
     } as const;
 
     function renderSettings(over: Record<string, unknown> = {}) {

@@ -3,8 +3,9 @@
 // a rejection reason. Bounds match the canvas controls. Each envelope
 // accepts at most five actions, extras are rejected with a note.
 
-import type { AgentAction, FieldMode, ParametricSpec } from "@/contracts/types";
+import type { AgentAction, BodyToken, FieldMode, ParametricSpec } from "@/contracts/types";
 import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, RE_MAX, RE_MIN, validateParametricSpec } from "@/contracts/schema";
+import { expandCasePreset } from "./casePresets";
 
 export const BODY_TOKENS: ReadonlyArray<string> = ["naca0012", "naca2412", "naca4412", "cylinder", "block", "orifice"];
 export const ENGINE_TOKENS: ReadonlyArray<string> = ["analytic", "wasm", "lbm", "surrogate"];
@@ -68,7 +69,9 @@ function envelopeReply(payload: unknown): string | null {
 /**
  * Validate one action against the live context. Envelopes accept the hard
  * alpha envelope [-180, 180] with the characterized band flagged downstream,
- * and reynolds in [1000, 1000000]. Gated k and recirc fields need
+ * and reynolds in [1000, 1000000]. Trusted setup_* preset actions bypass
+ * that Re floor on the preset path (shedding carries its own validated Re
+ * 100). Gated k and recirc fields need
  * the channel plus the first stats sample. run_lbm needs the LBM engine
  * effective. Never throws.
  */
@@ -144,6 +147,32 @@ export function validateAgentAction(action: unknown, ctx: AgentValidationContext
                 return { ok: false, reason: `set_spec invalid: ${why}`, action: null };
             }
             return { ok: true, reason: null, action: { kind: "set_spec", spec: action.spec as unknown as ParametricSpec } };
+        }
+        // Trusted preset entry points. The setup_* actions expand through
+        // expandCasePreset and carry their own validated Re (shedding uses
+        // Re 100), so they bypass the per-action envelope Re floor above.
+        // The App executor must apply the expansion, not the bare primitive.
+        if (kind === "setup_shedding" || kind === "setup_high_pressure" || kind === "setup_airfoil") {
+            const request = kind === "setup_shedding"
+                ? { preset: "shedding" as const }
+                : kind === "setup_high_pressure"
+                    ? { preset: "high_pressure" as const, body: action.body as string | undefined }
+                    : { preset: "airfoil" as const, body: action.body as string | undefined, alphaDeg: action.alphaDeg as number | undefined };
+            const expanded = expandCasePreset(request);
+            if (!expanded.ok) {
+                return { ok: false, reason: expanded.reason ?? "preset setup rejected", action: null };
+            }
+            if (kind === "setup_shedding") return { ok: true, reason: null, action: { kind: "setup_shedding" } };
+            if (kind === "setup_high_pressure") {
+                const out: AgentAction = action.body === undefined
+                    ? { kind: "setup_high_pressure" }
+                    : { kind: "setup_high_pressure", body: action.body as BodyToken };
+                return { ok: true, reason: null, action: out };
+            }
+            const out: AgentAction = { kind: "setup_airfoil" };
+            if (action.body !== undefined) (out as { body?: BodyToken }).body = action.body as BodyToken;
+            if (action.alphaDeg !== undefined) (out as { alphaDeg?: number }).alphaDeg = action.alphaDeg as number;
+            return { ok: true, reason: null, action: out };
         }
         return { ok: false, reason: `unknown action kind ${kind}`, action: null };
     } catch {

@@ -551,3 +551,60 @@ describe("v2 parity plus InstanceNormalization kernel probe (C-5 answer)", () =>
         expect(prov.label).toMatch(/predicted, not validated/);
     });
 });
+
+describe("SurrogateV2Provider failed predict retry and provenance reset", () => {
+    function loadedProviderWith(session: V2Session): { provider: SurrogateV2Provider; norm: V2Norm } {
+        const norm = testNorm();
+        const modelBytes = new Uint8Array(64).fill(1);
+        const normSha = sha256Hex(new TextEncoder().encode(JSON.stringify(norm)));
+        const manifest = testManifest(sha256Hex(modelBytes), normSha);
+        const provider = new SurrogateV2Provider({
+            grid: GRID, geom: GEOM, fetchFn: mockFetchBundle(manifest, norm, modelBytes),
+            createSession: async () => session,
+            createTensor: (data, dims) => ({ data, dims }),
+            allowSynthetic: true,
+        });
+        return { provider, norm };
+    }
+
+    it("fails once then serves the retried frame with no stale state", async () => {
+        let calls = 0;
+        const torchOut = new Float32Array(6 * 128 * 128);
+        const flaky: V2Session = {
+            run: async () => {
+                calls += 1;
+                if (calls === 1) throw new Error("transient ORT blip");
+                return { output: { data: torchOut, dims: [1, 6, 128, 128] } };
+            },
+        };
+        const { provider } = loadedProviderWith(flaky);
+        await provider.load();
+        await expect(provider.predictFrame()).rejects.toThrow(/ONNX execution failed/);
+        expect(() => provider.getFrame()).toThrow(/no predicted frame/);
+        const field = await provider.predictFrame();
+        expect(calls).toBe(2);
+        expect(field.nx).toBe(SURROGATE_V2_NX);
+        expect(field.u.length).toBe(128 * 128);
+        expect(provider.getFrame()).toBe(field);
+        expect(provider.getProvenance().label).toMatch(/predicted, not validated/);
+    });
+
+    it("clears the provenance note alongside the field on setGeometry and setRe", async () => {
+        const torchOut = new Float32Array(6 * 128 * 128);
+        const session: V2Session = {
+            run: async () => ({ output: { data: torchOut, dims: [1, 6, 128, 128] } }),
+        };
+        const { provider } = loadedProviderWith(session);
+        await provider.load();
+        await provider.predictFrame();
+        expect(provider.getProvenance().label).toContain("test-run");
+        provider.setRe(2000);
+        expect(() => provider.getFrame()).toThrow(/no predicted frame/);
+        expect(provider.getProvenance().label).toBe("surrogate v2 predicted, not validated");
+        await provider.predictFrame();
+        expect(provider.getProvenance().label).toContain("test-run");
+        provider.setGeometry({ ...GEOM, naca: { ...GEOM.naca as { code: string; m: number; p: number; t: number } } });
+        expect(() => provider.getFrame()).toThrow(/no predicted frame/);
+        expect(provider.getProvenance().label).toBe("surrogate v2 predicted, not validated");
+    });
+});

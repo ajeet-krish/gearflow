@@ -2,14 +2,14 @@
 // try/catch throughout so private mode never throws. Dark theme default.
 
 import { useCallback, useState } from "react";
-import { DEFAULT_DISPLAY_PREFS, type DisplayPrefs, type ParticleColorMode } from "@/contracts/types";
+import { DEFAULT_DISPLAY_PREFS, PARTICLE_SIZE_DEFAULT, PARTICLE_SIZE_MAX, PARTICLE_SIZE_MIN, type DisplayPrefs, type ParticleColorMode } from "@/contracts/types";
 import type { ColormapName } from "@/flow/colormap";
 import type { FieldMode } from "@/contracts/types";
 
 // Renaming this key would orphan deployed payloads, so the v1 string stays
-// even though DISPLAY_VERSION is now 3.
+// even though DISPLAY_VERSION is now 4.
 export const DISPLAY_STORAGE_KEY = "gearflow:display:v1";
-export const DISPLAY_VERSION = 3;
+export const DISPLAY_VERSION = 4;
 
 const COLORMAPS: ColormapName[] = [
     "viridis", "turbo", "plasma", "inferno", "magma", "cividis", "jet", "rdbu", "coolwarm", "grayscale",
@@ -38,7 +38,18 @@ function sanitize(raw: unknown): DisplayPrefs {
     const particleColor: ParticleColorMode = typeof r.particleColor === "string" && (PARTICLE_COLORS as string[]).includes(r.particleColor)
         ? (r.particleColor as ParticleColorMode)
         : DEFAULT_DISPLAY_PREFS.particleColor;
-    return { colormap, variable, theme, showLegend, fieldVisible, contours, particleCount, particleColor, showStreamlines, meanFields };
+    const particleSizeRaw = r.particleSize;
+    const particleSize = typeof particleSizeRaw === "number" && Number.isFinite(particleSizeRaw)
+        ? Math.min(PARTICLE_SIZE_MAX, Math.max(PARTICLE_SIZE_MIN, particleSizeRaw))
+        : PARTICLE_SIZE_DEFAULT;
+    const overlayPinned = typeof r.overlayPinned === "boolean" ? r.overlayPinned : DEFAULT_DISPLAY_PREFS.overlayPinned;
+    const overlayPinnedField: DisplayPrefs["overlayPinnedField"] =
+        r.overlayPinnedField === null || r.overlayPinnedField === undefined
+            ? null
+            : VARIABLES.includes(r.overlayPinnedField as FieldMode)
+                ? (r.overlayPinnedField as FieldMode)
+                : null;
+    return { colormap, variable, theme, showLegend, fieldVisible, contours, particleCount, particleColor, showStreamlines, meanFields, particleSize, overlayPinned, overlayPinnedField };
 }
 
 /** Load persisted display prefs, defaulting to viridis, speed, dark, legend on. */
@@ -48,7 +59,7 @@ export function loadDisplayPrefs(): DisplayPrefs {
         const raw = localStorage.getItem(DISPLAY_STORAGE_KEY);
         if (raw === null) return { ...DEFAULT_DISPLAY_PREFS };
         const parsed = JSON.parse(raw) as { version?: unknown; prefs?: unknown };
-        if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3) return { ...DEFAULT_DISPLAY_PREFS };
+        if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4) return { ...DEFAULT_DISPLAY_PREFS };
         return sanitize(parsed.prefs);
     } catch {
         return { ...DEFAULT_DISPLAY_PREFS };

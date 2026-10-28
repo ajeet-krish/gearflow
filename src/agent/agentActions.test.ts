@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { parseAgentEnvelope, validateAgentAction, type AgentValidationContext } from "./agentActions";
+import { expandCasePreset } from "./casePresets";
 
 const LIVE_LBM: AgentValidationContext = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true };
 const ANALYTIC: AgentValidationContext = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
@@ -133,5 +134,30 @@ describe("parseAgentEnvelope B2 minors", () => {
         const out = parseAgentEnvelope(JSON.stringify(many), ANALYTIC);
         expect(out.actions.length).toBe(5);
         expect(out.rejections.join(" ")).toContain("ignored");
+    });
+});
+
+describe("trusted preset setup actions", () => {
+    it("accepts setup_shedding at Re 100 through the preset path while the bare Re floor rejects it", () => {
+        const bare = validateAgentAction({ kind: "set_reynolds", reynolds: 100 }, ANALYTIC);
+        expect(bare.ok).toBe(false);
+        expect(bare.reason ?? "").toContain("1000");
+        const trusted = validateAgentAction({ kind: "setup_shedding" }, ANALYTIC);
+        expect(trusted.ok).toBe(true);
+        expect(trusted.action).toEqual({ kind: "setup_shedding" });
+        const expanded = expandCasePreset({ preset: "shedding" });
+        expect(expanded.ok).toBe(true);
+        expect(expanded.actions).toContainEqual({ kind: "set_reynolds", reynolds: 100 });
+    });
+
+    it("rejects invalid setup bodies and alphas on the preset path", () => {
+        const badBody = validateAgentAction({ kind: "setup_high_pressure", body: "cylinder" }, ANALYTIC);
+        expect(badBody.ok).toBe(false);
+        expect(badBody.reason ?? "").toContain("high_pressure");
+        const badAlpha = validateAgentAction({ kind: "setup_airfoil", body: "naca4412", alphaDeg: 200 }, ANALYTIC);
+        expect(badAlpha.ok).toBe(false);
+        const good = validateAgentAction({ kind: "setup_high_pressure", body: "block" }, ANALYTIC);
+        expect(good.ok).toBe(true);
+        expect(good.action).toEqual({ kind: "setup_high_pressure", body: "block" });
     });
 });
