@@ -37,7 +37,7 @@ import { LbmFlowProvider, type LbmProviderStatus } from "@/flow/lbmFlowProvider"
 import { SurrogateV2Provider, SURROGATE_V2_DOMAIN } from "@/flow/surrogateV2";
 import { NeuralV2Adapter, neuralRequestKey, isUsableNeuralField, createNeuralRequestTracker } from "@/flow/neuralV2Adapter";
 import { decideFastPath, analyticProvenanceLabel, neuralProvenanceLabel, type NeuralStatus, type SolverPath } from "@/flow/solverRouter";
-import { classifyNeuralDomain } from "@/flow/neuralDomain";
+import { classifyNeuralDomain, PROVISIONAL_NEURAL_ENVELOPE } from "@/flow/neuralDomain";
 import { useResolution } from "@/flow/gridController";
 import { useDisplayPrefs } from "@/ui/displayStore";
 import { useLayoutPrefs, shellVisibility } from "@/ui/layoutStore";
@@ -48,6 +48,7 @@ import ExportBar from "@/ui/ExportBar";
 import { asFixtureExport, type ExportData } from "@/export/exportReport";
 import { loadOfflinePack } from "@/meta/offlinePack";
 import { buildAgentContext, type AppSnapshot } from "@/agent/agentContext";
+import { expandCasePreset } from "@/agent/casePresets";
 import type { AgentAction } from "@/contracts/types";
 import { loadDemoPack, type LoadedPack } from "@/meta/fixtures";
 import { HashCache } from "@/meta/cache";
@@ -1290,7 +1291,35 @@ export default function App() {
     // Narrowed: set_engine accepts analytic or lbm only. Surrogate and wasm
     // tokens are rejected with this pointer copy (see ENGINE_TOKENS in
     // agent/agentActions.ts for the full envelope list).
+    // Trusted setup presets expand atomically through expandCasePreset and
+    // apply the returned primitives directly (never re-validated through
+    // the per-action envelope Re floor). Geometry, Re, and field flow
+    // through the same funnels as the bars (onVariable recouple the
+    // overlays), and presets never arm LBM. Canvas plus sim settings update
+    // on the next render from state.
     const applyAgentAction = useCallback((action: AgentAction) => {
+        if (action.kind === "setup_shedding" || action.kind === "setup_high_pressure" || action.kind === "setup_airfoil") {
+            const request = action.kind === "setup_shedding"
+                ? { preset: "shedding" as const }
+                : action.kind === "setup_high_pressure"
+                    ? { preset: "high_pressure" as const, body: action.body }
+                    : { preset: "airfoil" as const, body: action.body, alphaDeg: action.alphaDeg };
+            const expanded = expandCasePreset(request);
+            if (!expanded.ok) return;
+            for (const prim of expanded.actions) {
+                if (prim.kind === "set_body") {
+                    const next = applyBodyPreset(spec, prim.body);
+                    if (next !== spec) setSpec(next);
+                } else if (prim.kind === "set_alpha") {
+                    onAlphaBar(prim.alphaDeg);
+                } else if (prim.kind === "set_reynolds") {
+                    onReynoldsBar(prim.reynolds);
+                } else if (prim.kind === "set_field") {
+                    onVariable(prim.field);
+                }
+            }
+            return;
+        }
         if (action.kind === "set_body") {
             const next = applyBodyPreset(spec, action.body);
             if (next !== spec) setSpec(next);
@@ -1357,6 +1386,9 @@ export default function App() {
 
     // Phase B2 agent snapshot. Built from solved state only, no new data
     // plumbing. Passed as props toward AgentConsole, no styling here.
+    // Neural availability mirrors the served neural frame, the envelope
+    // summary quotes the provisional envelope, and the displayed path names
+    // the solver path actually rendered this frame.
     const agentSnapshot: AppSnapshot = useMemo(() => ({
         spec: debouncedSpec,
         reynolds: debouncedRe,
@@ -1379,7 +1411,10 @@ export default function App() {
         validation: { pass: valSummary.pass, warn: valSummary.warn, fail: valSummary.fail, info: valSummary.info },
         provenanceLabel,
         offline,
-    }), [debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, lbmArmed, flow, frame, lbmStatus, lbmHasSnapshot, lbmEffective, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline]);
+        neuralAvailable: isNeuralActive,
+        neuralEnvelopeSummary: `provisional neural envelope [${PROVISIONAL_NEURAL_ENVELOPE.kinds.join(", ")}], alpha [${PROVISIONAL_NEURAL_ENVELOPE.alphaMin}, ${PROVISIONAL_NEURAL_ENVELOPE.alphaMax}], Re [${PROVISIONAL_NEURAL_ENVELOPE.reMin}, ${PROVISIONAL_NEURAL_ENVELOPE.reMax}], ${PROVISIONAL_NEURAL_ENVELOPE.note}`,
+        displayedPath: solverPath,
+    }), [debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, lbmArmed, flow, frame, lbmStatus, lbmHasSnapshot, lbmEffective, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline, isNeuralActive, solverPath]);
     const agentContextValue = useMemo(() => buildAgentContext(agentSnapshot), [agentSnapshot]);
 
     return (

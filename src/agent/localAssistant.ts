@@ -32,6 +32,15 @@ const FIELD_NAMES: ReadonlyArray<string> = ["speed", "cp", "omega", "u", "v", "k
 const EXPLAIN_RE = /(explain|why\b|what happened|interpret|read the run|engineer|walk me through)/;
 const HELP_RE = /(how do i|how to|how do you|where is|where do|help|what can you|which bar|which window|solver bar|field bar|telemetry|geometry window|display window|change re\b)/;
 const SETUP_WORD_RE = /(set\s*up|setup|redesign|reconfig|propos|thicker|thinner|camber|design point|high lift|suggest a change)/;
+/** Phenomenological case triggers. Each maps to one trusted setup preset. */
+const SHEDDING_RE = /(karman|vortex shedding|vortex street|shedding)/;
+const HIGH_PRESSURE_PHENOM_RE = /(high pressure|stagnation)/;
+const AIRFOIL_WORD_RE = /\bairfoil\b/;
+/** Honest cannot do triggers. The tunnel is 2D incompressible analytic plus
+ *  low speed LBM, so these answer with zero actions, canvas unchanged. */
+const CANNOT_3D_RE = /(3d|three dimensional)/;
+const CANNOT_COMPRESSIBLE_RE = /(supersonic|compressible|transonic|mach\s*\d)/;
+const SEPARATION_RE = /(viscous separation|flow separation|separation bubble|\bstall\b)/;
 
 function finiteOrNull(v: unknown): number | null {
     return typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -44,7 +53,8 @@ function cleanText(v: unknown, fallback: string): string {
 }
 
 /** Live validation context mirrored from the console helper, so gating
- *  matches the Baseten path: k and recirc need stats, run needs LBM live. */
+ *  matches the Baseten path: k and recirc need stats, run needs LBM live,
+ *  setup presets gate on the neural envelope only while it can serve. */
 function validationFor(ctx: AgentContext | null): AgentValidationContext {
     if (ctx === null || ctx === undefined) {
         return { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
@@ -57,11 +67,13 @@ function validationFor(ctx: AgentContext | null): AgentValidationContext {
         const status = typeof ctx.lbm?.status === "string" ? ctx.lbm.status.toLowerCase() : "";
         lbmEffective = ctx.lbm?.hasSnapshot === true || status.includes("live") || status.includes("running");
     }
+    const neural = (ctx as unknown as { neural?: { available?: unknown } }).neural;
     return {
         lbmEffective,
         statsReady: ctx.lbm?.statsReady === true,
         hasTke: ctx.field?.hasTke === true,
         hasRecirc: ctx.field?.hasRecirc === true,
+        neuralAvailable: neural?.available === true,
     };
 }
 
@@ -73,6 +85,9 @@ function describeAction(a: AgentAction): string {
     if (a.kind === "set_field") return `field ${a.field}`;
     if (a.kind === "run_lbm") return "Run LBM";
     if (a.kind === "cancel_lbm") return "Cancel LBM";
+    if (a.kind === "setup_shedding") return "vortex shedding case (cylinder, alpha 0, Re 100, speed field)";
+    if (a.kind === "setup_high_pressure") return "high pressure case (orifice, alpha 0, Re 1000, cp field)";
+    if (a.kind === "setup_airfoil") return "airfoil case (NACA, speed field)";
     return "custom spec";
 }
 
@@ -86,6 +101,12 @@ function findBodyToken(lower: string): string | null {
         }
     }
     return null;
+}
+
+/** True when the text names a NACA code the console does not carry. */
+function unknownNacaHere(lower: string, bodyTok: string | null): boolean {
+    const m = lower.match(NACA_RE);
+    return m !== null && bodyTok === null;
 }
 
 function findAlpha(lower: string): number | null {
@@ -172,9 +193,12 @@ function buildGeneric(): string {
 /**
  * Deterministic local reply with the Baseten envelope shape. Zero network,
  * never throws: malformed or empty input falls back to a plain note with no
- * actions. Setup values clamp to the schema envelopes with a notice, an
- * ambiguous setup defaults to the current body with one clarifying line,
+ * actions. Phenomenological triggers (shedding, high pressure, airfoil)
+ * expand to trusted setup presets. Setup values clamp to the schema
+ * envelopes with a notice, an ambiguous setup asks one clarifying question
+ * with canvas unchanged, honest cannot do topics answer with zero actions,
  * gated fields and runs without a live LBM come back as rejections.
+ * At most five actions per envelope, extras are rejected with a note.
  */
 export function localReply(text: unknown, ctx: AgentContext | null | undefined): AgentEnvelope {
     try {
@@ -186,13 +210,38 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         if (lower.trim().length === 0) {
             return { reply: buildGeneric(), actions: [], rejections: [] };
         }
+        if (CANNOT_3D_RE.test(lower)) {
+            return {
+                reply: "Cannot do 3D: the tunnel is 2D only (chord normalized, y-up). Set up a 2D body (NACA 0012, 2412, 4412, cylinder, block, orifice) instead. Canvas unchanged.",
+                actions: [],
+                rejections: [],
+            };
+        }
+        if (CANNOT_COMPRESSIBLE_RE.test(lower)) {
+            return {
+                reply: "Cannot do compressible or supersonic flow: the solver is incompressible analytic plus low speed LBM. Stay subsonic and set an Re in [1000, 1000000] instead. Canvas unchanged.",
+                actions: [],
+                rejections: [],
+            };
+        }
         if (EXPLAIN_RE.test(lower)) {
             return { reply: buildExplainer(safe), actions: [], rejections: [] };
+        }
+        if (SEPARATION_RE.test(lower) && vctx.lbmEffective !== true) {
+            return {
+                reply: "Cannot show viscous separation on the analytic path: the potential model omits separation and stall. Press Run for the viscous LBM solve to see the separated wake. Canvas unchanged.",
+                actions: [],
+                rejections: [],
+            };
         }
         const actions: AgentAction[] = [];
         const rejections: string[] = [];
         const sections: string[] = [];
         const accept = (candidate: AgentAction): boolean => {
+            if (actions.length >= 5) {
+                rejections.push("extra actions beyond 5 ignored");
+                return false;
+            }
             const checked = validateAgentAction(candidate, vctx);
             if (checked.ok && checked.action !== null) {
                 actions.push(checked.action);
@@ -202,11 +251,57 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 return false;
             }
         };
-        const bodyTok = findBodyToken(lower);
-        const nacaMatch = lower.match(NACA_RE);
+        let presetHandled = false;
+        if (SHEDDING_RE.test(lower)) {
+            presetHandled = true;
+            const staged = accept({ kind: "setup_shedding" });
+            sections.push(
+                staged
+                    ? "Local setup note, no network. Applying the vortex shedding case (cylinder, alpha 0, Re 100, speed field). Canvas updates on apply."
+                    : `Local setup note, no network. Staying on ${bodyLabel}; the shedding case is outside the serving envelope. Canvas unchanged.`
+            );
+        } else if (HIGH_PRESSURE_PHENOM_RE.test(lower)) {
+            presetHandled = true;
+            const wantsBlock = /\bblock\b/.test(lower);
+            const resolvedBody = wantsBlock ? "block" : "orifice";
+            const staged = accept(wantsBlock ? { kind: "setup_high_pressure", body: "block" } : { kind: "setup_high_pressure" });
+            sections.push(
+                staged
+                    ? `Local setup note, no network. Applying the high pressure case (${resolvedBody}, alpha 0, Re 1000, cp field). Canvas updates on apply.`
+                    : `Local setup note, no network. Staying on ${bodyLabel}; the high pressure case is outside the serving envelope. Canvas unchanged.`
+            );
+        } else if (AIRFOIL_WORD_RE.test(lower)) {
+            presetHandled = true;
+            const nacaTok = findBodyToken(lower);
+            const nacaBody = nacaTok !== null && nacaTok.startsWith("naca") ? nacaTok : undefined;
+            const alphaHere = findAlpha(lower);
+            if (unknownNacaHere(lower, nacaTok)) {
+                const digits = (lower.match(NACA_RE) ?? [])[1] ?? "unknown";
+                rejections.push(
+                    `naca ${digits} is not a console body, staying on ${bodyLabel}; bodies are [${BODY_TOKENS.join(", ")}]`
+                );
+                sections.push(
+                    `Local setup note, no network. Staying on ${bodyLabel}; which airfoil should I set up (NACA 0012, 2412, or 4412), and at which alpha? Canvas unchanged.`
+                );
+            } else {
+                const candidate: AgentAction = { kind: "setup_airfoil" };
+                if (nacaBody !== undefined) (candidate as { body?: BodyToken }).body = nacaBody as BodyToken;
+                if (alphaHere !== null) (candidate as { alphaDeg?: number }).alphaDeg = alphaHere;
+                const staged = accept(candidate);
+                if (staged) {
+                    sections.push("Local setup note, no network. Applying the airfoil case (NACA, speed field). Canvas updates on apply.");
+                } else {
+                    sections.push(
+                        `Local setup note, no network. Staying on ${bodyLabel}; the airfoil case is outside the serving envelope. Canvas unchanged.`
+                    );
+                }
+            }
+        }
+        const bodyTok = presetHandled ? null : findBodyToken(lower);
+        const nacaMatch = presetHandled ? null : lower.match(NACA_RE);
         const unknownNaca = nacaMatch !== null && bodyTok === null ? nacaMatch[1] : null;
-        const alphaVal = findAlpha(lower);
-        const reVal = findRe(lower);
+        const alphaVal = presetHandled ? null : findAlpha(lower);
+        const reVal = presetHandled ? null : findRe(lower);
         const hasSetupValues = bodyTok !== null || unknownNaca !== null || alphaVal !== null || reVal !== null;
         if (hasSetupValues) {
             const applied: string[] = [];
@@ -254,18 +349,29 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 );
             }
         } else if (HELP_RE.test(lower)) {
-            return { reply: buildHelp(), actions: [], rejections: [] };
+            if (presetHandled) {
+                // Phenomenon preset already staged above, help copy would
+                // contradict it, so keep the preset line only.
+            } else {
+                return { reply: buildHelp(), actions: [], rejections: [] };
+            }
         } else if (SETUP_WORD_RE.test(lower)) {
-            sections.push(
-                `Local setup note, no network. Staying on ${bodyLabel}; tell me which body ` +
-                `(NACA 0012, 2412, 4412, cylinder, block, orifice), alpha, and Re to use.`
-            );
+            if (!presetHandled) {
+                sections.push(
+                    `Local setup note, no network. Staying on ${bodyLabel}; tell me which body ` +
+                    `(NACA 0012, 2412, 4412, cylinder, block, orifice), alpha, and Re to use.`
+                );
+            }
         }
         const engineMatch = lower.match(ENGINE_RE);
         if (engineMatch !== null && ENGINE_VERB_RE.test(lower)) {
             const token = engineMatch[1];
-            accept({ kind: "set_engine", engine: token as AgentAction extends { kind: "set_engine"; engine: infer E } ? E : never });
-            sections.push(`Local engine note, no network. Switching engine to ${token}. Canvas updates on apply.`);
+            const staged = accept({ kind: "set_engine", engine: token as AgentAction extends { kind: "set_engine"; engine: infer E } ? E : never });
+            sections.push(
+                staged
+                    ? `Local engine note, no network. Switching engine to ${token}. Canvas updates on apply.`
+                    : `Local engine note, no network. Engine ${token} is not a console engine, staying on ${bodyLabel}; engines are [analytic, lbm]. Canvas unchanged.`
+            );
         }
         const fieldName = findField(lower);
         if (fieldName !== null && (FIELD_TRIGGER_RE.test(lower) || lower.includes(`field ${fieldName}`))) {
@@ -295,7 +401,10 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         if (sections.length === 0) {
             return { reply: buildGeneric(), actions, rejections };
         }
-        const reply = `${sections.join(" ")} Canvas unchanged.`.replace(/Canvas unchanged\. Canvas unchanged\./g, "Canvas unchanged.");
+        const joined = sections.join(" ");
+        const reply = actions.length === 0
+            ? `${joined} Canvas unchanged.`.replace(/Canvas unchanged\. Canvas unchanged\./g, "Canvas unchanged.")
+            : joined;
         return {
             reply: reply.length > REPLY_MAX ? reply.slice(0, REPLY_MAX) : reply,
             actions,

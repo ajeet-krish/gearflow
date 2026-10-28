@@ -220,15 +220,24 @@ describe("stale neural commit with deferred out of order resolution", () => {
 });
 
 describe("App executor set_engine narrowing across all four tokens", () => {
-    it("envelope validator accepts all four engine tokens", () => {
+    it("envelope validator accepts analytic and lbm, rejects wasm and surrogate with a pointer copy", () => {
         const live = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true };
-        for (const token of ["analytic", "lbm", "wasm", "surrogate"]) {
+        for (const token of ["analytic", "lbm"]) {
             const checked = validateAgentAction({ kind: "set_engine", engine: token }, live);
             expect(checked.ok).toBe(true);
             expect(checked.action).toEqual({ kind: "set_engine", engine: token });
             const parsed = parseAgentEnvelope(fence({ kind: "set_engine", engine: token }), live);
             expect(parsed.actions).toEqual([{ kind: "set_engine", engine: token }]);
             expect(parsed.rejections).toEqual([]);
+        }
+        for (const token of ["wasm", "surrogate"]) {
+            const checked = validateAgentAction({ kind: "set_engine", engine: token }, live);
+            expect(checked.ok).toBe(false);
+            expect(checked.action).toBeNull();
+            expect(checked.reason ?? "").toContain("[analytic, lbm]");
+            const parsed = parseAgentEnvelope(fence({ kind: "set_engine", engine: token }), live);
+            expect(parsed.actions).toEqual([]);
+            expect(parsed.rejections.join(" ")).toContain("[analytic, lbm]");
         }
         expect(ENGINE_TOKENS).toEqual(["analytic", "wasm", "lbm", "surrogate"]);
     });

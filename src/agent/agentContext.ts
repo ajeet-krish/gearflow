@@ -4,6 +4,7 @@
 
 import type { FieldMode, GeometrySpec, LbmStats } from "@/contracts/types";
 import { ALPHA_MAX, ALPHA_MIN } from "@/contracts/schema";
+import { PROVISIONAL_NEURAL_ENVELOPE, classifyNeuralDomain } from "@/flow/neuralDomain";
 
 const PROVENANCE_MAX = 120;
 const LABEL_MAX = 80;
@@ -29,6 +30,22 @@ function cleanLabel(v: unknown, max: number, fallback: string): string {
 function cleanCount(v: unknown): number {
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return 0;
     return Math.min(9999, Math.floor(v));
+}
+
+/** Body token for the neural domain check. NACA kinds resolve to their
+ *  code token, bluff bodies pass through, anything else stays as named so
+ *  the envelope reports it out of domain honestly. */
+function neuralBodyToken(kind: unknown, code: unknown): string {
+    if (kind === "naca4" && typeof code === "string" && code.trim().length === 4) {
+        return `naca${code.trim()}`;
+    }
+    return typeof kind === "string" && kind.length > 0 ? kind : "unknown";
+}
+
+/** Default envelope summary for the prompt when App omits it. */
+function defaultEnvelopeSummary(): string {
+    const env = PROVISIONAL_NEURAL_ENVELOPE;
+    return `provisional neural envelope [${env.kinds.join(", ")}], alpha [${env.alphaMin}, ${env.alphaMax}], Re [${env.reMin}, ${env.reMax}], no weights yet`;
 }
 
 /** Step and sample counts report the true floor with no upper cap, so long
@@ -62,6 +79,12 @@ export interface AppSnapshot {
     validation: { pass: number; warn: number; fail: number; info: number };
     provenanceLabel: string;
     offline: boolean;
+    /** Neural serving flag, additive and optional for older callers. */
+    neuralAvailable?: boolean;
+    /** Short envelope summary for the prompt, optional for older callers. */
+    neuralEnvelopeSummary?: string;
+    /** Solver path actually displayed this frame, optional for older callers. */
+    displayedPath?: string;
 }
 
 export interface AgentLbmStats {
@@ -102,6 +125,11 @@ export interface AgentContext {
     provenanceLabel: string;
     offline: boolean;
     honesty: string[];
+    neural: {
+        available: boolean;
+        envelope: string;
+        path: string;
+    };
 }
 
 /**
@@ -168,6 +196,21 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
         if (variable === "recirc" && !hasRecirc) {
             honesty.push("Recirculation mask enables after the first LBM statistics sample.");
         }
+        const neuralAvailable = snap.neuralAvailable === true;
+        const envelopeSummary = typeof snap.neuralEnvelopeSummary === "string" && snap.neuralEnvelopeSummary.trim().length > 0
+            ? snap.neuralEnvelopeSummary.trim().slice(0, 240)
+            : defaultEnvelopeSummary();
+        const displayedPath = typeof snap.displayedPath === "string" && snap.displayedPath.trim().length > 0
+            ? snap.displayedPath.trim().slice(0, LABEL_MAX)
+            : cleanLabel(snap.engine, LABEL_MAX, "analytic");
+        if (alphaRaw !== null && reRaw !== null) {
+            const nacaCode = (specRaw as { naca?: { code?: unknown } }).naca?.code;
+            const token = neuralBodyToken(kind, nacaCode);
+            const verdict = classifyNeuralDomain(token, alphaRaw, reRaw);
+            if (!verdict.inDomain && verdict.reason !== null) {
+                honesty.push(`Outside the provisional neural envelope (${verdict.reason}). Analytic path serves this case.`);
+            }
+        }
         const trimmedHonesty = honesty
             .map((line) => (line.length > HONESTY_MAX_CHARS ? `${line.slice(0, HONESTY_MAX_CHARS - 3)}...` : line))
             .slice(0, HONESTY_MAX_LINES);
@@ -208,6 +251,11 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
             provenanceLabel: cleanLabel(snap.provenanceLabel, PROVENANCE_MAX, "unknown provenance"),
             offline: snap.offline === true,
             honesty: trimmedHonesty,
+            neural: {
+                available: neuralAvailable,
+                envelope: envelopeSummary,
+                path: displayedPath,
+            },
         };
         try {
             let size = JSON.stringify(ctx).length;
@@ -237,6 +285,7 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
             provenanceLabel: "unknown provenance",
             offline: false,
             honesty: ["Agent context unavailable, showing defaults."],
+            neural: { available: false, envelope: defaultEnvelopeSummary(), path: "analytic" },
         };
     }
 }

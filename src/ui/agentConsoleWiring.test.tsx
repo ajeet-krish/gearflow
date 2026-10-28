@@ -273,6 +273,8 @@ function statusResponse(status: number, retryAfter: string | null): Record<strin
 
 const RUN_ENVELOPE = "Ready to solve. The viscous run is staged.\n```action-json\n{\"kind\":\"run_lbm\"}\n```";
 const SETUP_ENVELOPE = "Tuning alpha now.\n```action-json\n{\"kind\":\"set_alpha\",\"alphaDeg\":6}\n```";
+const NEURAL_REJECTED_SETUP_ENVELOPE =
+    "Shedding case request.\n```action-json\n{\"kind\":\"setup_shedding\"}\n```";
 
 describe("agent console run gating", () => {
     it("parks a run_lbm envelope on the confirm chip with zero executor calls", async () => {
@@ -360,6 +362,36 @@ describe("agent console run gating", () => {
             });
             expect(reply.actions).toEqual([{ kind: "set_alpha", alphaDeg: 6 }]);
             expect(reply.reply).not.toContain("action-json");
+        } finally {
+            m.unmount();
+        }
+    });
+
+    it("leaves the executor idle for a neural rejected setup with zero actions", async () => {
+        const ctx = buildAgentContext({ ...pendingSnapshot(), neuralAvailable: true } as never);
+        expect(ctx.neural.available).toBe(true);
+        const onAgentAction = vi.fn();
+        const counter = { streams: 0, chats: 0 };
+        const m = mountConsole({
+            offline: false,
+            onOfflineChange: () => {},
+            agentContext: ctx,
+            onAgentAction,
+            chatClient: streamingPort(NEURAL_REJECTED_SETUP_ENVELOPE, counter),
+            initialTurns: [],
+        });
+        typeText(m, "show vortex shedding while the neural path serves");
+        submitForm(m);
+        await flush();
+        try {
+            expect(counter.streams).toBe(1);
+            expect(onAgentAction).not.toHaveBeenCalled();
+            expect(m.text()).toContain("Shedding case request.");
+            expect(m.text()).not.toContain("action-json");
+            expect(m.text()).toContain("Rejected:");
+            expect(m.text()).toContain("Analytic path serves this case instead.");
+            expect(buttonsByLabel(m.tree(), "Confirm Run LBM solve")).toHaveLength(0);
+            expect(m.text()).not.toContain("Applied:");
         } finally {
             m.unmount();
         }

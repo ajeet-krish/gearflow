@@ -73,6 +73,9 @@ const SETUP_KINDS: ReadonlySet<string> = new Set([
     "set_engine",
     "set_field",
     "set_spec",
+    "setup_shedding",
+    "setup_high_pressure",
+    "setup_airfoil",
 ]);
 
 const RUN_KINDS: ReadonlySet<string> = new Set(["run_lbm", "cancel_lbm"]);
@@ -120,7 +123,8 @@ export function spendExceeded(costUsd: number, cap: number = SPEND_SOFT_STOP_USD
     return isSoftStopped(costUsd, cap);
 }
 
-/** Validation context derived from the agent snapshot, engine flag first. */
+/** Validation context derived from the agent snapshot, engine flag first,
+ *  neural envelope carried when the snapshot names it. */
 export function validationContextFor(ctx: AgentContext | null | undefined): AgentValidationContext {
     if (ctx === null || ctx === undefined) {
         return { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
@@ -138,10 +142,13 @@ export function validationContextFor(ctx: AgentContext | null | undefined): Agen
         statsReady: ctx.lbm?.statsReady === true,
         hasTke: ctx.field?.hasTke === true,
         hasRecirc: ctx.field?.hasRecirc === true,
+        neuralAvailable: ctx.neural?.available === true,
     };
 }
 
-/** Prompt messages: system instruction plus bounded context plus recent history. */
+/** Prompt messages: system instruction plus bounded context plus recent history.
+ *  Setup presets auto apply through the App executor, run and cancel render
+ *  as confirm chips only, at most five validated actions per envelope. */
 export function buildBasetenMessages(
     input: string,
     ctx: AgentContext | null | undefined,
@@ -152,13 +159,15 @@ export function buildBasetenMessages(
         role: "system",
         content: [
             "You are the GearFlow tunnel assistant. Answer briefly about the run.",
-            "To change the canvas, append one fenced block per action:",
+            "To change the canvas, append one fenced block per action, at most five:",
             "```action-json",
             '{"kind":"set_alpha","alphaDeg":6}',
             "```",
-            "Valid kinds: set_body, set_alpha, set_reynolds, set_engine, set_field, run_lbm, cancel_lbm, set_spec.",
-            "Bounds: alpha in [-4, 12], reynolds in [1000, 1000000].",
-            "set_field k needs TKE ready, recirc needs the mask ready. run_lbm needs LBM live.",
+            "Valid kinds: set_body, set_alpha, set_reynolds, set_engine, set_field, run_lbm, cancel_lbm, set_spec, setup_shedding, setup_high_pressure, setup_airfoil.",
+            "Setup presets expand atomically: shedding is cylinder alpha 0 Re 100 speed field, high pressure is orifice alpha 0 Re 1000 cp field, airfoil is the named NACA body at the given alpha (default 2412 at 6) Re 50000 speed field.",
+            "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [1000, 1000000].",
+            "set_engine accepts analytic or lbm only. set_field k needs TKE ready, recirc needs the mask ready. run_lbm needs LBM live and renders as a confirm chip, never auto runs.",
+            "Never invent bodies, Re, or alpha: quote the envelope bounds and name the nearest in-domain case on rejection. Out of domain cases stay on the analytic path.",
             `Live context: ${contextJson}`,
         ].join("\n"),
     };
@@ -192,6 +201,11 @@ function metricsContext(metrics: { cl: number; cpMin: number; reynolds: number }
         provenanceLabel: "unknown provenance",
         offline: true,
         honesty: [],
+        neural: {
+            available: false,
+            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block, orifice], alpha [-4, 12], Re [1000, 200000], no weights yet",
+            path: "analytic",
+        },
     };
 }
 
@@ -209,6 +223,9 @@ function describeAction(a: AgentAction): string {
     if (a.kind === "set_field") return `field ${a.field}`;
     if (a.kind === "run_lbm") return "Run LBM";
     if (a.kind === "cancel_lbm") return "Cancel LBM";
+    if (a.kind === "setup_shedding") return "vortex shedding case (cylinder, alpha 0, Re 100, speed field)";
+    if (a.kind === "setup_high_pressure") return "high pressure case (orifice, alpha 0, Re 1000, cp field)";
+    if (a.kind === "setup_airfoil") return "airfoil case (NACA, speed field)";
     return "custom spec";
 }
 

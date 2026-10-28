@@ -22,6 +22,11 @@ function makeCtx(over: Partial<AgentContext> = {}): AgentContext {
         provenanceLabel: "analytic",
         offline: true,
         honesty: [],
+        neural: {
+            available: false,
+            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block, orifice], alpha [-4, 12], Re [1000, 200000], no weights yet",
+            path: "analytic",
+        },
         ...over,
     };
 }
@@ -87,7 +92,8 @@ describe("localReply setup parsing", () => {
         expect(out.actions).toContainEqual({ kind: "set_body", body: "naca2412" });
         expect(out.actions).toContainEqual({ kind: "set_alpha", alphaDeg: 6 });
         expect(out.rejections).toEqual([]);
-        expect(out.reply).toContain("Canvas unchanged");
+        expect(out.reply).toContain("Applying");
+        expect(out.reply).not.toContain("Canvas unchanged");
     });
 
     it("parses Re and body tokens for cylinder, block, and orifice", () => {
@@ -154,6 +160,23 @@ describe("localReply engine, field, and run", () => {
         const out = localReply("run the lbm solve", makeCtx());
         expect(out.actions).toEqual([]);
         expect(out.rejections.join(" ")).toContain("LBM");
+    });
+
+    it("names the resolved high pressure body instead of always saying orifice", () => {
+        const orifice = localReply("show the high pressure zone", makeCtx());
+        expect(orifice.actions).toContainEqual({ kind: "setup_high_pressure" });
+        expect(orifice.reply).toContain("(orifice, alpha 0, Re 1000, cp field)");
+        const block = localReply("show the high pressure zone in the block", makeCtx());
+        expect(block.actions).toContainEqual({ kind: "setup_high_pressure", body: "block" });
+        expect(block.reply).toContain("(block, alpha 0, Re 1000, cp field)");
+        expect(block.reply).not.toContain("(orifice, alpha 0, Re 1000, cp field)");
+    });
+
+    it("leaves applied setup replies without a Canvas unchanged suffix", () => {
+        const out = localReply("show the high pressure zone", makeCtx());
+        expect(out.actions.length).toBeGreaterThan(0);
+        expect(out.reply).toContain("Canvas updates on apply");
+        expect(out.reply).not.toContain("Canvas unchanged");
     });
 });
 
