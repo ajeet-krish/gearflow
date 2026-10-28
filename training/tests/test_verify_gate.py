@@ -273,10 +273,10 @@ def test_gate_pass_reports_approved(tmp_path: Path) -> None:
     sweep = _pass_sweep(tmp_path / "data")
     out = tmp_path / "out"
     before = _snapshot(sweep)
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     assert _snapshot(sweep) == before
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
     assert report["gate"]["data_failures"] == []
     assert report["gate"]["adapter_failures"] == []
     assert report["v0_manifest"]["sha_ok"] == 4
@@ -443,9 +443,9 @@ def test_gate_flat_pilot_style_compat_warnings(tmp_path: Path) -> None:
     _add_flat_v1_case(sweep, "cyl_r020", "cylinder", 20.0, 2.7720)
     _add_flat_v1_case(sweep, "cyl_r040", "cylinder", 40.0, 2.0618)
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
     assert report["gate"]["data_failures"] == []
     warnings = report["gate"]["warnings"]
     assert any("compat default ref_length" in w and "cyl_r020" in w for w in warnings)
@@ -475,9 +475,9 @@ def test_gate_diverged_without_bins_not_failure(tmp_path: Path) -> None:
     )
     sweep = builder.finalize()
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
     joined = "\n".join(report["gate"]["data_failures"])
     assert "cyl_r100_gone" not in joined
     assert "missing case dir" not in joined
@@ -513,8 +513,9 @@ def test_gate_split_matches_training_split(tmp_path: Path) -> None:
     builder.add_case("naca0012_a04", "naca0012", 100.0, 4.0, 0.2058)
     sweep = builder.finalize()
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
     train_ids, val_ids = split_completed_rows(builder.rows)
     assert report["v3_splits"]["train"] == train_ids
     assert report["v3_splits"]["val"] == val_ids
@@ -607,9 +608,9 @@ def test_gate_duct_divergence_and_cp_exempt(tmp_path: Path) -> None:
     sweep = builder.finalize()
     _add_duct_narrow_channel_case(sweep)
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
     assert report["gate"]["adapter_failures"] == []
     warnings = "\n".join(report["gate"]["warnings"])
     assert "duct_narrow" in warnings
@@ -662,9 +663,9 @@ def test_gate_v2_missing_substitutes_for_warns(tmp_path: Path) -> None:
         for row in rows:
             handle.write(json.dumps(row) + "\n")
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
     warnings = report["gate"]["warnings"]
     assert any(
         "compat default substitutes_for" in w and "cyl_r040" in w for w in warnings
@@ -679,10 +680,11 @@ def test_gate_v3_valid_passes_with_recomputed(tmp_path: Path) -> None:
     builder.rows.append(_v3_row("cyl_r040_v3", sha, re=40.0, cd_mean=2.0618))
     sweep = builder.finalize()
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
     assert report["v8_harmonic"]["n_valid"] == 1
+    assert report["v8_harmonic"]["harmonic_valid_count"] == 1
     entry = report["v8_harmonic"]["cases"]["cyl_r040_v3"]
     assert abs(entry["recomputed_explained_variance"] - 0.25) < 1e-6
     assert entry["clip_saturation"] == 0.0
@@ -740,9 +742,9 @@ def test_gate_v3_identity_holds_exactly(tmp_path: Path) -> None:
     )
     sweep = builder.finalize()
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
     entry = report["v8_harmonic"]["cases"]["cyl_r040_exact"]
     assert abs(entry["recomputed_explained_variance"] - 0.25) < 1e-6
 
@@ -814,9 +816,9 @@ def test_gate_v3_stationarity_drift_warns_only(tmp_path: Path) -> None:
     )
     sweep = builder.finalize()
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
     assert report["gate"]["data_failures"] == []
     assert report["gate"]["adapter_failures"] == []
     assert any(
@@ -927,9 +929,9 @@ def test_gate_v3_diverged_and_setup_error_with_defaults_pass(tmp_path: Path) -> 
     )
     sweep = builder.finalize()
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
 
 
 def test_gate_v3_invalid_zero_bins_pass(tmp_path: Path) -> None:
@@ -954,17 +956,19 @@ def test_gate_v3_invalid_zero_bins_pass(tmp_path: Path) -> None:
     )
     sweep = builder.finalize()
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
 
 
 def test_gate_zero_harmonic_valid_is_warning_only(tmp_path: Path) -> None:
     sweep = _pass_sweep(tmp_path / "data")
     out = tmp_path / "out"
-    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
     report = _report(out)
-    assert report["status"] == "TRAIN_APPROVED"
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
+    assert report["v8_harmonic"]["harmonic_valid_count"] == 0
+    assert report["v8_harmonic"]["harmonic_valid_median_explained"] is None
     assert any(
         "zero harmonic_valid" in w for w in report["gate"]["warnings"]
     )
@@ -1043,6 +1047,80 @@ def test_native_div_rms_uniform_source_fails() -> None:
     rms, _, _ = _native_div_rms(u, v, fluid, dx)
     assert abs(rms - 0.2) < 1e-6
     assert rms >= DIV_RMS_MAX
+
+
+def _add_bulk_v3_valid(
+    builder: SweepBuilder,
+    prefix: str,
+    n: int,
+    amp: float,
+    tke_val: float,
+    explained: float,
+    harmonic_tke: float,
+) -> None:
+    sweep = builder.sweep
+    for i in range(n):
+        case_id = f"{prefix}_{i:03d}"
+        sha = _write_v3_bins(sweep, case_id, amp=amp, tke_val=tke_val)
+        builder.rows.append(
+            _v3_row(
+                case_id,
+                sha,
+                re=40.0,
+                cd_mean=2.0618,
+                explained=explained,
+                harmonic_tke=harmonic_tke,
+            )
+        )
+
+
+def test_gate_floors_five_valid_needs_more_harmonics(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    _add_bulk_v3_valid(builder, "bulk", 5, amp=0.01, tke_val=1e-4, explained=0.25, harmonic_tke=1e-4)
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
+    report = _report(out)
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
+    assert report["exit_code"] == EXIT_DATA
+    assert report["gate"]["data_failures"] == []
+    assert report["gate"]["adapter_failures"] == []
+    harm = report["v8_harmonic"]
+    assert harm["harmonic_valid_count"] == 5
+    assert harm["harmonic_valid_median_explained"] == pytest.approx(0.25)
+    assert harm["floor_valid_count"] == 20
+    assert harm["floor_median_explained"] == pytest.approx(0.45)
+
+
+def test_gate_floors_twenty_valid_high_median_approved(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    _add_bulk_v3_valid(builder, "bulk", 20, amp=0.02, tke_val=1e-4, explained=1.0, harmonic_tke=1e-4)
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    report = _report(out)
+    assert report["status"] == "TRAIN_APPROVED"
+    harm = report["v8_harmonic"]
+    assert harm["harmonic_valid_count"] == 20
+    assert harm["harmonic_valid_median_explained"] == pytest.approx(1.0)
+    assert harm["floor_valid_count"] == 20
+    assert harm["floor_median_explained"] == pytest.approx(0.45)
+
+
+def test_gate_floors_twenty_valid_low_median_needs_more(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    _add_bulk_v3_valid(builder, "bulk", 20, amp=0.01, tke_val=1e-4, explained=0.25, harmonic_tke=1e-4)
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
+    report = _report(out)
+    assert report["status"] == "NEEDS_MORE_HARMONICS"
+    assert report["exit_code"] == EXIT_DATA
+    assert report["gate"]["data_failures"] == []
+    assert report["gate"]["adapter_failures"] == []
+    harm = report["v8_harmonic"]
+    assert harm["harmonic_valid_count"] == 20
+    assert harm["harmonic_valid_median_explained"] == pytest.approx(0.25)
 
 
 def test_gate_transposed_field_fails_with_mapping_error(tmp_path: Path) -> None:

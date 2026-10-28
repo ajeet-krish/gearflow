@@ -132,6 +132,8 @@ def _bin_names(version):
     names = ["umean.f32", "vmean.f32", "pmean.f32", "omegamean.f32", "tke.f32", "recirc.f32", "obstacle.f32"]
     if version >= 2:
         names = names + ["sdf.f32"]
+    if version >= 3:
+        names = names + ["ucos.f32", "usin.f32", "vcos.f32", "vsin.f32"]
     return names
 
 
@@ -203,6 +205,44 @@ def test_main_fans_out_one_container_per_case():
     assert '"force"' in src or "'force'" in src or "force" in src
     assert "cases.jsonl" in src
     assert "duplicate case_id" in src
+
+
+def test_v3_cached_completed_with_twelve_bins_returns_cached(monkeypatch, tmp_path):
+    sweep = _load_sweep()
+    case_id = "v3case01"
+    worker = tmp_path / "workers" / case_id
+    worker.mkdir(parents=True)
+    row = _write_valid_cache(worker, case_id, nx=4, ny=4, version=3)
+    case_dir = worker / "case"
+    assert len(_bin_names(3)) == 12
+    for name in _bin_names(3):
+        assert (case_dir / name).is_file()
+    monkeypatch.setattr(sweep, "_worker_dir", lambda s, c: tmp_path / "workers" / c)
+    binary = tmp_path / "dataset_pilot"
+    binary.write_bytes(b"run")
+    monkeypatch.setattr(sweep, "BINARY_PATH", str(binary))
+
+    def _fail(*args, **kwargs):
+        raise AssertionError("subprocess must not run for verified v3 cache")
+
+    monkeypatch.setattr("subprocess.run", _fail)
+    out = sweep.run_case_remote({"case": {"case_id": case_id}, "sweep_id": "s1"})
+    assert out == {"case_id": case_id, "status": "completed", "cached": True}
+    assert sweep._verify_cached_bins(case_dir, row) is True
+
+
+def test_verify_cached_bins_requires_explicit_sha_version(tmp_path):
+    sweep = _load_sweep()
+    case_id = "noversion"
+    worker = tmp_path / "workers" / case_id
+    worker.mkdir(parents=True)
+    row = _write_valid_cache(worker, case_id, nx=4, ny=4, version=2)
+    case_dir = worker / "case"
+    row_missing = {k: v for k, v in row.items() if k != "sha_version"}
+    assert sweep._verify_cached_bins(case_dir, row_missing) is False
+    row_v1 = dict(row)
+    row_v1["sha_version"] = 1
+    assert sweep._verify_cached_bins(case_dir, row_v1) is False
 
 
 def test_cached_verified_outputs_skip_unless_force_static():

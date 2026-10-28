@@ -12,8 +12,11 @@ import types
 from pathlib import Path
 
 import modal_upload
+from merge_sweep import recompute_sha
 
 SWEEP_ID = "sweep01"
+
+_V1_BIN_NAMES = ("umean", "vmean", "pmean", "omegamean", "tke", "recirc", "obstacle")
 
 
 def _write_analytic(root: Path, n_rows: int = 2, n_shards: int = 2) -> None:
@@ -28,8 +31,8 @@ def _write_analytic(root: Path, n_rows: int = 2, n_shards: int = 2) -> None:
 def _write_case(case_dir: Path, seed: float = 1.0) -> None:
     case_dir.mkdir(parents=True, exist_ok=True)
     blob = struct.pack("<4f", seed, seed + 1.0, seed + 2.0, seed + 3.0)
-    (case_dir / "umean.f32").write_bytes(blob)
-    (case_dir / "vmean.f32").write_bytes(blob)
+    for name in _V1_BIN_NAMES:
+        (case_dir / f"{name}.f32").write_bytes(blob)
 
 
 def _write_sweep(root: Path, sweep_id: str = SWEEP_ID, case_ids: tuple = ("c01", "c02")) -> Path:
@@ -38,11 +41,25 @@ def _write_sweep(root: Path, sweep_id: str = SWEEP_ID, case_ids: tuple = ("c01",
     rows = []
     for pos, case_id in enumerate(case_ids):
         _write_case(cases / case_id, seed=float(pos))
-        rows.append({"case_id": case_id, "status": "completed", "nx": 2, "ny": 2})
+        sha = recompute_sha(cases / case_id, 1)
+        rows.append(
+            {
+                "case_id": case_id,
+                "status": "completed",
+                "nx": 2,
+                "ny": 2,
+                "sha_version": 1,
+                "sha256": sha,
+            }
+        )
     rows.append({"case_id": "d01", "status": "diverged"})
     sweep.mkdir(parents=True, exist_ok=True)
     (sweep / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
     return sweep
+
+
+def _write_merge_report_ok(sweep: Path) -> None:
+    (sweep / "merge_report.json").write_text(json.dumps({"status": "ok", "errors": []}) + "\n")
 
 
 def _write_full_layout(root: Path) -> None:
@@ -258,6 +275,96 @@ def test_byte_totals_printed(monkeypatch, tmp_path: Path, capsys) -> None:
     for entry in plan["entries"]:
         assert f"bytes={entry['bytes']}" in out
     assert f"bytes={plan['total_bytes']}" in out
+
+
+def test_lbm_only_uploads_merged_manifest_plus_cases(tmp_path: Path) -> None:
+    _write_full_layout(tmp_path)
+    sweep = tmp_path / "data" / "lbm" / SWEEP_ID
+    _write_merge_report_ok(sweep)
+    plan = modal_upload.build_upload_plan(
+        tmp_path, SWEEP_ID, include_analytic=False, include_sweep=True, require_merge_ok=True
+    )
+    assert plan["errors"] == []
+    assert [e["remote_path"] for e in plan["entries"]] == [
+        f"lbm/{SWEEP_ID}/manifest.jsonl",
+        f"lbm/{SWEEP_ID}/cases",
+    ]
+    assert plan["counts"]["sweep_completed"] == 2
+    assert plan["counts"]["analytic_rows"] == 0
+
+
+def test_lbm_only_requires_merge_report_ok(tmp_path: Path) -> None:
+    _write_full_layout(tmp_path)
+    plan = modal_upload.build_upload_plan(
+        tmp_path, SWEEP_ID, include_analytic=False, include_sweep=True, require_merge_ok=True
+    )
+    assert plan["entries"] == []
+    assert any("merge report missing" in e for e in plan["errors"])
+    sweep = tmp_path / "data" / "lbm" / SWEEP_ID
+    (sweep / "merge_report.json").write_text(json.dumps({"status": "failed"}) + "\n")
+    plan = modal_upload.build_upload_plan(
+        tmp_path, SWEEP_ID, include_analytic=False, include_sweep=True, require_merge_ok=True
+    )
+    assert plan["entries"] == []
+    assert any("merge report not ok" in e for e in plan["errors"])
+
+
+def test_lbm_only_rejects_sha_mismatch(tmp_path: Path) -> None:
+    _write_full_layout(tmp_path)
+    sweep = tmp_path / "data" / "lbm" / SWEEP_ID
+    _write_merge_report_ok(sweep)
+    with open(sweep / "cases" / "c01" / "umean.f32", "r+b") as handle:
+        handle.seek(0)
+        handle.write(b"\x00\x00\x80\x3f")
+    plan = modal_upload.build_upload_plan(
+        tmp_path, SWEEP_ID, include_analytic=False, include_sweep=True, require_merge_ok=True
+    )
+    assert plan["entries"] == []
+    assert any("c01" in e and "sha256 mismatch" in e for e in plan["errors"])
+
+
+def test_lbm_only_rejects_missing_schema_bin(tmp_path: Path) -> None:
+    _write_full_layout(tmp_path)
+    sweep = tmp_path / "data" / "lbm" / SWEEP_ID
+    _write_merge_report_ok(sweep)
+    (sweep / "cases" / "c02" / "tke.f32").unlink()
+    plan = modal_upload.build_upload_plan(
+        tmp_path, SWEEP_ID, include_analytic=False, include_sweep=True, require_merge_ok=True
+    )
+    assert plan["entries"] == []
+    assert any("c02" in e and "tke.f32" in e for e in plan["errors"])
+
+
+def test_lbm_only_cli_dry_run_lists_merged_outputs(monkeypatch, tmp_path: Path, capsys) -> None:
+    _write_full_layout(tmp_path)
+    _write_merge_report_ok(tmp_path / "data" / "lbm" / SWEEP_ID)
+    monkeypatch.chdir(tmp_path)
+    saved = sys.modules.pop("modal", None)
+    try:
+        rc = modal_upload.main(["--sweep-id", SWEEP_ID, "--only", "lbm", "--dry-run"])
+        assert rc == 0
+        assert "modal" not in sys.modules
+        out = capsys.readouterr().out
+        assert f"lbm/{SWEEP_ID}/manifest.jsonl" in out
+        assert f"lbm/{SWEEP_ID}/cases" in out
+        assert "analytic" not in out
+        assert "volume untouched" in out
+    finally:
+        if saved is not None:
+            sys.modules["modal"] = saved
+
+
+def test_lbm_kind_alias_matches_only_lbm(monkeypatch, tmp_path: Path, capsys) -> None:
+    _write_full_layout(tmp_path)
+    _write_merge_report_ok(tmp_path / "data" / "lbm" / SWEEP_ID)
+    monkeypatch.chdir(tmp_path)
+    calls: list = []
+    seen: dict = {}
+    _install_fake_modal(monkeypatch, calls, seen)
+    assert modal_upload.main(["--sweep-id", SWEEP_ID, "--kind", "lbm"]) == 0
+    assert [c[2] for c in calls] == [f"lbm/{SWEEP_ID}/manifest.jsonl", f"lbm/{SWEEP_ID}/cases"]
+    out = capsys.readouterr().out
+    assert "upload total: entries=2" in out
 
 
 def test_no_secret_reads_in_upload_module() -> None:

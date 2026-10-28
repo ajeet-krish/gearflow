@@ -13,9 +13,20 @@ Local layout uploaded to the gearflow-data volume:
     data/lbm/<sweep_id>/manifest.jsonl -> lbm/<sweep_id>/manifest.jsonl
     data/lbm/<sweep_id>/cases/ -> lbm/<sweep_id>/cases/
 
+LBM only mode for the post merge and gate upload (paid compute guard):
+
+    python training/modal_upload.py --sweep-id <sweep_id> --only lbm [--dry-run]
+
+LBM only mode uploads just data/lbm/<sweep_id>/manifest.jsonl plus
+data/lbm/<sweep_id>/cases/, requires data/lbm/<sweep_id>/merge_report.json
+to show status ok, and validates every completed row bins plus sha with
+the merge_sweep verifier (schema ordered bins per sha_version). Dry run
+lists the merged manifest plus cases and touches no volume.
+
 Nothing here runs a remote job and nothing touches the volume on import or
 on dry run. The modal package is imported lazily only on the real upload
 path, so the local pytest suite never touches Modal or the network.
+Stdlib only plus the local merge_sweep verifier plus lazy Modal import.
 """
 
 import argparse
@@ -44,17 +55,52 @@ def _read_lines(path: Path) -> list[str]:
     return [line for line in path.read_text().splitlines() if line.strip()]
 
 
+def _validate_merge_report_ok(sweep_dir: Path) -> str | None:
+    """Require the merge report for a merged sweep to show status ok."""
+    report_path = sweep_dir / "merge_report.json"
+    if not report_path.is_file():
+        return f"merge report missing: {report_path}"
+    try:
+        report = json.loads(report_path.read_text())
+    except (OSError, ValueError) as exc:
+        return f"merge report unreadable: {report_path}: {exc}"
+    if not isinstance(report, dict) or report.get("status") != "ok":
+        return f"merge report not ok: {report_path}"
+    return None
+
+
+def _sweep_case_problem(case_dir: Path, row: dict) -> str | None:
+    """Validate one completed sweep case with the merge_sweep verifier.
+
+    Reuses merge_sweep.verify_completed (schema ordered bins per
+    sha_version, sizes, finiteness, sha agreement) so the upload check
+    cannot drift from the merge check. Stdlib only, no network.
+    """
+    import sys
+
+    training_dir = Path(__file__).resolve().parent
+    if str(training_dir) not in sys.path:
+        sys.path.insert(0, str(training_dir))
+    from merge_sweep import verify_completed
+
+    return verify_completed(case_dir, row)
+
+
 def build_upload_plan(
     repo_root: Path,
     sweep_id: str,
     include_analytic: bool = True,
     include_sweep: bool = True,
+    require_merge_ok: bool = False,
 ) -> dict:
     """Validate local layout and build the volume upload plan.
 
     Returns a dict with entries (local_path, remote_path, kind, bytes),
     errors, counts, and total_bytes. On any validation error entries is
-    empty: there is never a partial plan.
+    empty: there is never a partial plan. When require_merge_ok is true
+    (the LBM only post merge path) the sweep merge_report.json must show
+    status ok and every completed case is checked with the merge_sweep
+    verifier (all schema bins plus sha agreement per sha_version).
     """
     repo_root = Path(repo_root)
     errors: list[str] = []
@@ -96,6 +142,10 @@ def build_upload_plan(
     sweep_cases = sweep_dir / "cases"
     sweep_rows: list[dict] | None = None
     if include_sweep:
+        if require_merge_ok:
+            report_problem = _validate_merge_report_ok(sweep_dir)
+            if report_problem is not None:
+                errors.append(report_problem)
         if not sweep_manifest.is_file():
             errors.append(f"sweep manifest missing: {sweep_manifest}")
         else:
@@ -132,8 +182,10 @@ def build_upload_plan(
                 case_dir = sweep_cases / case_id
                 if not case_dir.is_dir():
                     errors.append(f"sweep case dir missing: {case_dir}")
-                elif not (case_dir / "umean.f32").is_file():
-                    errors.append(f"sweep case bin missing: {case_dir / 'umean.f32'}")
+                    continue
+                problem = _sweep_case_problem(case_dir, row)
+                if problem is not None:
+                    errors.append(f"sweep case {case_id}: {problem}")
 
     if errors:
         return {
@@ -223,15 +275,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sweep-id", default="pilot")
     parser.add_argument("--skip-analytic", action="store_true")
     parser.add_argument("--skip-sweep", action="store_true")
+    parser.add_argument("--only", default=None, choices=["analytic", "sweep", "lbm"])
+    parser.add_argument("--kind", default="standard", choices=["standard", "lbm"])
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
 
+    lbm_only = args.only == "lbm" or args.kind == "lbm"
+    if args.only == "analytic":
+        include_analytic, include_sweep, require_merge_ok = True, False, False
+    elif args.only == "sweep":
+        include_analytic, include_sweep, require_merge_ok = False, True, False
+    elif lbm_only:
+        include_analytic, include_sweep, require_merge_ok = False, True, True
+    else:
+        include_analytic, include_sweep, require_merge_ok = (
+            not args.skip_analytic,
+            not args.skip_sweep,
+            False,
+        )
+
     plan = build_upload_plan(
         Path.cwd(),
         args.sweep_id,
-        include_analytic=not args.skip_analytic,
-        include_sweep=not args.skip_sweep,
+        include_analytic=include_analytic,
+        include_sweep=include_sweep,
+        require_merge_ok=require_merge_ok,
     )
     print_plan(plan)
     if plan["errors"]:

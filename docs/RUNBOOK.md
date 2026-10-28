@@ -18,20 +18,31 @@ Agents never run Modal commands. Every command below is yours, by hand, from the
 ```sh
 uv run --project training python training/make_sweep_spec_v2.py sweep01
 ```
-Expected output: 73 cases (BGK 12, LES 14, airfoil 47) plus min tau 0.505407 at `naca0012_a00_re1200_airfoil`. The generator refuses to write if any row breaches the 0.505 tau floor. Bluff rows use 160 by 128 over width 4.0. Airfoil rows use 384 by 192 over width 2.55. Alpha 12 is excluded everywhere. Output path: `data/sweep/sweep01/cases.jsonl`.
+Expected output: 71 cases (BGK 12, LES 12, airfoil 47) plus min tau 0.505407 at `naca0012_a00_re1200_airfoil`. The generator refuses to write if any row breaches the 0.505 tau floor. Bluff rows use 160 by 128 over width 4.0 with transient 8000. Airfoil rows use 384 by 192 over width 2.55 with transient 16000. Window is 12000 everywhere. Alpha 12 is excluded everywhere. Output path: `data/sweep/sweep01/cases.jsonl`. Two LES cells are removed by design after divergence was confirmed: `cyl_r020_a00_re100_les` (diverges near step 4800, also at lower drive near step 6272) and `block_040_a00_re200_les` (diverges near step 4470).
 
-## 2 Upload (dry run first, then real)
+## 2a Upload analytic plus spec (before sweep, dry run first)
 ```sh
 uv run --project training python training/modal_upload.py --sweep-id sweep01 --dry-run
 uv run --project training python training/modal_upload.py --sweep-id sweep01
 ```
-All or nothing plan: analytic `manifest.jsonl` plus `train/` shards, and sweep `manifest.jsonl` plus `cases/`. Any validation error yields zero entries. Measured totals: analytic about 1.5 GB, sweep 73 cases at an estimated 70 to 90 MB depending on grid mix. On volume conflict, rerun with the force flag (see section 11).
+All or nothing plan: analytic `manifest.jsonl` plus `train/` shards, and sweep `manifest.jsonl` plus `cases/`. Any validation error yields zero entries. Measured totals: analytic about 1.5 GB, sweep 71 cases at an estimated 70 to 90 MB depending on grid mix. Analytic samples carry recirculation on channel 5 with harmonic channels 6 through 9 set to zero. On volume conflict, rerun with force enabled (see section 11).
+
+## 2b Upload LBM only (after merge plus gate, before finetune, dry run first)
+```sh
+uv run --project training python training/modal_upload.py --sweep-id sweep01 --only lbm --dry-run
+uv run --project training python training/modal_upload.py --sweep-id sweep01 --only lbm
+```
+```sh
+uv run --project training python training/modal_upload.py --sweep-id sweep01 --kind lbm --dry-run
+uv run --project training python training/modal_upload.py --sweep-id sweep01 --kind lbm
+```
+This step uploads only `data/lbm/<sweep_id>/` after merge and gate. It requires `merge_report.json` status ok and validates bins plus sha. Run it after sections 4 and 5 pass and before section 7. The kind form above is equivalent to the only form. Dry run first every time.
 
 ## 3 Sweep (paid CPU)
 ```sh
 uv run --project training modal run training/modal_sweep.py --sweep-id sweep01
 ```
-Expected wall time from measured local runs: 18s per 160 by 128 case and 68s per 384 by 192 case, so 73 cases across 16 containers is roughly 6 to 10 minutes plus a one time Rust image build. Each case runs on its own container (4 vCPU, 4096 MiB, 1800s timeout). Diverged cases are recorded as data, never retried, never substituted.
+Expected wall time from measured local runs: 18s per 160 by 128 case and 68s per 384 by 192 case, so 71 cases across 16 containers is roughly 5 to 9 minutes plus a one time Rust image build. Each case runs on its own container (4 vCPU, 4096 MiB, 1800s timeout). Diverged cases are recorded as data, never retried, never substituted.
 
 ## 4 Download and merge
 ```sh
@@ -44,7 +55,7 @@ Merge is fail closed: on any missing id, sha or size mismatch, non finite value,
 ```sh
 uv run --project training python training/verify_lbm_dataset.py data/lbm/sweep01
 ```
-Report goes to a temp dir by default and the sweep directory is never modified. Pass `--out <dir>` to choose the report location. Exit codes: 0 means train approved, 2 means data failure, 3 means adapter failure. Stop conditions, do not spend on training when any holds: exit code is not 0, or harmonic valid count below 20, or median explained variance on valid cases below 0.45 (read `v8_harmonic.n_valid` and the median of `manifest_explained_variance` in `verify_report.json`).
+Report goes to a temp dir by default and the sweep directory is never modified. To choose the report location, use the out option with a directory value (see script help). Floors are enforced in code. Exit 0 means train approved and requires no data failures, no adapter failures, valid count at least 20, and median explained at least 0.45. Floor shortfall returns exit 2 with status needs more harmonics. Adapter failure precedence for exit 3 is kept. Read `harmonic_valid_count` and `harmonic_valid_median_explained` in `verify_report.json`. Header range is V0 to V8. The v3 cache verifier accepts sha versions 1, 2, and 3 through merge bin order.
 
 ## 6 Pretrain only
 ```sh
@@ -68,7 +79,7 @@ Export writes `public/surrogate/v3/model.onnx` plus a `norm.json` byte copy plus
 ## 9 Cost and kill switches
 | Step | Measured wall time | Estimated cost |
 |------|--------------------|----------------|
-| Sweep (73 cases, 16 containers) | 6 to 10 min plus image build | Low CPU, well under $5 |
+| Sweep (71 cases, 16 containers) | 5 to 9 min plus image build | Low CPU, well under $5 |
 | Pretrain (A10G) | 20 to 40 min | Single GPU job |
 | Fine tune (A10G) | 10 to 20 min | Single GPU job, shorter than pretrain |
 | Total | Under 90 min GPU plus sweep | Target under $20 against the $100 credit |
@@ -76,7 +87,7 @@ Export writes `public/surrogate/v3/model.onnx` plus a `norm.json` byte copy plus
 Kill switches: stop before step 3 if the dry run plan reports validation errors. Stop before step 6 if the gate exit is not 0 or harmonic coverage is thin (see section 5). Stop after pretrain if validation loss is not improving. Never retry a diverged case automatically.
 
 ## 10 Oct 30 checkpoint and cut rule
-All six must hold, else fall back to steady only with the v3 bundle flagged harmonic capable false:
+All six must hold, else fall back to steady only with the v3 bundle flagged harmonic capable false. Gate exit 0 already implies items 2 and 3, they stay listed as explicit checks:
 1. Gate exit 0 on `data/lbm/sweep01`.
 2. Harmonic valid count at least 20.
 3. Median explained variance on valid cases at least 0.45.
@@ -89,6 +100,6 @@ All six must hold, else fall back to steady only with the v3 bundle flagged harm
 |---------|-----|
 | Tau floor error (`lbm: tau ... at or below floor`) | Reduce `u_lattice` or refine grid. Per body caps: bluff BGK u 0.06 to Re 100, bluff LES u 0.08 to Re 700, airfoil u 0.08 to Re 700 and u 0.12 at Re 1200 |
 | Unknown body `naca4412` | Spec and validator use body `naca4` with `naca_code` 4412. Case ids keep the `naca4412` prefix for readability |
-| Volume upload conflict | Rerun step 2 with `--force`. Dry run first to confirm the plan |
+| Volume upload conflict | Rerun step 2a with force enabled. Dry run first to confirm the plan |
 | Gate adapter failure on divergence check | Denoised native RMS divergence gate is 0.05. Legit LES means sit near 0.01 after smoothing, a u/v mapping error sits near 0.3. A failure names the case id plus `possible u/v field mapping error` |
 | `harmonic_reason` values | From `rust/gearflow-wasm/src/stats.rs`: `ok`, `no_period`, `too_few_periods`, `low_explained`, `low_amplitude`, `non_finite`, `not_shedding`. Diverged and setup rows carry `not_shedding` |

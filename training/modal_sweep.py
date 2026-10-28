@@ -43,6 +43,7 @@ image = (
         f"$HOME/.cargo/bin/rustup toolchain install {RUST_TOOLCHAIN} --profile minimal",
     )
     .add_local_dir("rust/gearflow-wasm", "/root/gearflow-wasm")
+    .add_local_file("training/merge_sweep.py", "/root/training/merge_sweep.py")
     .run_commands(
         "$HOME/.cargo/bin/cargo build --locked --release "
         "--manifest-path /root/gearflow-wasm/Cargo.toml --bin dataset_pilot",
@@ -59,17 +60,28 @@ def _worker_dir(sweep_id: str, case_id: str) -> Path:
 
 
 def _verify_cached_bins(case_dir: Path, row: dict) -> bool:
-    """Best effort cache check on the worker: sizes and sha match."""
+    """Best effort cache check on the worker: sizes and sha match.
+
+    Bin order is the canonical merge_sweep schema order per sha_version
+    (1, 2, or 3); sha_version is required explicitly on the row so a v3
+    case with 12 bins is recognised as cached. No local bin list lives
+    here: names always come from merge_sweep.bin_order_for.
+    """
     try:
         import hashlib
         import struct
+        import sys
+
+        if "/root/training" not in sys.path:
+            sys.path.insert(0, "/root/training")
+        from merge_sweep import bin_order_for
 
         nx = int(row["nx"])
         ny = int(row["ny"])
-        version = int(row.get("sha_version", 2))
-        names = ["umean.f32", "vmean.f32", "pmean.f32", "omegamean.f32", "tke.f32", "recirc.f32", "obstacle.f32"]
-        if version >= 2:
-            names = names + ["sdf.f32"]
+        if row.get("sha_version") is None:
+            return False
+        version = int(row["sha_version"])
+        names = bin_order_for(version)
         expect = nx * ny * 4
         hasher = hashlib.sha256()
         for name in names:

@@ -1,4 +1,4 @@
-"""Read only verification gate for LBM sweep datasets (protocol V0 to V7).
+"""Read only verification gate for LBM sweep datasets (protocol V0 to V8).
 
 Scope is LBM sweep data only (never analytic shards). This script certifies a
 merged sweep directory (manifest.jsonl plus case bins) before any
@@ -53,9 +53,18 @@ Protocol sections:
   V6 coverage: Re coverage report. A sweep with no completed bluff body case
       at Re 100 is flagged as an extrapolation risk (warning only).
   V7 gate: exit 0 means TRAIN_APPROVED, exit 2 means DATA_FAILURE (V0, V2, V3
-      findings), exit 3 means ADAPTER_FAILURE (V1, V4, V5 findings). When data
-      and adapter failures co-occur, the exit code is ADAPTER_FAILURE and both
-      lists are preserved in the report gate section.
+      findings) or NEEDS_MORE_HARMONICS (harmonic floors below), exit 3 means
+      ADAPTER_FAILURE (V1, V4, V5 findings). When data and adapter failures
+      co-occur, the exit code is ADAPTER_FAILURE and both lists are preserved
+      in the report gate section.
+  V8 harmonic: completed sha version 3 rows carry harmonic bins plus
+      scalars; harmonic_valid rows need consistent explained variance,
+      strouhal, cycles, and phase. The gate additionally floors harmonic
+      coverage: TRAIN_APPROVED needs at least 20 harmonic valid rows with a
+      median manifest explained variance of at least 0.45. Fewer or weaker
+      rows with no other failures report NEEDS_MORE_HARMONICS (exit 2),
+      never confused with TRAIN_APPROVED. Adapter failures keep exit 3
+      precedence over floors.
 
 Usage:
     python training/verify_lbm_dataset.py <sweep_dir> [--out DIR]
@@ -237,6 +246,8 @@ HARMONIC_MIN_CYCLES = 3
 HARMONIC_CLIP_DIMLESS = 3.0
 HARMONIC_CLIP_WARN_FRAC = 0.01
 HARMONIC_HIGH_EXPLAINED_WARN = 0.35
+HARMONIC_FLOOR_VALID_COUNT = 20
+HARMONIC_FLOOR_MEDIAN_EXPLAINED = 0.45
 
 PILOT_PINS: dict[tuple[str, float, float], float] = {
     ("cylinder", 20.0, 0.0): 2.7720,
@@ -1251,10 +1262,32 @@ def verify_sweep(
     data_failures.extend(f"V8: {e}" for e in v8["data_failures"])
     adapter_failures.extend(f"V8: {e}" for e in v8["adapter_failures"])
     warnings.extend(f"V8: {w}" for w in v8["warnings"])
+    harmonic_valid_count = int(v8.get("n_valid", 0))
+    explained_vals: list[float] = []
+    for entry in v8.get("cases", {}).values():
+        if entry.get("harmonic_valid") is True:
+            raw_exp = entry.get("manifest_explained_variance")
+            try:
+                fexp = float(raw_exp)
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(fexp):
+                explained_vals.append(fexp)
+    if explained_vals:
+        harmonic_valid_median_explained: float | None = float(np.median(np.asarray(explained_vals, dtype=np.float64)))
+    else:
+        harmonic_valid_median_explained = None
+    floors_ok = (
+        harmonic_valid_count >= HARMONIC_FLOOR_VALID_COUNT
+        and harmonic_valid_median_explained is not None
+        and harmonic_valid_median_explained >= HARMONIC_FLOOR_MEDIAN_EXPLAINED
+    )
     if adapter_failures:
         status, exit_code = "ADAPTER_FAILURE", EXIT_ADAPTER
     elif data_failures:
         status, exit_code = "DATA_FAILURE", EXIT_DATA
+    elif not floors_ok:
+        status, exit_code = "NEEDS_MORE_HARMONICS", EXIT_DATA
     else:
         status, exit_code = "TRAIN_APPROVED", EXIT_OK
     report = {
@@ -1296,6 +1329,10 @@ def verify_sweep(
             "n_checked": v8.get("n_checked", 0),
             "n_valid": v8.get("n_valid", 0),
             "cases": v8.get("cases", {}),
+            "harmonic_valid_count": harmonic_valid_count,
+            "harmonic_valid_median_explained": harmonic_valid_median_explained,
+            "floor_valid_count": HARMONIC_FLOOR_VALID_COUNT,
+            "floor_median_explained": HARMONIC_FLOOR_MEDIAN_EXPLAINED,
         },
         "gate": {
             "data_failures": data_failures,
@@ -1351,9 +1388,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"verify: gate error: {exc}", file=sys.stderr)
         return EXIT_ADAPTER
     counts = report["v0_manifest"]["counts"]
+    harm = report.get("v8_harmonic", {})
     print(
         f"verify: {report['status']} exit={exit_code} "
         f"completed={counts.get('completed', 0)} ok={report['v1_physics']['n_ok']} "
+        f"harmonic_valid_count={harm.get('harmonic_valid_count', 0)} "
+        f"harmonic_valid_median_explained={harm.get('harmonic_valid_median_explained', None)} "
         f"data_failures={len(report['gate']['data_failures'])} "
         f"adapter_failures={len(report['gate']['adapter_failures'])} "
         f"extrapolation_risk={report['v6_coverage']['extrapolation_risk']} "

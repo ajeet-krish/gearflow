@@ -414,7 +414,7 @@ class AnalyticV3Dataset(Dataset):
         tke = np.full_like(sdf, float(np.log1p(0.0)))
         recirc = ((u < 0.0) * fluid).astype(np.float32)
         zero = np.zeros_like(sdf, dtype=np.float32)
-        y = np.stack([u, v, cp, vort, tke, zero, zero, zero, zero, recirc]).astype(np.float32)
+        y = np.stack([u, v, cp, vort, tke, recirc, zero, zero, zero, zero]).astype(np.float32)
         y = (y * fluid).astype(np.float32)
         aux = np.asarray([0.0, 0.0, 0.0], dtype=np.float32)
         aux_mask = np.asarray([0.0, 1.0, 1.0], dtype=np.float32)

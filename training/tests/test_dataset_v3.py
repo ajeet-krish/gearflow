@@ -250,6 +250,45 @@ def test_v3_fit_refit_keeps_inputs_frozen(tmp_path) -> None:
     assert refit["outputs"]["uCos"]["std"] == refit["outputs"]["uSin"]["std"]
 
 
+def test_v3_analytic_channel_order_recirc_fifth(tmp_path) -> None:
+    from dataset_v3 import V3_OUT_HEADS
+
+    assert V3_OUT_HEADS == (
+        "meanU",
+        "meanV",
+        "cp",
+        "vorticity",
+        "tke",
+        "recirc",
+        "uCos",
+        "uSin",
+        "vCos",
+        "vSin",
+    )
+    data_dir = _write_analytic_v3_fixture(tmp_path)
+    shard = data_dir / "shard-000.npz"
+    with np.load(shard) as z:
+        blobs = {k: z[k] for k in z.files}
+    first_key = sorted(blobs)[0]
+    patched = blobs[first_key].copy()
+    patched[3, 32:40, 32:40] = np.float32(-1.0)
+    blobs[first_key] = patched
+    np.savez(shard, **blobs)
+    train = AnalyticV3Dataset(data_dir, "train")
+    found_negative = False
+    for entry in train._entries:
+        raw_x, raw_y, _, _, _ = train._raw_sample(entry)
+        assert raw_y.shape == (10, 128, 128)
+        fluid = (raw_x[1] < 0.5).astype(np.float32)
+        expect_recirc = ((raw_y[0] < 0.0) * fluid).astype(np.float32)
+        assert np.array_equal(raw_y[5], expect_recirc), "channel 5 must equal the recirculation mask"
+        assert bool((raw_y[6:10] == 0.0).all()), "harmonic channels 6-9 must stay zero for analytic rows"
+        if bool((expect_recirc > 0.5).any()):
+            found_negative = True
+            assert bool((raw_y[5] > 0.5).any())
+    assert found_negative, "fixture needs a negative-u cell to pin channel 5"
+
+
 def test_v3_normalize_aux_values(tmp_path) -> None:
     sweep = _write_lbm_v3_fixture(tmp_path, n_cases=4, nx=8, ny=8)
     train = LbmV3Dataset(sweep, "train")
