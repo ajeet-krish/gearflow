@@ -98,8 +98,11 @@ function simProps(over: Partial<SimulationSectionViewProps> = {}): SimulationSec
         onCustomText: noop,
         customError: null,
         onCustomError: noop,
-        solveMode: "analytic",
-        onSolveMode: noop,
+        solverPath: "analytic",
+        neuralStatus: "unavailable",
+        neuralNote: "weights unavailable",
+        domainIn: true,
+        domainReason: null,
         reynolds: 50000,
         lbmActive: false,
         onCommitReynolds: noop,
@@ -144,16 +147,16 @@ function geoProps(over: Partial<GeometrySectionViewProps> = {}): GeometrySection
 }
 
 describe("SIMULATION section", () => {
-    it("renders every control: grid presets, solver, Re, and the LBM run block", () => {
+    it("renders every control: grid presets, solver status, Re, and the LBM run block", () => {
         const html = renderToStaticMarkup(SimulationSectionView(simProps({ gridMode: "custom" })) as never);
         for (const label of ["64", "128", "256", "Custom"]) {
             expect(html).toContain(`>${label}</button>`);
         }
         expect(html).toContain('id="simCustomGrid"');
-        expect(html).toContain('id="simBackend"');
-        expect(html).toContain("Analytic potential (local, deterministic)");
-        expect(html).toContain("Surrogate U-Net (falls back to analytic)");
-        expect(html).toContain("Fixture fallback (fake fixture, not physics)");
+        expect(html).toContain('id="simPathCurrent"');
+        expect(html).toContain('id="simNeuralLine"');
+        expect(html).toContain('id="simDomainLine"');
+        expect(html).not.toContain('id="simBackend"');
         expect(html).toContain('id="simRey"');
         expect(html).toContain('id="simReNumber"');
         expect(html).toContain('aria-label="Run LBM solve"');
@@ -211,14 +214,28 @@ describe("SIMULATION section", () => {
         expect(onCustomError).toHaveBeenCalledWith(null);
     });
 
-    it("solver switch changes mode and keeps the honest labels", () => {
-        const onSolveMode = vi.fn();
-        const tree = SimulationSectionView(simProps({ onSolveMode })) as unknown;
-        const [select] = byId(tree, "simBackend");
-        (select.props.onChange as (e: unknown) => void)({ target: { value: "surrogate" } });
-        expect(onSolveMode).toHaveBeenCalledWith("surrogate");
-        const html = renderToStaticMarkup(SimulationSectionView(simProps({ solveMode: "fixture" })) as never);
-        expect(html).toContain("Static fixture preview. Not physics, for pipeline checks only.");
+    it("status block names the current path plus neural and domain lines", () => {
+        const neural = renderToStaticMarkup(SimulationSectionView(simProps({
+            solverPath: "neural-v2",
+            neuralStatus: "ready",
+            neuralNote: "weights v2, 3.0 ms",
+            domainIn: true,
+            domainReason: null,
+        })) as never);
+        expect(neural).toContain("Current path");
+        expect(neural).toContain("neural-v2 predicted, not validated");
+        expect(neural).toContain("Neural ready");
+        expect(neural).toContain("inside the provisional envelope");
+        const out = renderToStaticMarkup(SimulationSectionView(simProps({
+            solverPath: "analytic",
+            neuralStatus: "ready",
+            neuralNote: "weights ready",
+            domainIn: false,
+            domainReason: "alpha 30 deg is outside the provisional envelope [-4, 12] deg",
+        })) as never);
+        expect(out).toContain("analytic potential flow, not validated");
+        expect(out).toContain("outside the provisional envelope");
+        expect(out).toContain("alpha 30 deg is outside");
     });
 
     it("Re invalid typing shows a popup and fires no setter", () => {
@@ -515,7 +532,7 @@ describe("panel rework leftovers", () => {
         expect(src).not.toMatch(/LBM_MAX_RE,/);
         expect(src).not.toContain("LBM_MAX_RE");
         expect(src).not.toContain("solveGrid.nx === 256 ? 256 : 128");
-        expect(src).toContain("activeGrid={solveGrid.nx}");
+        expect(src).toContain("activeGrid={flow.nx}");
     });
 
     it("App mounts SIMULATION plus GEOMETRY sections with the new components", async () => {

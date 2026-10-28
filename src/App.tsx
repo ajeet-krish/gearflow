@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FlowCanvas, { type FlowCanvasHandle } from "@/render/FlowCanvas";
-import type { FlowMode } from "@/ui/FlowControls";
 import ErrorBoundary from "@/ui/ErrorBoundary";
 import ResizeHandle from "@/components/ui/ResizeHandle";
 import AgentConsole from "@/ui/AgentConsole";
@@ -18,9 +17,8 @@ import { turbulenceSectionDef } from "@/ui/TurbulenceSection";
 import VerticalColorbar from "@/ui/VerticalColorbar";
 import { buildPolygons, migrateDuctToOrifice } from "@/geometry/parametric";
 import { applyBodyPreset, bodySelectValue as bodySelectValueFor } from "@/geometry/bodyPresets";
-import { AnalyticFlowProvider, type FrameSource } from "@/flow/frameSource";
-import { createFlowProvider } from "@/flow/createFlowProvider";
-import { readEngineMode, lbmGridFor, blockageForGeometry, type EngineMode } from "@/flow/engineMode";
+import { AnalyticFlowProvider } from "@/flow/frameSource";
+import { lbmGridFor, blockageForGeometry } from "@/flow/engineMode";
 import { LbmClient, type LbmProgress } from "@/flow/lbmClient";
 import {
     LBM_DEFAULT_TARGET_STEPS,
@@ -34,13 +32,15 @@ import {
     withLbmTauGuidance,
 } from "@/flow/lbmRunConfig";
 import { LbmFlowProvider, type LbmProviderStatus } from "@/flow/lbmFlowProvider";
-import { SurrogateFlowProvider } from "@/flow/surrogate";
+import { SurrogateV2Provider, SURROGATE_V2_DOMAIN } from "@/flow/surrogateV2";
+import { NeuralV2Adapter, neuralRequestKey, isUsableNeuralField, createNeuralRequestTracker } from "@/flow/neuralV2Adapter";
+import { decideFastPath, analyticProvenanceLabel, neuralProvenanceLabel, type NeuralStatus, type SolverPath } from "@/flow/solverRouter";
+import { classifyNeuralDomain } from "@/flow/neuralDomain";
 import { useResolution } from "@/flow/gridController";
 import { useDisplayPrefs } from "@/ui/displayStore";
 import { useLayoutPrefs, shellVisibility } from "@/ui/layoutStore";
 import { RailShell, resolveShellShortcut, shouldCloseTerminalOnEscape } from "@/ui/shellRegions";
 import { applyTheme, storeTheme } from "@/ui/theme";
-import { maybeLoadWasm } from "@/flow/wasmSpike";
 import ValidationPanel, { type ValidationSummary } from "@/ui/ValidationPanel";
 import ExportBar from "@/ui/ExportBar";
 import { asFixtureExport, type ExportData } from "@/export/exportReport";
@@ -154,10 +154,67 @@ export function buildAppExportData(
     return base;
 }
 
+/** Inputs for the shared backend name selector. Pure, no hooks. */
+export interface AppBackendNameInput {
+    isFixture: boolean;
+    lbmFailedActive: boolean;
+    lbmEffective: boolean;
+    lbmHasSnapshot: boolean;
+    solveError: string | null;
+    isNeuralPending: boolean;
+    isNeuralActive: boolean;
+    solveGridNx: number;
+}
+
+/** Backend name follows the displayed frame, never the router alone.
+ *  Neural live requires a keyed neural frame (isNeuralActive). A pending
+ *  or failed predict with no keyed frame stays on analytic wording. */
+export function selectBackendName(input: AppBackendNameInput): string {
+    if (input.isFixture) return "fixture preview";
+    if (input.lbmFailedActive) return "analytic fallback (lbm failover)";
+    if (input.lbmEffective && !input.lbmHasSnapshot) return "lbm pending";
+    if (input.lbmEffective) return "lbm live";
+    if (input.solveError !== null) return "analytic held";
+    if (input.isNeuralPending) return "neural-v2 loading";
+    if (input.isNeuralActive) return "neural-v2 live";
+    return `analytic live ${input.solveGridNx}`;
+}
+
+/** Inputs for the shared provenance label selector. Pure, no hooks. */
+export interface AppProvenanceInput {
+    isFixture: boolean;
+    fixtureLabel: string | null;
+    lbmEffective: boolean;
+    lbmLabel: string | null;
+    solveError: string | null;
+    isHeldAnalyticFrame: boolean;
+    frameGeometryLabel: string;
+    frameGridLabel: string;
+    frameLabel: string;
+}
+
+/** Provenance follows the frame selector first. Solve error wording
+ *  applies only when the displayed frame is the held analytic frame. */
+export function selectProvenanceLabel(input: AppProvenanceInput): string {
+    if (input.isFixture && input.fixtureLabel !== null) return input.fixtureLabel;
+    if (input.lbmEffective && input.lbmLabel !== null) return input.lbmLabel;
+    if (input.isHeldAnalyticFrame && input.solveError !== null) {
+        return `solve error, showing last good (${input.frameGeometryLabel}, ${input.frameGridLabel})`;
+    }
+    return input.frameLabel;
+}
+
+/** One clean retry per failed key. Returns true only for the first
+ *  failure of a key, so the effect reruns once and never loops. */
+export function shouldRetryNeuralPredict(retriedKey: string | null, failedKey: string): boolean {
+    return retriedKey !== failedKey;
+}
+
 /**
  * GearFlow Phase 6 shell. Agent console on the left, tunnel canvas center,
  * instrument rack on the right. Analytic path computes locally with zero
- * fetch on the critical path. Surrogate stays at 128, analytic may run 256
+ * fetch on the critical path. Neural v2 overlays the analytic frame when
+ * the router selects it, analytic may run 256
  * with automatic fallback to 128 after repeated slow solves.
  */
 export interface RunLogEntry {
@@ -166,10 +223,40 @@ export interface RunLogEntry {
     level: "info" | "warn" | "block";
 }
 
+/** LBM hatch: ?engine=lbm arms the worker path, every other value is auto. */
+export function readLbmArmed(search: string): boolean {
+    try {
+        const q = search.startsWith("?") ? search : `?${search}`;
+        return new URLSearchParams(q).get("engine") === "lbm";
+    } catch {
+        return false;
+    }
+}
+
+/** Fixture debug override: ?fixture=1 shows the baked pack, never in controls. */
+export function readFixtureDebug(search: string): boolean {
+    try {
+        const q = search.startsWith("?") ? search : `?${search}`;
+        return new URLSearchParams(q).get("fixture") === "1";
+    } catch {
+        return false;
+    }
+}
+
+/** Legacy engine flags map to auto: ?engine=wasm and ?wasm=1 are analytic. */
+export function isLegacyEngineAuto(search: string): boolean {
+    try {
+        const q = search.startsWith("?") ? search : `?${search}`;
+        const params = new URLSearchParams(q);
+        return params.get("engine") === "wasm" || params.get("wasm") === "1";
+    } catch {
+        return false;
+    }
+}
+
 export default function App() {
     const [spec, setSpec] = useState<GeometrySpec>(DEFAULT_SPEC);
     const [reynolds, setReynolds] = useState(50_000);
-    const [mode, setMode] = useState<FlowMode>("analytic");
 
     const [debouncedSpec, setDebouncedSpec] = useState<GeometrySpec>(DEFAULT_SPEC);
     const [debouncedRe, setDebouncedRe] = useState(50_000);
@@ -195,47 +282,39 @@ export default function App() {
         applyTheme(prefs.theme);
     }, [prefs.theme]);
 
-    // WASM backend: when ?wasm=1 (or ?engine=wasm) is present,
-    // createFlowProvider loads the Rust solver once and serves frames with
-    // analytic fallback. No flag means the analytic provider stays the only
-    // frame source. ?engine=lbm selects the worker LBM path instead.
-    const [wasmSource, setWasmSource] = useState<FrameSource | null>(null);
-    const [wasmNote, setWasmNote] = useState<string | null>(null);
-    const [engineMode, setEngineMode] = useState<EngineMode>(() => {
+    // Unified engine: LBM is armed by ?engine=lbm, every other flag is auto.
+    // Legacy ?engine=wasm and ?wasm=1 map to auto (analytic). Fixture debug
+    // override lives in ?fixture=1 and never appears in controls.
+    const [lbmArmed, setLbmArmed] = useState<boolean>(() => {
         try {
-            return readEngineMode(window.location.search);
+            return readLbmArmed(window.location.search);
         } catch {
-            return "analytic";
+            return false;
         }
     });
-    const setEngineAndMirror = useCallback((next: EngineMode) => {
-        setEngineMode(next);
+    const [fixtureDebug] = useState<boolean>(() => {
+        try {
+            return readFixtureDebug(window.location.search);
+        } catch {
+            return false;
+        }
+    });
+    const setLbmArmedAndMirror = useCallback((next: boolean) => {
+        setLbmArmed(next);
         try {
             const url = new URL(window.location.href);
-            if (next === "analytic") {
-                url.searchParams.delete("engine");
-                url.searchParams.delete("wasm");
+            if (next) {
+                url.searchParams.set("engine", "lbm");
             } else {
-                url.searchParams.set("engine", next);
-                url.searchParams.delete("wasm");
+                url.searchParams.delete("engine");
             }
+            url.searchParams.delete("wasm");
             window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
         } catch {
             // URL mirror must never break engine switching.
         }
     }, []);
-    const lbmActive = engineMode === "lbm";
-    const wasmEngine = engineMode === "wasm";
-    // Latest solved inputs, read when constructing the provider so the
-    // initial WASM solver is not stale. The provider itself stays alive
-    // across slider moves and is updated via setters in the solved memo.
-    const latestSpecRef = useRef(debouncedSpec);
-    const latestReRef = useRef(debouncedRe);
-    latestSpecRef.current = debouncedSpec;
-    latestReRef.current = debouncedRe;
-    useEffect(() => {
-        void maybeLoadWasm();
-    }, []);
+    const lbmActive = lbmArmed;
 
     // Phase 4 Meta orchestration state. Offline persists across sessions so a
     // judged demo booth stays local. The poster url lives here so the render
@@ -442,7 +521,6 @@ export default function App() {
         const { reynolds: cappedRe, capped } = clampReForEngine(next.reynolds, lbmActive);
         setReynolds(cappedRe);
         if (capped) setLbmNotice(LBM_PARAM_CAP_NOTICE);
-        if (geometry.kind === "custom") setMode("analytic");
         return { reynolds: cappedRe, capped };
     };
 
@@ -452,13 +530,6 @@ export default function App() {
     const providerRef = useRef<AnalyticFlowProvider | null>(null);
     const providerGridKeyRef = useRef("");
 
-    // Surrogate provider, created lazily on first opt-in. Weights load once
-    // from public/surrogate; any failure keeps the analytic fallback path.
-    // Surrogate always solves at 128, never through the resolution controller.
-    const surrogateRef = useRef<SurrogateFlowProvider | null>(null);
-    const [surrogateReady, setSurrogateReady] = useState(false);
-    const [surrogateNote, setSurrogateNote] = useState<string | null>(null);
-
     useEffect(() => {
         const id = window.setTimeout(() => {
             setDebouncedSpec(spec);
@@ -467,9 +538,10 @@ export default function App() {
         return () => window.clearTimeout(id);
     }, [spec, reynolds]);
 
-    // Lazy fixture load, only when the user opts into fallback.
+    // Fixture debug override: ?fixture=1 loads the baked pack once for the
+    // debug preview. No control ever opts into this path.
     useEffect(() => {
-        if (mode !== "fixture" || pack || packLoading) return;
+        if (!fixtureDebug || pack || packLoading) return;
         setPackLoading(true);
         loadDemoPack()
             .then((p) => {
@@ -481,95 +553,19 @@ export default function App() {
                 setPackError("Fixture failed to load. Check connection and retry.");
             })
             .finally(() => setPackLoading(false));
-    }, [mode, pack, packLoading]);
+    }, [fixtureDebug, pack, packLoading]);
 
-    // Lazy surrogate load, only when the user opts into that backend.
-    useEffect(() => {
-        if (mode !== "surrogate" || surrogateRef.current !== null) return;
-        let cancelled = false;
-        const provider = new SurrogateFlowProvider({ grid: DEFAULT_GRID, geom: debouncedSpec, Re: debouncedRe });
-        setSurrogateNote("loading surrogate weights");
-        provider
-            .ensureLoaded()
-            .then((ok) => {
-                if (cancelled) return;
-                surrogateRef.current = provider;
-                setSurrogateReady(true);
-                setSurrogateNote(ok ? null : "surrogate weights missing, analytic fallback active");
-            })
-            .catch((e: unknown) => {
-                if (cancelled) return;
-                console.error("Surrogate load failure:", e instanceof Error ? e.message : String(e));
-                surrogateRef.current = provider;
-                setSurrogateReady(true);
-                setSurrogateNote("surrogate load failed, analytic fallback active");
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [mode, debouncedSpec, debouncedRe]);
-
-    // Effective solve grid. Surrogate and fixture stay at 128; analytic
-    // follows the resolution controller (256 default, auto fallback to 128).
+    // Effective solve grid. Analytic follows the resolution controller
+    // (256 default, auto fallback to 128). Neural v2 stays at its canonical
+    // 128 inside the adapter, fixture debug renders its baked field as is.
     const activeGrid = gridState.active;
     const solveGrid = useMemo(
-        () => (mode === "analytic" ? { nx: activeGrid, ny: activeGrid, domain: { ...DEFAULT_DOMAIN } } : DEFAULT_GRID),
-        [mode, activeGrid]
+        () => ({ nx: activeGrid, ny: activeGrid, domain: { ...DEFAULT_DOMAIN } }),
+        [activeGrid]
     );
     // Last good analytic frame. On a failed solve the UI keeps rendering
     // this frame and reports the error inline instead of throwing.
     const lastGoodRef = useRef<SolvedFrame | null>(null);
-
-    // WASM provider load: only when the wasm engine is selected (?wasm=1
-    // or ?engine=wasm). Created once per grid and kept alive across
-    // parameter changes; the solved memo drives it via setGeometry/setRe.
-    // Any fault falls back to analytic.
-    useEffect(() => {
-        let cancelled = false;
-        let live: FrameSource | null = null;
-        if (!wasmEngine) return;
-        try {
-            if (typeof window === "undefined") return;
-        } catch {
-            return;
-        }
-        setWasmSource(null);
-        void createFlowProvider(solveGrid, latestSpecRef.current, { Re: latestReRef.current })
-            .then((p) => {
-                const isWasm = (p as { label?: string }).label === "wasm-potential";
-                if (cancelled) {
-                    if (isWasm) {
-                        try {
-                            (p as { free?: () => void }).free?.();
-                        } catch {
-                            // Disposal must never break provider teardown.
-                        }
-                    }
-                    return;
-                }
-                if (isWasm) {
-                    live = p;
-                    setWasmSource(p);
-                    setWasmNote(null);
-                } else {
-                    setWasmNote("wasm requested but unavailable, analytic fallback");
-                }
-            })
-            .catch(() => {
-                if (!cancelled) setWasmNote("wasm requested but unavailable, analytic fallback");
-            });
-        return () => {
-            cancelled = true;
-            if (live !== null) {
-                try {
-                    (live as { free?: () => void }).free?.();
-                } catch {
-                    // Disposal must never break provider teardown.
-                }
-                live = null;
-            }
-        };
-    }, [solveGrid, wasmEngine]);
 
     // LBM engine (?engine=lbm): worker backed viscous solve. The worker
     // owns one WasmLbmSolver; this component owns the client plus a passive
@@ -610,22 +606,23 @@ export default function App() {
     const lbmProgressRef = useRef<LbmProgress>({ step: 0, targetSteps: 0, cd: NaN, cl: NaN });
     const lbmTargetStepsRef = useRef(LBM_DEFAULT_TARGET_STEPS);
     lbmTargetStepsRef.current = lbmTargetSteps;
-    // Keyed on the mode transition so entering LBM resets a high Re once,
-    // without looping and without clobbering a deliberate low Re.
-    const lbmEnterSeenRef = useRef<EngineMode | null>(null);
+    // Keyed on the LBM arming transition so entering LBM resets a high Re
+    // once, without looping and without clobbering a deliberate low Re.
+    const lbmEnterSeenRef = useRef<string | null>(null);
     useEffect(() => {
-        if (engineMode !== "lbm") {
-            lbmEnterSeenRef.current = engineMode;
+        const engineToken = lbmArmed ? "lbm" : "auto";
+        if (!lbmArmed) {
+            lbmEnterSeenRef.current = engineToken;
             setLbmNotice(null);
             return;
         }
-        const transition = lbmEntryTransition(engineMode, reynolds, lbmEnterSeenRef.current);
+        const transition = lbmEntryTransition(engineToken, reynolds, lbmEnterSeenRef.current);
         lbmEnterSeenRef.current = "lbm";
         if (transition !== null) {
             setReynolds(transition.reynolds);
             setLbmNotice(transition.notice);
         }
-    }, [engineMode, reynolds]);
+    }, [lbmArmed, reynolds]);
 
     const lbmGrid = useMemo(() => lbmGridFor(DEFAULT_DOMAIN, activeGrid), [activeGrid]);
 
@@ -823,86 +820,114 @@ export default function App() {
         };
     }, [lbmActive, lbmGrid.nx, lbmGrid.ny, lbmGrid.reason, debouncedSpec, debouncedRe, lbmULattice, lbmTargetSteps, lbmLesEffective, lbmFailover]);
 
+    // Neural v2 availability plus request tracking. The adapter owns the
+    // provider and the last frame cache, the tracker hands out monotonic
+    // request ids so only the latest async predict can commit.
+    const [neuralStatus, setNeuralStatus] = useState<NeuralStatus>("loading");
+    const [neuralFrame, setNeuralFrame] = useState<{
+        key: string;
+        flow: FlowField;
+        cl: number;
+        cpMin: number;
+        solveMs: number;
+        latencyMs: number;
+        cached: boolean;
+        weightsVersion: string;
+    } | null>(null);
+    const neuralAdapterRef = useRef<NeuralV2Adapter | null>(null);
+    const neuralTrackerRef = useRef(createNeuralRequestTracker());
+    const [neuralRetryTick, setNeuralRetryTick] = useState(0);
+    const neuralRetriedKeyRef = useRef<string | null>(null);
+    if (neuralAdapterRef.current === null) {
+        try {
+            const provider = new SurrogateV2Provider({
+                grid: { nx: 128, ny: 128, domain: { ...SURROGATE_V2_DOMAIN } },
+                geom: DEFAULT_SPEC,
+                Re: 50000,
+            });
+            neuralAdapterRef.current = new NeuralV2Adapter(provider);
+        } catch {
+            neuralAdapterRef.current = null;
+        }
+    }
+
+    // Router inputs come from the debounced case plus availability. The body
+    // token mirrors the BODY select so the envelope allowlist stays single
+    // sourced.
+    const routerBody = bodySelectValueFor(debouncedSpec);
+    const domainVerdict = useMemo(
+        () => classifyNeuralDomain(routerBody, debouncedSpec.alphaDeg, debouncedRe),
+        [routerBody, debouncedSpec.alphaDeg, debouncedRe]
+    );
+    const fastDecision = useMemo(
+        () => decideFastPath({ body: routerBody, alphaDeg: debouncedSpec.alphaDeg, reynolds: debouncedRe, neuralStatus }),
+        [routerBody, debouncedSpec.alphaDeg, debouncedRe, neuralStatus]
+    );
+
+    // Availability load runs once. Any failure latches to failed so the
+    // router keeps serving analytic with an honest reason.
+    useEffect(() => {
+        let cancelled = false;
+        const adapter = neuralAdapterRef.current;
+        if (adapter === null) {
+            setNeuralStatus("unavailable");
+            return;
+        }
+        setNeuralStatus(adapter.availability === "ready" ? "ready" : "loading");
+        void adapter.ensureLoaded().then((status) => {
+            if (!cancelled) setNeuralStatus(status);
+        }).catch(() => {
+            if (!cancelled) setNeuralStatus("failed");
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    // Neural effect keyed on spec, Re, and availability. Monotonic request
+    // id guards the async predict, latest only commits, stale keys never
+    // display. A failed latest request retries once for its key via the
+    // retry tick, then stays on the analytic frame underneath.
+    useEffect(() => {
+        void neuralRetryTick;
+        if (fastDecision.path !== "neural-v2") return;
+        const adapter = neuralAdapterRef.current;
+        if (adapter === null) return;
+        const requestId = neuralTrackerRef.current.next();
+        let cancelled = false;
+        void adapter.predictFor(debouncedSpec, debouncedRe).then((res) => {
+            if (cancelled) return;
+            if (!neuralTrackerRef.current.isLatest(requestId)) return;
+            const currentKey = neuralRequestKey(debouncedSpec, debouncedRe);
+            if (res.key !== currentKey) return;
+            if (!isUsableNeuralField(res.flow, res.cl, res.cpMin)) return;
+            if (!isUsableField(res.flow, res.cl, res.cpMin)) return;
+            setNeuralFrame({
+                key: res.key,
+                flow: res.flow,
+                cl: res.cl,
+                cpMin: res.cpMin,
+                solveMs: res.solveMs,
+                latencyMs: res.latencyMs,
+                cached: res.cached,
+                weightsVersion: adapter.version,
+            });
+        }).catch(() => {
+            if (cancelled) return;
+            if (!neuralTrackerRef.current.isLatest(requestId)) return;
+            const failedKey = neuralRequestKey(debouncedSpec, debouncedRe);
+            if (!shouldRetryNeuralPredict(neuralRetriedKeyRef.current, failedKey)) return;
+            neuralRetriedKeyRef.current = failedKey;
+            setNeuralRetryTick((t) => t + 1);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [debouncedSpec, debouncedRe, neuralStatus, fastDecision.path, neuralRetryTick]);
+
     const solved = useMemo<{ frame: SolvedFrame; error: string | null }>(() => {
         try {
-            if (mode === "surrogate" && surrogateRef.current !== null) {
-                const sp = surrogateRef.current;
-                sp.setGeometry(debouncedSpec);
-                sp.setRe(debouncedRe);
-                const flow = sp.getFrame();
-                const { cl, cpMin, solveMs } = sp.getResult();
-                if (!isUsableField(flow, cl, cpMin)) {
-                    throw new Error("surrogate solve produced a non-finite field, holding last good frame");
-                }
-                const polygons = buildPolygons(debouncedSpec);
-                const isFallback = sp.meta.backend !== "surrogate";
-                // Gated means weights are loaded but the sync inference budget rejects
-                // the shape, so no reload is needed. Missing or failed means no weights.
-                const gated = isFallback && sp.loaded;
-                const provenance: Provenance = {
-                    source: isFallback ? "analytic-potential" : "surrogate",
-                    label: isFallback
-                        ? gated
-                            ? "surrogate gated by sync budget, analytic fallback"
-                            : "surrogate unavailable, analytic fallback"
-                        : `surrogate ${sp.meta.weightsVersion}, ${sp.meta.latencyMs.toFixed(1)} ms${sp.meta.cached ? ", cached" : ""}`,
-                    generatedAt: new Date().toISOString(),
-                    gridLabel: `${DEFAULT_GRID.nx}x${DEFAULT_GRID.ny}`,
-                    geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
-                    note: isFallback
-                        ? gated
-                            ? "Surrogate weights loaded but over the sync inference budget, analytic fallback active (gated)."
-                            : "Surrogate weights missing or failed, analytic fallback active."
-                        : "Learned U-Net backend, offline weights.",
-                };
-                const frame: SolvedFrame = { flow, polygons, cl, cpMin, solveMs, provenance };
-                lastGoodRef.current = frame;
-                return { frame, error: null };
-            }
             const gridKey = `${solveGrid.nx}x${solveGrid.ny}`;
-            if (mode === "analytic" && wasmSource !== null) {
-                try {
-                    const ws = wasmSource as FrameSource & {
-                        setGeometry?: (g: GeometrySpec) => void;
-                        setRe?: (re: number) => void;
-                        getResult?: () => { cl: number; cpMin: number; solveMs: number };
-                    };
-                    ws.setGeometry?.(debouncedSpec);
-                    ws.setRe?.(debouncedRe);
-                    const flow = ws.getFrame();
-                    const res = ws.getResult?.() ?? { cl: Number.NaN, cpMin: Number.NaN, solveMs: 0 };
-                    const wasmFaulted = (ws as { wasmFailed?: boolean }).wasmFailed === true;
-                    if (!isUsableField(flow, res.cl, res.cpMin)) {
-                        throw new Error("wasm solve produced a non-finite field, holding last good frame");
-                    }
-                    const polygons = buildPolygons(debouncedSpec);
-                    const provenance: Provenance = wasmFaulted
-                        ? {
-                            source: "analytic-potential",
-                            label: `analytic fallback after wasm fault, computed locally at ${solveGrid.nx}`,
-                            generatedAt: new Date().toISOString(),
-                            gridLabel: `${solveGrid.nx}x${solveGrid.ny}`,
-                            geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
-                            note: "WASM solver faulted mid-session, analytic fallback is serving frames.",
-                        }
-                        : {
-                            source: "analytic-potential",
-                            label: `wasm-rust backend, computed locally at ${solveGrid.nx}`,
-                            generatedAt: new Date().toISOString(),
-                            gridLabel: `${solveGrid.nx}x${solveGrid.ny}`,
-                            geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
-                            note: "Rust WASM solver (wasm-rust), analytic fallback on fault. Potential panel solution plus wake overlay.",
-                        };
-                    const frame: SolvedFrame = { flow, polygons, cl: res.cl, cpMin: res.cpMin, solveMs: res.solveMs, provenance };
-                    lastGoodRef.current = frame;
-                    return { frame, error: null };
-                } catch (e: unknown) {
-                    const message = describeSolveError(e);
-                    console.error("WASM solve failure, holding last good frame:", message);
-                    const fallback = lastGoodRef.current ?? emptyFrame();
-                    return { frame: fallback, error: message };
-                }
-            }
             let provider = providerRef.current;
             if (provider === null || providerGridKeyRef.current !== gridKey) {
                 provider = new AnalyticFlowProvider(solveGrid, debouncedSpec, { Re: debouncedRe });
@@ -920,9 +945,7 @@ export default function App() {
             const polygons = buildPolygons(debouncedSpec);
             const provenance: Provenance = {
                 source: "analytic-potential",
-                label: solveGrid.nx === 256
-                    ? "analytic-potential, computed locally at 256"
-                    : "analytic-potential, computed locally at 128",
+                label: analyticProvenanceLabel(fastDecision.reason),
                 generatedAt: new Date().toISOString(),
                 gridLabel: `${solveGrid.nx}x${solveGrid.ny}`,
                 geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
@@ -937,22 +960,22 @@ export default function App() {
             const fallback = lastGoodRef.current ?? emptyFrame();
             return { frame: fallback, error: message };
         }
-    }, [debouncedSpec, debouncedRe, mode, surrogateReady, solveGrid, wasmSource]);
+    }, [debouncedSpec, debouncedRe, solveGrid, fastDecision.reason]);
 
     // Resolution bookkeeping: record each fresh solve once. Two consecutive
     // analytic solves over budget at 256 drop to 128 automatically.
     const recordedSolveRef = useRef("");
     useEffect(() => {
-        if (mode !== "analytic" || solved.error !== null) return;
+        if (solved.error !== null) return;
         const key = `${solveGrid.nx}x${solveGrid.ny}|${solved.frame.provenance.geometryLabel}|${solved.frame.solveMs.toFixed(2)}`;
         if (recordedSolveRef.current === key) return;
         recordedSolveRef.current = key;
         recordSolveMs(solved.frame.solveMs);
-    }, [mode, solved, solveGrid, recordSolveMs]);
+    }, [solved, solveGrid, recordSolveMs]);
 
-    const isFixture = mode === "fixture" && pack !== null;
+    const isFixture = fixtureDebug && pack !== null;
     const lbmFailedActive = lbmActive && lbmFailed !== null;
-    const lbmEffective = lbmActive && mode === "analytic" && !lbmFailedActive;
+    const lbmEffective = lbmActive && !lbmFailedActive;
     // Read the passive LBM provider on every render when effective. lbmTick
     // bumps on each worker snapshot so the canvas picks up new fields.
     void lbmTick;
@@ -979,49 +1002,90 @@ export default function App() {
             },
         }
         : null;
-    const frame = lbmSolved ?? solved.frame;
+    // Neural keyed frame: only the current request key may display. Stale
+    // keys stay on the analytic frame underneath.
+    const neuralKey = neuralRequestKey(debouncedSpec, debouncedRe);
+    const neuralKeyed = neuralFrame !== null && neuralFrame.key === neuralKey && fastDecision.path === "neural-v2"
+        ? neuralFrame
+        : null;
+    const neuralSolved: SolvedFrame | null = neuralKeyed !== null
+        ? {
+            flow: neuralKeyed.flow,
+            polygons: buildPolygons(debouncedSpec),
+            cl: neuralKeyed.cl,
+            cpMin: neuralKeyed.cpMin,
+            solveMs: neuralKeyed.solveMs,
+            provenance: {
+                source: "surrogate",
+                label: neuralProvenanceLabel({
+                    weightsVersion: neuralKeyed.weightsVersion,
+                    latencyMs: neuralKeyed.latencyMs,
+                    cached: neuralKeyed.cached,
+                }),
+                generatedAt: new Date().toISOString(),
+                gridLabel: "128x128",
+                geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
+                note: "Neural v2 prediction, not validated physics.",
+            },
+        }
+        : null;
+    // Frame selector: fixture debug preview, then LBM, then neural keyed,
+    // then analytic. Analytic always solves first, neural overlays when its
+    // key matches.
+    const fixtureSolved: SolvedFrame | null = isFixture && pack !== null
+        ? {
+            flow: pack.flow,
+            polygons: [pack.airfoilPoints],
+            cl: Number.NaN,
+            cpMin: Number.NaN,
+            solveMs: 0,
+            provenance: pack.provenance,
+        }
+        : null;
+    const frame = fixtureSolved ?? lbmSolved ?? neuralSolved ?? solved.frame;
     const solveError = isFixture ? null : lbmEffective ? null : solved.error;
-    const wasmFaulted = mode === "analytic" && wasmSource !== null && (wasmSource as { wasmFailed?: boolean }).wasmFailed === true;
-    const isWasmActive = mode === "analytic" && wasmSource !== null && !wasmFaulted && solveError === null && frame.provenance.label.startsWith("wasm-rust");
-    const isSurrogatePending = mode === "surrogate" && !surrogateReady;
-    const sourceIsSurrogate = frame.provenance.source === "surrogate";
-    const isSurrogateFallback = mode === "surrogate" && surrogateReady && !sourceIsSurrogate;
-    const isSurrogateActive = mode === "surrogate" && surrogateReady && sourceIsSurrogate;
-    // Gated fallback keeps loaded weights that exceed the sync inference budget.
-    // Missing or failed fallback has no weights. The badge color differs.
-    const isSurrogateGated = isSurrogateFallback && (surrogateRef.current?.loaded === true);
-    const flow = isFixture && pack ? pack.flow : lbmEffective && lbmFlow !== null ? lbmFlow : frame.flow;
-    const airfoil = isFixture && pack ? [pack.airfoilPoints] : frame.polygons;
-    const provenanceLabel = isFixture && pack
-        ? pack.provenance.label
-        : lbmEffective && lbmSolved !== null
-            ? lbmSolved.provenance.label
-            : solveError !== null
-                ? `solve error, showing last good (${frame.provenance.geometryLabel}, ${frame.provenance.gridLabel})`
-                : frame.provenance.label;
+    const isNeuralActive = neuralSolved !== null && solveError === null;
+    const isNeuralPending = neuralStatus === "loading" && fastDecision.path === "neural-v2" && neuralSolved === null;
+    const flow = frame.flow;
+    const airfoil = frame.polygons;
+    const solverPath: SolverPath = neuralKeyed !== null ? "neural-v2" : "analytic";
+    const neuralNote = neuralStatus === "ready" && neuralKeyed !== null
+        ? `weights ${neuralKeyed.weightsVersion}, ${neuralKeyed.latencyMs.toFixed(1)} ms${neuralKeyed.cached ? ", cached" : ""}`
+        : neuralStatus === "loading"
+            ? "weights still loading"
+            : neuralStatus === "failed"
+                ? "weights failed to load"
+                : "weights unavailable";
+    const provenanceLabel = selectProvenanceLabel({
+        isFixture,
+        fixtureLabel: isFixture && fixtureSolved !== null ? fixtureSolved.provenance.label : null,
+        lbmEffective,
+        lbmLabel: lbmEffective && lbmSolved !== null ? lbmSolved.provenance.label : null,
+        solveError,
+        isHeldAnalyticFrame: solveError !== null && !isFixture && !lbmEffective && frame === solved.frame,
+        frameGeometryLabel: frame.provenance.geometryLabel,
+        frameGridLabel: frame.provenance.gridLabel,
+        frameLabel: frame.provenance.label,
+    });
     const dotClass =
         solveError !== null ? "failed"
         : lbmFailedActive ? "fallback"
         : lbmEffective && !lbmHasSnapshot ? "pending"
         : lbmEffective ? "analytic"
-        : isSurrogatePending ? "pending"
-        : isSurrogateActive ? "surrogate"
-        : isSurrogateGated ? "gated"
-        : isSurrogateFallback ? "fallback"
+        : isNeuralPending ? "pending"
+        : isNeuralActive ? "surrogate"
         : isFixture ? "fixture"
         : "analytic";
-    const backendName =
-        isFixture ? "fixture preview"
-        : lbmFailedActive ? "analytic fallback (lbm failover)"
-        : lbmEffective && !lbmHasSnapshot ? "lbm pending"
-        : lbmEffective ? "lbm live"
-        : solveError !== null ? `${sourceIsSurrogate ? "surrogate" : isWasmActive ? "wasm-rust" : "analytic"} held`
-        : isSurrogatePending ? "surrogate loading"
-        : isSurrogateGated ? "analytic fallback (gated)"
-        : isSurrogateFallback ? "analytic fallback"
-        : isSurrogateActive ? "surrogate live"
-        : isWasmActive ? `wasm-rust live ${solveGrid.nx}`
-        : `analytic live ${solveGrid.nx}`;
+    const backendName = selectBackendName({
+        isFixture,
+        lbmFailedActive,
+        lbmEffective,
+        lbmHasSnapshot,
+        solveError,
+        isNeuralPending,
+        isNeuralActive,
+        solveGridNx: solveGrid.nx,
+    });
     // Bottom terminal status: grey idle before the first LBM snapshot, green
     // ready while live frames serve, pulsing accent while the worker runs,
     // red while a failover or a held solve latches the fallback.
@@ -1057,7 +1121,7 @@ export default function App() {
     }, [runLog, lbmFailedActive, lbmFailed, solveError, isFixture, gridState.notice, valSummary]);
     const regime = regimeLabel(debouncedRe);
     const alphaNote = alphaOutOfBandNote(debouncedSpec.alphaDeg);
-    const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${mode}|${lbmEffective ? `${lbmGrid.nx}x${lbmGrid.ny}` : solveGrid.nx}|${lbmTick}`;
+    const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${solverPath}|${flow.nx}x${flow.ny}|${lbmTick}|${neuralKey}`;
 
     // Honest gating: TKE and recirculation chips enable only when the live
     // frame actually carries the channel and the first statistics sample
@@ -1189,6 +1253,9 @@ export default function App() {
     // Phase B2 agent executor. Setup actions apply directly through the
     // existing setters. Run and cancel reuse the LBM buttons, whose confirm
     // and disabled states already live in the scene bar UI.
+    // Narrowed: set_engine accepts analytic or lbm only. Surrogate and wasm
+    // tokens are rejected with this pointer copy (see ENGINE_TOKENS in
+    // agent/agentActions.ts for the full envelope list).
     const applyAgentAction = useCallback((action: AgentAction) => {
         if (action.kind === "set_body") {
             const next = applyBodyPreset(spec, action.body);
@@ -1204,12 +1271,12 @@ export default function App() {
             return;
         }
         if (action.kind === "set_engine") {
-            if (action.engine === "surrogate") {
-                setMode("surrogate");
-                setEngineAndMirror("analytic");
+            if (action.engine === "analytic") {
+                setLbmArmedAndMirror(false);
+            } else if (action.engine === "lbm") {
+                setLbmArmedAndMirror(true);
             } else {
-                setMode("analytic");
-                setEngineAndMirror(action.engine);
+                return;
             }
             return;
         }
@@ -1230,26 +1297,22 @@ export default function App() {
         if (action.kind === "set_spec") {
             applyParametric(action.spec);
         }
-    }, [spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setEngineAndMirror, applyParametric]);
+    }, [spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setLbmArmedAndMirror, applyParametric]);
 
     // Telemetry engine word. Short uppercase token for the status strip.
     const engineLabel = lbmFailedActive
         ? "ANALYTIC-FB"
         : lbmEffective
             ? "LBM"
-            : isWasmActive
-                ? "WASM-RUST"
-                : isSurrogateActive
-                    ? "SURROGATE"
-                    : isSurrogatePending
+            : isFixture
+                ? "FIXTURE"
+                : solveError !== null
+                    ? "HELD"
+                    : isNeuralPending
                         ? "LOADING"
-                        : isFixture
-                            ? "FIXTURE"
-                            : solveError !== null
-                                ? "HELD"
-                                : isSurrogateFallback
-                                    ? "ANALYTIC-FB"
-                                    : "ANALYTIC";
+                        : isNeuralActive
+                            ? "NEURAL-V2"
+                            : "ANALYTIC";
     const bodyRowLabel = bodySelectValue === "naca0012"
         ? "NACA 0012"
         : bodySelectValue === "naca2412"
@@ -1266,8 +1329,8 @@ export default function App() {
         regime,
         bodyLabel: bodyRowLabel,
         backend: backendName,
-        engine: engineMode,
-        gridLabel: lbmEffective ? `${lbmGrid.nx}x${lbmGrid.ny}` : `${solveGrid.nx}x${solveGrid.ny}`,
+        engine: lbmArmed ? "lbm" : "analytic",
+        gridLabel: `${flow.nx}x${flow.ny}`,
         cl: frame.cl,
         cpMin: frame.cpMin,
         lbmStatus,
@@ -1282,7 +1345,7 @@ export default function App() {
         validation: { pass: valSummary.pass, warn: valSummary.warn, fail: valSummary.fail, info: valSummary.info },
         provenanceLabel,
         offline,
-    }), [debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, engineMode, lbmEffective, lbmGrid, solveGrid, frame, lbmStatus, lbmHasSnapshot, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline]);
+    }), [debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, lbmArmed, flow, frame, lbmStatus, lbmHasSnapshot, lbmEffective, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline]);
     const agentContextValue = useMemo(() => buildAgentContext(agentSnapshot), [agentSnapshot]);
 
     return (
@@ -1294,7 +1357,7 @@ export default function App() {
                 onNav={handleNav}
                 settingsOpen={settingsOpen}
                 onOpenSettings={() => setSettingsOpen(true)}
-                wasmActive={isWasmActive}
+                wasmActive={false}
                 focusMode={layoutPrefs.focusMode}
                 onToggleFocus={toggleFocus}
             />
@@ -1358,13 +1421,13 @@ export default function App() {
                     <TelemetryBar
                         engine={engineLabel}
                         dotClass={dotClass}
-                        gridLabel={lbmEffective ? `${lbmGrid.nx} x ${lbmGrid.ny}` : `${solveGrid.nx} x ${solveGrid.ny}`}
+                        gridLabel={`${flow.nx} x ${flow.ny}`}
                         cells={flow.nx * flow.ny}
                         solveMs={frame.solveMs}
                         cl={frame.cl}
                         cpMin={frame.cpMin}
                         regime={regime}
-                        provenanceLabel={packLoading && mode === "fixture" ? "Loading fixture" : provenanceLabel}
+                        provenanceLabel={packLoading && fixtureDebug ? "Loading fixture" : provenanceLabel}
                         pass={valSummary.pass}
                         warn={valSummary.warn}
                         fail={valSummary.fail}
@@ -1415,32 +1478,26 @@ export default function App() {
                             {lbmEffective && lbmBlockage.warning !== null && (
                                 <p className="fallbackNote notice" role="status">{lbmBlockage.warning}</p>
                             )}
-                            {packError && mode === "fixture" && <p className="error notice" role="alert">{packError}</p>}
-                            {packLoading && mode === "fixture" && !pack && <p className="loading notice" role="status">Loading fixture pack</p>}
-                            {isSurrogatePending && (
-                                <p className="loading notice" role="status">Loading surrogate weights, showing analytic meanwhile. No action needed.</p>
+                            {packError && fixtureDebug && <p className="error notice" role="alert">{packError}</p>}
+                            {packLoading && fixtureDebug && !pack && <p className="loading notice" role="status">Loading fixture pack</p>}
+                            {isNeuralPending && (
+                                <p className="loading notice" role="status">Neural v2 weights loading, showing analytic meanwhile. No action needed.</p>
                             )}
-                            {isSurrogateFallback && (
-                                <p className="fallbackNote notice" role="status">{frame.provenance.note ?? "Surrogate unavailable, analytic fallback active."}</p>
+                            {neuralStatus === "failed" && (
+                                <p className="fallbackNote notice" role="status">Neural v2 weights failed to load, analytic fallback active.</p>
                             )}
-                            {gridState.notice !== null && mode === "analytic" && (
+                            {neuralStatus === "unavailable" && fastDecision.path === "analytic" && (
+                                <p className="fallbackNote notice" role="status">{fastDecision.reason}, analytic fallback active.</p>
+                            )}
+                            {gridState.notice !== null && (
                                 <p className="fallbackNote notice" role="status">
                                     {gridState.notice}
                                     <button type="button" className="noticeDismiss" onClick={clearNotice} aria-label="Dismiss resolution notice">Dismiss</button>
                                 </p>
                             )}
-                            {mode === "surrogate" && surrogateNote !== null && surrogateReady && isSurrogateFallback && (
-                                <p className="reNote notice">{surrogateNote}</p>
-                            )}
-                            {mode === "analytic" && wasmNote !== null && wasmSource === null && (
-                                <p className="reNote notice" role="status">{wasmNote}</p>
-                            )}
-                            {wasmFaulted && (
-                                <p className="fallbackNote notice" role="status">WASM faulted, analytic fallback serving frames.</p>
-                            )}
                             {solveError !== null && !isFixture && (
                                 <p className="error solveError notice" role="alert">
-                                    {sourceIsSurrogate ? "Surrogate" : "Analytic"} solve failed ({solveError}), showing last good field. Adjust the shape controls to recover.
+                                    Analytic solve failed ({solveError}), showing last good field. Adjust the shape controls to recover.
                                 </p>
                             )}
                             {alphaNote !== null && !isFixture && solveError === null && (
@@ -1453,7 +1510,7 @@ export default function App() {
                                 <div className="runRow"><dt>BODY</dt><dd className="mono">{bodyRowLabel}</dd></div>
                                 <div className="runRow"><dt>ALPHA</dt><dd className="mono">{spec.alphaDeg.toFixed(1)} deg</dd></div>
                                 <div className="runRow"><dt>RE</dt><dd className="mono">{Math.round(debouncedRe).toLocaleString("en-US")}</dd></div>
-                                <div className="runRow"><dt>GRID</dt><dd className="mono">{lbmEffective ? `${lbmGrid.nx} x ${lbmGrid.ny}` : `${solveGrid.nx} x ${solveGrid.ny}`}</dd></div>
+                                <div className="runRow"><dt>GRID</dt><dd className="mono">{`${flow.nx} x ${flow.ny}`}</dd></div>
                                 <div className="runRow"><dt>REGIME</dt><dd className="mono">{regime}</dd></div>
                             </dl>
                         </div>
@@ -1473,7 +1530,7 @@ export default function App() {
                     <RunTerminal
                         status={terminalStatus}
                         engine={engineLabel}
-                        gridLabel={lbmEffective ? `${lbmGrid.nx} x ${lbmGrid.ny}` : `${solveGrid.nx} x ${solveGrid.ny}`}
+                        gridLabel={`${flow.nx} x ${flow.ny}`}
                         reynolds={debouncedRe}
                         stepText={lbmActive ? lbmProgressText : "single pass"}
                         rows={terminalRows}
@@ -1514,12 +1571,15 @@ export default function App() {
                                         <SimulationSection
                                             gridMode={gridState.mode}
                                             customSize={gridState.customSize}
-                                            activeGrid={solveGrid.nx}
+                                            activeGrid={flow.nx}
                                             gridNotice={gridState.notice}
                                             onGridMode={setGridMode}
                                             onClearGridNotice={clearNotice}
-                                            solveMode={mode}
-                                            onSolveMode={setMode}
+                                            solverPath={solverPath}
+                                            neuralStatus={neuralStatus}
+                                            neuralNote={neuralNote}
+                                            domainIn={domainVerdict.inDomain}
+                                            domainReason={domainVerdict.reason}
                                             reynolds={reynolds}
                                             lbmActive={lbmActive}
                                             onCommitReynolds={onReynoldsBar}

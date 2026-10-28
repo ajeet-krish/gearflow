@@ -1,6 +1,7 @@
 // SimulationSection: right rail SIMULATION window. Owns the run controls
 // now that the scene bars are gone: grid presets plus custom square,
-// solver select with honest labels, the Re slider plus non-blocking number
+// read only solver path status (current path, neural availability, domain
+// line with reasons), the Re slider plus non-blocking number
 // entry, and the full LBM run block (U, STEPS, LES, Run, Cancel, progress,
 // pre-flight warnings, fault lamp with Recover). Pure props plus small local
 // field text state. The terminal owns live status, this section never shows
@@ -12,7 +13,7 @@ import { parseCustomGrid, type GridMode } from "@/flow/gridController";
 import { parseReynoldsField } from "@/flow/reynoldsField";
 import { buildPolygons } from "@/geometry/parametric";
 import { LBM_STEPS_OPTIONS, LBM_U_OPTIONS, LbmEntryNotice, LbmFailoverNotice } from "./LbmSetupRow";
-import type { FlowMode } from "./FlowControls";
+import type { NeuralStatus, SolverPath } from "@/flow/solverRouter";
 
 const LOG_RE_MIN = 2;
 const LOG_RE_MAX = 6;
@@ -68,8 +69,11 @@ export interface SimulationSectionProps {
     gridNotice: string | null;
     onGridMode: (mode: GridMode, customRaw?: unknown) => void;
     onClearGridNotice: () => void;
-    solveMode: FlowMode;
-    onSolveMode: (next: FlowMode) => void;
+    solverPath: SolverPath;
+    neuralStatus: NeuralStatus;
+    neuralNote: string | null;
+    domainIn: boolean;
+    domainReason: string | null;
     reynolds: number;
     lbmActive: boolean;
     onCommitReynolds: (raw: number | string) => void;
@@ -111,16 +115,6 @@ const GRID_PRESETS: Array<{ mode: GridMode; label: string }> = [
     { mode: "custom", label: "Custom" },
 ];
 
-function solveHint(mode: FlowMode): string {
-    if (mode === "surrogate") {
-        return "Learned weights load once, then run offline. Any load failure falls back to analytic.";
-    }
-    if (mode === "fixture") {
-        return "Static fixture preview. Not physics, for pipeline checks only.";
-    }
-    return "Default physics path. Local solve, no fetch, fully offline.";
-}
-
 /**
  * Pure view split: no hooks, so rail tests drive every commit path through
  * direct element calls with no worker threads. The default export owns the
@@ -130,7 +124,7 @@ export function SimulationSectionView(props: SimulationSectionViewProps): JSX.El
     const {
         gridMode, customSize, activeGrid, gridNotice, onGridMode, onClearGridNotice,
         customText, onCustomText, customError, onCustomError,
-        solveMode, onSolveMode,
+        solverPath, neuralStatus, neuralNote, domainIn, domainReason,
         reynolds, lbmActive, onCommitReynolds,
         reText, onReText, rePopup, onRePopup,
         lbmULattice, onLbmULattice, lbmTargetSteps, onLbmTargetSteps,
@@ -209,7 +203,7 @@ export function SimulationSectionView(props: SimulationSectionViewProps): JSX.El
                 {customError !== null && (
                     <p className="mError" role="alert">{customError}</p>
                 )}
-                <p className="hint mono">Active grid {activeGrid} x {activeGrid}. Surrogate and fixture stay at 128.</p>
+                <p className="hint mono">Active grid {activeGrid} x {activeGrid}.</p>
                 {gridNotice !== null && (
                     <p className="fallbackNote notice" role="status">
                         {gridNotice}
@@ -219,19 +213,16 @@ export function SimulationSectionView(props: SimulationSectionViewProps): JSX.El
             </div>
 
             <div className="field">
-                <label htmlFor="simBackend">Flow backend</label>
-                <select
-                    id="simBackend"
-                    value={solveMode}
-                    onChange={(e) => onSolveMode(e.target.value as FlowMode)}
-                    aria-label="Flow backend: analytic, surrogate, or fixture fallback"
-                    aria-describedby="simBackendHint"
-                >
-                    <option value="analytic">Analytic potential (local, deterministic)</option>
-                    <option value="surrogate">Surrogate U-Net (falls back to analytic)</option>
-                    <option value="fixture">Fixture fallback (fake fixture, not physics)</option>
-                </select>
-                <p className="hint" id="simBackendHint">{solveHint(solveMode)}</p>
+                <span className="settingsLabel" id="simPathLabel">Solver path</span>
+                <p className="mono" role="status" id="simPathCurrent">
+                    Current path {solverPath === "neural-v2" ? "neural-v2 predicted, not validated" : "analytic potential flow, not validated"}
+                </p>
+                <p className="hint mono" id="simNeuralLine">
+                    Neural {neuralStatus}{neuralNote !== null && neuralNote.length > 0 ? `, ${neuralNote}` : ""}
+                </p>
+                <p className="hint" id="simDomainLine">
+                    Domain {domainIn ? "inside the provisional envelope" : `outside the provisional envelope${domainReason !== null && domainReason.length > 0 ? ` (${domainReason})` : ""}`}
+                </p>
             </div>
 
             <div className="field">

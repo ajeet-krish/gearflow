@@ -49,9 +49,9 @@ describe("LBM App wiring", () => {
 
     it("resets a high Re once on LBM entry and never loops", async () => {
         const src = await readFile(appPath, "utf8");
-        // Transition guard keyed on the mode change, not on every render.
+        // Transition guard keyed on the arming change, not on every render.
         expect(src).toContain("lbmEnterSeenRef");
-        expect(src).toContain("lbmEntryTransition(engineMode, reynolds, lbmEnterSeenRef.current)");
+        expect(src).toContain("lbmEntryTransition(engineToken, reynolds, lbmEnterSeenRef.current)");
         // High Re resets to 200 with a notice, deliberate low Re survives.
         expect(src).toContain("setReynolds(transition.reynolds)");
         expect(src).toContain("setLbmNotice(transition.notice)");
