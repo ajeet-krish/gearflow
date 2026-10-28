@@ -1,4 +1,4 @@
-"""V2 model contract: 4 in, 6 out, base 8 locked, GroupNorm export."""
+"""V2 model contract: 4 in, 6 out, base 8 locked, InstanceNorm export."""
 
 import pytest
 import torch
@@ -9,9 +9,9 @@ from model import (
     UNet,
     UNetV2,
     V2_BASE,
-    V2_GN_EPS,
-    V2_GROUPS,
     V2_IN_CH,
+    V2_NORM_EPS,
+    V2_NORM_OP,
     V2_OUT_CH,
     param_count_v2,
 )
@@ -49,22 +49,22 @@ def test_v2_base_locked() -> None:
         UNetV2(base=16)
 
 
-def test_v2_groupnorm_config() -> None:
+def test_v2_instancenorm_config() -> None:
     model = UNetV2()
     norms = [m for m in model.norms if not isinstance(m, torch.nn.Identity)]
     assert len(norms) == 14
     for norm in norms:
-        assert norm.num_groups == V2_GROUPS == 4
-        assert norm.eps == V2_GN_EPS == pytest.approx(1e-5)
+        assert isinstance(norm, torch.nn.InstanceNorm2d)
+        assert norm.num_features == norm.weight.numel()
+        assert norm.eps == V2_NORM_EPS == pytest.approx(1e-5)
         assert norm.affine is True
+        assert V2_NORM_OP == "InstanceNormalization"
     assert isinstance(model.norms[-1], torch.nn.Identity)
 
 
 def _export_v2_graph(tmp_path):  # type: ignore[no-untyped-def]
     onnx = pytest.importorskip("onnx", reason="onnx package absent, skipping v2 export check")
-    from model import register_v2_onnx_symbolic
 
-    register_v2_onnx_symbolic(18)
     model = UNetV2()
     model.eval()
     out_path = str(tmp_path / "v2.onnx")
@@ -81,19 +81,19 @@ def _export_v2_graph(tmp_path):  # type: ignore[no-untyped-def]
     return onnx.load(out_path).graph
 
 
-def test_v2_export_has_groupnormalization(tmp_path) -> None:
+def test_v2_export_has_instancenormalization(tmp_path) -> None:
     graph = _export_v2_graph(tmp_path)
-    gn_nodes = [n for n in graph.node if n.op_type == "GroupNormalization"]
-    assert len(gn_nodes) == 14
-    for node in gn_nodes:
+    in_nodes = [n for n in graph.node if n.op_type == "InstanceNormalization"]
+    assert len(in_nodes) == 14
+    for node in in_nodes:
         attrs = {a.name: a for a in node.attribute}
-        assert attrs["num_groups"].i == 4
         assert attrs["epsilon"].f == pytest.approx(1e-5)
+    assert not any(n.op_type == "GroupNormalization" for n in graph.node)
     compute_ops = {n.op_type for n in graph.node} - {"Identity", "Constant", "Shape"}
-    assert compute_ops <= {"Conv", "GroupNormalization", "Relu", "MaxPool", "Resize", "Concat"}
+    assert compute_ops <= {"Conv", "InstanceNormalization", "Relu", "MaxPool", "Resize", "Concat"}
 
 
-def _ort_runs_groupnorm() -> bool:
+def _ort_runs_instancenorm() -> bool:
     try:
         import numpy as np
         import onnxruntime as ort
@@ -103,7 +103,7 @@ def _ort_runs_groupnorm() -> bool:
     try:
         x = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 8, 4, 4])
         y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 8, 4, 4])
-        node = helper.make_node("GroupNormalization", ["X", "S", "B"], ["Y"], num_groups=4, epsilon=1e-5)
+        node = helper.make_node("InstanceNormalization", ["X", "S", "B"], ["Y"], epsilon=1e-5)
         graph = helper.make_graph(
             [node],
             "probe",
@@ -125,15 +125,26 @@ def _ort_runs_groupnorm() -> bool:
 
 def test_v2_export_parity(tmp_path) -> None:
     pytest.importorskip("onnxruntime", reason="onnxruntime absent, skipping v2 parity check (C-5 owns the onnxruntime-web 1.30.0 proof)")
-    if not _ort_runs_groupnorm():
-        pytest.skip("onnxruntime in this env cannot execute GroupNormalization-18, skipping parity (C-5 owns the onnxruntime-web 1.30.0 proof)")
+    if not _ort_runs_instancenorm():
+        pytest.skip("onnxruntime in this env cannot execute InstanceNormalization-18, skipping parity (C-5 owns the onnxruntime-web 1.30.0 proof)")
     import numpy as np
     import onnxruntime as ort
 
-    graph = _export_v2_graph(tmp_path)
-    onnx_path = str(tmp_path / "v2.onnx")
+    onnx = pytest.importorskip("onnx", reason="onnx package absent, skipping v2 export check")
     model = UNetV2()
     model.eval()
+    onnx_path = str(tmp_path / "v2.onnx")
+    torch.onnx.export(
+        model,
+        torch.zeros(1, V2_IN_CH, 128, 128),
+        onnx_path,
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes=None,
+        opset_version=18,
+        dynamo=False,
+    )
+    assert onnx.load(onnx_path) is not None
     torch.manual_seed(7)
     probe = torch.randn(1, V2_IN_CH, 128, 128)
     with torch.no_grad():
@@ -142,4 +153,3 @@ def test_v2_export_parity(tmp_path) -> None:
     got = sess.run(["output"], {"input": probe.numpy()})[0]
     assert got.shape == ref.shape
     assert float(np.max(np.abs(ref - got))) < 1e-4
-    assert graph is not None

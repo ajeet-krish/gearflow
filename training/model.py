@@ -115,16 +115,16 @@ def param_count(base: int = BASE) -> int:
 # recirc (raw logit). Sigmoid and expm1 stay in the consumer, never here.
 #
 # Network: encoder 8/16/32, bottleneck 64, symmetric decoder, head 8 to 6 via
-# 1x1 conv. Every non head conv is followed by GroupNorm (4 groups, eps 1e-5,
-# affine) then ReLU. Nearest upsample and max pool, as v1. Base 8 is locked
+# 1x1 conv. Every non head conv is followed by InstanceNorm (affine,
+# eps 1e-5) then ReLU. Nearest upsample and max pool, as v1. Base 8 is locked
 # for v2 production: 122934 parameters exactly.
 
 V2_ARCH = "unet-v2"
 V2_IN_CH = 4
 V2_OUT_CH = 6
 V2_BASE = 8
-V2_GROUPS = 4
-V2_GN_EPS = 1e-5
+V2_NORM_OP = "InstanceNormalization"
+V2_NORM_EPS = 1e-5
 
 V2_IN_HEADS = ("sdf", "mask", "alpha", "logRe")
 V2_OUT_HEADS = ("meanU", "meanV", "cp", "vorticity", "tke", "recirc")
@@ -154,7 +154,7 @@ def v2_layer_order(base: int) -> list[tuple[str, int, int, int]]:
 
 
 class UNetV2(nn.Module):
-    """Base 8 U-Net with GroupNorm for the v2 surrogate (4 in, 6 out)."""
+    """Base 8 U-Net with InstanceNorm for the v2 surrogate (4 in, 6 out)."""
 
     def __init__(self, base: int = V2_BASE):
         super().__init__()
@@ -177,7 +177,7 @@ class UNetV2(nn.Module):
             if name == "head":
                 self.norms.append(nn.Identity())
             else:
-                self.norms.append(nn.GroupNorm(num_groups=V2_GROUPS, num_channels=co, eps=V2_GN_EPS, affine=True))
+                self.norms.append(nn.InstanceNorm2d(co, eps=V2_NORM_EPS, affine=True))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         skips = []
@@ -210,21 +210,8 @@ def param_count_v2(base: int = V2_BASE) -> int:
     return total
 
 
-def register_v2_onnx_symbolic(opset: int = 18) -> None:
-    """Map aten group_norm to the GroupNormalization ONNX op for v2 export.
-
-    Both the TorchScript and dynamo ONNX translators decompose GroupNorm
-    into reshape plus InstanceNormalization by default, which the TypeScript
-    consumer does not implement. Call this once before torch.onnx.export
-    (C-5 export phase) so the graph carries GroupNormalization directly.
-    Forward numerics and parameters are unchanged.
-    """
-    from torch.onnx import register_custom_op_symbolic
-    from torch.onnx.symbolic_helper import _get_const
-
-    def group_norm_symbolic(g: object, x: object, groups: object, w: object, b: object, eps: object, _cudnn: bool) -> object:
-        n_groups = _get_const(groups, "i", "num_groups")
-        epsilon = _get_const(eps, "f", "eps")
-        return g.op("GroupNormalization", x, w, b, num_groups_i=n_groups, epsilon_f=epsilon)  # type: ignore[union-attr]
-
-    register_custom_op_symbolic("aten::group_norm", group_norm_symbolic, opset)
+# NOTE: v2 exports InstanceNormalization natively (opset 18) with no custom
+# symbolic. An earlier GroupNorm design needed a register_v2_onnx_symbolic
+# helper to map aten group_norm; InstanceNorm was chosen instead because
+# onnxruntime-web 1.30.0 executes InstanceNormalization-18 (probe in
+# src/flow/surrogateV2.test.ts) while it cannot execute GroupNormalization-18.

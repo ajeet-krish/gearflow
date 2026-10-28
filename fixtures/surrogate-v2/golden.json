@@ -1,0 +1,114 @@
+{
+  "arch": "unet-v2",
+  "base": 8,
+  "cases": [
+    {
+      "description": "all zero model input (1, 4, 128, 128)",
+      "input": {
+        "file": "zeros/input.f32",
+        "sha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+        "shape": [
+          1,
+          4,
+          128,
+          128
+        ]
+      },
+      "name": "zeros",
+      "onnx": {
+        "file": "zeros/expected_onnx.f32",
+        "sha256": "a6619f482fee91a315f76cdcd8705d39b6ce11077c435ccc696142e130c27762",
+        "shape": [
+          1,
+          6,
+          128,
+          128
+        ]
+      },
+      "torch": {
+        "file": "zeros/expected_torch.f32",
+        "sha256": "a6619f482fee91a315f76cdcd8705d39b6ce11077c435ccc696142e130c27762",
+        "shape": [
+          1,
+          6,
+          128,
+          128
+        ]
+      }
+    },
+    {
+      "description": "standard normal model input, torch manual seed 7",
+      "input": {
+        "file": "randn_s7/input.f32",
+        "sha256": "4733038e5585463d671789dfc7a49e4ceeaf44256c815672881afa0e5f3a8ac9",
+        "shape": [
+          1,
+          4,
+          128,
+          128
+        ]
+      },
+      "name": "randn_s7",
+      "onnx": null,
+      "torch": {
+        "file": "randn_s7/expected_torch.f32",
+        "sha256": "bf1b980ce3b364995fe03d96bb387f740adef7cc41c4e24aea335c3dc4ea0a58",
+        "shape": [
+          1,
+          6,
+          128,
+          128
+        ]
+      }
+    },
+    {
+      "description": "real LBM pilot case naca0012_a04_re100 (body naca0012, Re 100) via the v2 adapter, normalized with the golden norm",
+      "input": {
+        "file": "lbm_naca0012_a04_re100/input.f32",
+        "sha256": "211b3181bd5077ea189e784169b77c9017472cbf99eaf3af719acbb01ab55667",
+        "shape": [
+          1,
+          4,
+          128,
+          128
+        ]
+      },
+      "lbmCase": "naca0012_a04_re100",
+      "name": "lbm_naca0012_a04_re100",
+      "onnx": null,
+      "refLength": 1.0,
+      "refLengthNote": "airfoil chord is 1.0 by the canonical grid convention",
+      "sdfSource": "derived_mask",
+      "torch": {
+        "file": "lbm_naca0012_a04_re100/expected_torch.f32",
+        "sha256": "a2ba0cb9f804b49638ae9fbccebc005852cef44b545ddba1f2993bdb0a221e57",
+        "shape": [
+          1,
+          6,
+          128,
+          128
+        ]
+      }
+    }
+  ],
+  "generatedUtc": "2026-10-28T05:27:23.430441+00:00",
+  "layout": "NCHW C-order float32, one sample per file",
+  "normSha256": "d0a356232162d5f96e03ad28ca9ee00c9ed1957da3bd3f9b0b1ea0d8a5f00145",
+  "onnx": {
+    "available": true,
+    "reason": ""
+  },
+  "onnxCases": [
+    "zeros"
+  ],
+  "opset": 18,
+  "provenance": {
+    "detail": "seeded random init (seed 7) plus default norm, no Modal checkpoint",
+    "source": "synthetic"
+  },
+  "schema": "gearflow-surrogate-golden/v1",
+  "seed": 7,
+  "tolerance": 0.0001,
+  "torchVsOnnxMaxErr": 4.57763671875e-05,
+  "totalBytes": 2362239
+}

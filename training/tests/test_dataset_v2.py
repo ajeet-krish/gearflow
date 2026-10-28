@@ -12,6 +12,7 @@ from dataset_v2 import (
     AnalyticV2Dataset,
     LbmV2Dataset,
     canonical_norm_json,
+    empty_norm,
     fit_norm,
     load_norm_sidecar,
     norm_hash,
@@ -187,6 +188,7 @@ def test_sidecar_roundtrip_and_refit(tmp_path) -> None:
     digest = write_norm_sidecar(path, train.norm)
     assert digest == norm_hash(train.norm)
     assert load_norm_sidecar(path)["schema"] == NORM_SCHEMA
+    assert train.norm["normalization"] == {"operator": "InstanceNormalization", "groups": None, "eps": 1e-5}
     raw_targets = [train._raw_sample(e)[1] for e in train._entries]
     refit = with_refit_outputs(train.norm, raw_targets, fitted_on="lbm:test:train")
     assert canonical_norm_json(refit["inputs"]) == canonical_norm_json(train.norm["inputs"])
@@ -243,3 +245,45 @@ def test_cpu_smoke_one_epoch_pretrain(tmp_path) -> None:
     torch.save(ckpt, path)
     loaded = torch.load(path, map_location="cpu", weights_only=True)
     assert loaded["arch"] == "unet-v2" and int(loaded["base"]) == 8
+
+
+def _mutated_norms(base: dict) -> dict[str, dict]:
+    """Return label to mutated norm variants for rejection tests."""
+    import copy
+
+    variants: dict[str, dict] = {}
+    missing_key = copy.deepcopy(base)
+    del missing_key["normalization"]
+    variants["missing normalization"] = missing_key
+    wrong_op = copy.deepcopy(base)
+    wrong_op["normalization"] = {"operator": "GroupNormalization", "groups": None, "eps": 1e-5}
+    variants["wrong operator"] = wrong_op
+    grouped = copy.deepcopy(base)
+    grouped["normalization"] = {"operator": "InstanceNormalization", "groups": 8, "eps": 1e-5}
+    variants["groups not None"] = grouped
+    missing_groups = copy.deepcopy(base)
+    missing_groups["normalization"] = {"operator": "InstanceNormalization", "eps": 1e-5}
+    variants["missing groups"] = missing_groups
+    wrong_eps = copy.deepcopy(base)
+    wrong_eps["normalization"] = {"operator": "InstanceNormalization", "groups": None, "eps": 1e-3}
+    variants["wrong eps"] = wrong_eps
+    missing_eps = copy.deepcopy(base)
+    missing_eps["normalization"] = {"operator": "InstanceNormalization", "groups": None}
+    variants["missing eps"] = missing_eps
+    return variants
+
+
+def test_sidecar_write_rejects_bad_normalization(tmp_path) -> None:
+    base = empty_norm()
+    for label, bad in _mutated_norms(base).items():
+        with pytest.raises(ValueError, match="normalization"):
+            write_norm_sidecar(tmp_path / f"norm-{label.replace(' ', '_')}.json", bad)
+
+
+def test_sidecar_load_rejects_bad_normalization(tmp_path) -> None:
+    base = empty_norm()
+    for label, bad in _mutated_norms(base).items():
+        path = tmp_path / f"norm-{label.replace(' ', '_')}.json"
+        path.write_text(canonical_norm_json(bad))
+        with pytest.raises(ValueError, match="normalization"):
+            load_norm_sidecar(path)

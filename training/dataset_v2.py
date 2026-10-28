@@ -33,6 +33,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from model import V2_NORM_EPS, V2_NORM_OP
+
 NX = 128
 NY = 128
 X_MIN, X_MAX = -0.5, 2.0
@@ -159,6 +161,7 @@ def empty_norm() -> dict:
     return {
         "schema": NORM_SCHEMA,
         "alphaScale": ALPHA_SCALE,
+        "normalization": {"operator": V2_NORM_OP, "groups": None, "eps": V2_NORM_EPS},
         "inputs": {
             "sdf": {"mean": 0.0, "std": 1.0},
             "logRe": {"mean": 0.0, "std": 1.0},
@@ -245,6 +248,7 @@ def write_norm_sidecar(path: Path, norm: dict) -> str:
     """Write the authoritative norm.json sidecar; return its sha256."""
     if norm.get("schema") != NORM_SCHEMA:
         raise ValueError(f"norm schema must be {NORM_SCHEMA}")
+    _require_v2_normalization(norm)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(canonical_norm_json(norm))
@@ -255,7 +259,25 @@ def load_norm_sidecar(path: Path) -> dict:
     norm = json.loads(Path(path).read_text())
     if norm.get("schema") != NORM_SCHEMA:
         raise ValueError(f"norm schema must be {NORM_SCHEMA}, got {norm.get('schema')!r}")
+    _require_v2_normalization(norm)
     return norm
+
+
+def _require_v2_normalization(norm: dict) -> None:
+    """Pin the v2 normalization operator: InstanceNorm, no groups, eps 1e-5."""
+    desc = norm.get("normalization", None)
+    if (
+        not isinstance(desc, dict)
+        or desc.get("operator") != V2_NORM_OP
+        or desc.get("groups", "missing") is not None
+        or desc.get("eps") != V2_NORM_EPS
+    ):
+        raise ValueError(
+            f"norm normalization must be "
+            f"{{'operator': {V2_NORM_OP!r}, 'groups': None, 'eps': {V2_NORM_EPS!r}}}, "
+            f"got {desc!r} "
+            "(GroupNorm sidecars are rejected: onnxruntime-web 1.30.0 cannot run GroupNormalization-18)"
+        )
 
 
 def split_case_ids(case_ids: list[str], train_frac: float = 0.8) -> tuple[list[str], list[str]]:
@@ -402,6 +424,38 @@ class LbmV2Dataset(Dataset):
             self.norm = fit_norm(raw_x, raw_y, fitted_on=f"lbm:{self.sweep_dir.name}:{split}")
         else:
             self.norm = norm
+
+    @classmethod
+    def staged_for_case(cls, staging_dir: Path, case_dir: Path) -> "LbmV2Dataset":
+        """Stage one on-disk pilot case under a sweep layout for _raw_sample.
+
+        Supported single case entry point for tools such as make_golden that
+        need the real adapter conversion for exactly one case_id without
+        constructing a full sweep dataset. Creates <staging>/cases/<case_id>
+        as a symlink to case_dir (copy fallback when symlinks are refused),
+        then returns a dataset instance bound to the staging dir with no rows
+        loaded. Callers drive _raw_sample with their own row dict. The
+        instance carries sweep_dir only; ids and _rows stay empty on purpose.
+        """
+        import shutil
+
+        staging_dir = Path(staging_dir)
+        case_dir = Path(case_dir)
+        link = staging_dir / "cases" / case_dir.name
+        link.parent.mkdir(parents=True, exist_ok=True)
+        if not link.exists():
+            try:
+                link.symlink_to(case_dir, target_is_directory=True)
+            except OSError:
+                shutil.copytree(case_dir, link)
+        guest = cls.__new__(cls)
+        guest.split = "single"
+        guest.sweep_dir = staging_dir
+        guest._rows = []
+        guest.ids = []
+        guest.sdf_source = {}
+        guest.norm = empty_norm()
+        return guest
 
     def _read_bin(self, case_id: str, name: str, nx: int, ny: int) -> np.ndarray:
         path = self.sweep_dir / "cases" / case_id / f"{name}.f32"
