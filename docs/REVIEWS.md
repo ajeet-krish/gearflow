@@ -1088,3 +1088,31 @@ Verdict: PASS
 Tests: cargo test --release PASS (93 passed, 0 failed, 2 ignored heavy gates), cargo test --release stats PASS (25 passed), wasm-pack build --target web --release PASS, manifest sha256 and bin sizes independently recomputed PASS. Executed by tester subagent, this reviewer had no shell tool.
 
 Note recurring pattern: none new for Phase C. Export additive plus honest diverged rows are pinned by unit tests and an independently recomputed on disk manifest; remaining Minors are local IO and rerun merge edges, not solver or schema drift.
+
+## 2026-10-28 - C-1/C-2 fix confirmation
+
+Date: 2026-10-28
+Reviewer: code-reviewer
+Scope: Re-review of C-1/C-2 fixes (training/dataset_v2.py, training/modal_train.py, training/modal_sweep.py, training/merge_sweep.py, training/tests/test_dataset_v2.py, training/tests/test_modal_train.py, training/tests/test_model_v2.py, training/tests/test_merge_sweep.py, training/tests/test_modal_sweep.py, rust/gearflow-wasm/src/sdf.rs, rust/gearflow-wasm/src/bin/dataset_pilot.rs). Ground truth accepted from orchestrator, not rerun by reviewer: pytest 56 passed 1 skipped, cargo release 93 plus 4 passed, zero Modal spend.
+Verdict: PASS
+
+| Item | Verdict | Details |
+|------|---------|---------|
+| 1 Major: derived SDF sign inverted | PASS | training/dataset_v2.py:110-119 sdf_from_mask returns inside minus outside, docstring at line 114 states negative inside solid and positive in fluid; sign test training/tests/test_dataset_v2.py:202-209 asserts negative on solid cells and positive on fluid cells |
+| 2 Medium: ORT parity ownership | PASS | training/tests/test_model_v2.py:127,129 both skip paths name C-5 as owning the onnxruntime-web 1.30.0 proof; this is the single skipped test in the accepted 56 passed 1 skipped ground truth |
+| 3 Medium: git sha dead in run log | PASS | training/modal_train.py:53-59 local git rev-parse with unknown fallback, local entrypoint computes it at lines 344-345 and hands it to both remote stage calls at lines 347-368, remote revalidates format at line 135 and records it at line 294; format test training/tests/test_modal_train.py:60-65 and handoff signature test at lines 68-72 |
+| 4 Medium: merge stale output on failure | PASS | training/merge_sweep.py:221-235 stages into a sibling staging dir and swaps by rename only after all rows verify; failure path lines 214-219 writes only merge_report.json and removes stale manifest and cases via lines 120-133; rerun and stale removal pinned at training/tests/test_merge_sweep.py:219-237 and 240-261 |
+| 5 Minor: DX and DY node intervals | PASS | training/dataset_v2.py:50-51 DX and DY divide by NX minus 1 and NY minus 1, matching node spacing on the canonical grid |
+| 6 Minor: retry semantics | PASS | Documented at training/modal_train.py:44-49 and training/modal_sweep.py:96-103; both state retries cover infrastructure loss and note Modal has no per exception retry filter, so the comment is the contract |
+| 7 Minor: cargo locked build | PASS | training/modal_sweep.py:46-48 builds with cargo build locked release for dataset_pilot and asserts the binary exists; pinned at training/tests/test_modal_sweep.py:159-169 |
+| 8 Minor: Rust SDF agreement assertion | PASS | rust/gearflow-wasm/src/sdf.rs:200-203 asserts sdf at or below zero exactly where obstacle is set, cell for cell; dataset_pilot sign and length check at rust/gearflow-wasm/src/bin/dataset_pilot.rs:881-889 |
+| 9 New test_modal_sweep.py contracts | PASS | training/tests/test_modal_sweep.py:159-192 locked build, toolchain, fanout cap 16, resources; lines 221-311 behavioral cache, corrupt cache, force bypass, diverged cache; lines 339-346 no secret reads; lines 364-371 volume layout and local merge note |
+
+### Verification Checklist
+- [x] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this review session (no shell tool available to the reviewer). Accepted ground truth: pytest 56 passed 1 skipped (the ORT parity probe naming C-5), cargo release 93 plus 4 passed, zero Modal spend. Recurring pattern: closed for C-1/C-2. Deferred ownership is now explicit in the skip reason (C-5) rather than a silent pass, and merge failure semantics are pinned by rerun tests rather than asserted in prose only.

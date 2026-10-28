@@ -216,3 +216,10 @@ Append only. Add new entries at bottom with date. Never rewrite history.
 * Options considered: Leave default Re open with silent analytic fallback versus clamp tau with a viscosity floor versus cap LBM Re with explicit failover UI.
 * Decision: LBM mode defaults entry Re to 200 above 2000, caps Re controls and parametric applies at 2000 while LBM active, exposes U plus STEPS plus LES controls in a scene setup row, tau failover shows fault lamp with Recover at Re 200 which clears the latch, LES stays auto above 500 and modeled.
 * Impact (judging link): Judging demo runs LBM at Re 100 to 480 stable band on the default grid, honest modeled labeling above 500, no solver maths change.
+
+### 2026-10-28 Surrogate v2 base 8 lock, base 16 as conditional ablation
+* Date: 2026-10-28
+* Context: Surrogate v2 (4 inputs SDF, mask, alpha, logRe; 6 outputs mean u, mean v, Cp, vorticity, TKE, recirculation logit; GroupNorm UNet) needs a production width before Modal training starts. Base drives browser inference cost, GPU batch fit on A10G with L4 fallback, and training time on 4000 analytic samples plus 60 to 200 LBM cases. Prior constraint was local only training; $100 free Modal credits remove it for this window.
+* Options considered: Base 32 carried over from v1 versus base 16 as production versus base 8 as production with base 16 held as conditional ablation.
+* Decision: Base 8 locked for v2 production (122934 parameters). Base 16 runs only as an ablation when all hold after base 8 fine tune: LBM val composite or per head physical error misses target (mean velocity RMSE above 0.08 of U_ref, or Cp RMSE above 0.15) on at least two body families, and at least 48 hours remain before freeze. Identical splits, sidecars, seed, schedule, only base changes. Promoted only on composite improvement of at least 10 percent, recirculation F1 drop of at most 0.02, and browser ONNX latency inside budget.
+* Impact (judging link): Technical Depth (sized honest model with pre registered ablation gate) and Demo (browser inference stays responsive).

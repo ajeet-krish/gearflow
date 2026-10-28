@@ -2,10 +2,19 @@
 // WASM and no worker. Deterministic seed 42, sample_every 10. Writes raw
 // little endian float32 bins plus a JSON sidecar per case and one manifest
 // JSONL row per case. Zero new crates, std only plus the lib itself.
+//
+// C-2 extension: optional `cases` spec file (CaseSpecV1 JSON lines) plus
+// `manifest_out` fragment arg for the Modal sweep. Spec rows use sha v2
+// over eight bins in order umean, vmean, pmean, omegamean, tke, recirc,
+// obstacle, sdf. Pilot rows keep sha v1 over the first seven bins. Every
+// row carries sha_version, ref_length, and substitutes_for. The eighth bin
+// sdf.f32 comes from the same SDF grid that builds the solid mask.
 
 use gearflow_wasm::boundaries::{InletProfile, OutletKind};
+use gearflow_wasm::geometry::build_polygons;
 use gearflow_wasm::lbm::{LbmConfig, LbmState};
-use gearflow_wasm::types::{Domain, GeometrySpec, GridSpec, NacaParams, Xy};
+use gearflow_wasm::sdf::build_sdf_grid;
+use gearflow_wasm::types::{CircleDef, Domain, GeometrySpec, GridSpec, NacaParams, Xy};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -41,38 +50,260 @@ fn pilot_cases() -> Vec<PilotCase> {
     ]
 }
 
-fn build_grid(case: &PilotCase) -> GridSpec {
-    let dx = case.width / (case.nx - 1) as f64;
-    let height = dx * (case.ny - 1) as f64;
-    let (x_min, x_max) = if case.body == "naca0012" || case.body == "naca2412" {
-        let x_min = 0.5 - 0.3 * case.width;
-        (x_min, x_min + case.width)
+fn pilot_ref_length(id: &str, body: &str) -> f64 {
+    if body == "cylinder" {
+        0.4
+    } else if body == "block" {
+        0.4
+    } else if body == "duct" {
+        0.4
+    } else if body.starts_with("naca") {
+        1.0
     } else {
-        (0.0, case.width)
+        let _ = id;
+        1.0
+    }
+}
+
+fn pilot_substitutes_for(id: &str) -> Option<String> {
+    match id {
+        "cyl_r020_re060" => Some("cyl_r020_re100".to_string()),
+        "block_040_re060" => Some("block_040_re100".to_string()),
+        _ => None,
+    }
+}
+
+/// Unified run case for pilot and spec paths. sha_version 1 means the
+/// legacy seven bin hash, sha_version 2 covers eight bins with sdf last.
+#[derive(Clone, Debug)]
+struct ResolvedCase {
+    id: String,
+    body: String,
+    re: f64,
+    u: f64,
+    alpha_deg: f64,
+    les: bool,
+    nx: usize,
+    ny: usize,
+    width: f64,
+    radius: Option<f64>,
+    block_width: Option<f64>,
+    block_height: Option<f64>,
+    naca_code: Option<String>,
+    ref_length: f64,
+    transient: u64,
+    window: u64,
+    substitutes_for: Option<String>,
+    note: String,
+    sha_version: u8,
+}
+
+fn resolved_from_pilot(p: &PilotCase, transient: u64, window: u64) -> ResolvedCase {
+    ResolvedCase {
+        id: p.id.to_string(),
+        body: p.body.to_string(),
+        re: p.re,
+        u: p.u,
+        alpha_deg: p.alpha_deg,
+        les: p.les,
+        nx: p.nx,
+        ny: p.ny,
+        width: p.width,
+        radius: None,
+        block_width: None,
+        block_height: None,
+        naca_code: None,
+        ref_length: pilot_ref_length(p.id, p.body),
+        transient,
+        window,
+        substitutes_for: pilot_substitutes_for(p.id),
+        note: p.note.to_string(),
+        sha_version: 1,
+    }
+}
+
+fn naca_params_from_code(code: &str) -> Result<NacaParams, String> {
+    if code.len() != 4 || !code.chars().all(|c| c.is_ascii_digit()) {
+        return Err(format!("cases: naca_code must be 4 digits, got {code:?}"));
+    }
+    let d: Vec<u32> = code.chars().map(|c| c.to_digit(10).unwrap()).collect();
+    let m = d[0] as f64 / 100.0;
+    let p = if m == 0.0 { 0.0 } else { d[1] as f64 / 10.0 };
+    let t = (d[2] * 10 + d[3]) as f64 / 100.0;
+    Ok(NacaParams { code: code.to_string(), m, p, t })
+}
+
+fn get_str(v: &serde_json::Value, key: &str) -> Result<String, String> {
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("cases: missing string field {key:?}"))
+}
+
+fn get_f64(v: &serde_json::Value, key: &str) -> Result<f64, String> {
+    v.get(key)
+        .and_then(|x| x.as_f64())
+        .ok_or_else(|| format!("cases: missing numeric field {key:?}"))
+}
+
+fn get_usize(v: &serde_json::Value, key: &str) -> Result<usize, String> {
+    v.get(key)
+        .and_then(|x| x.as_u64())
+        .map(|n| n as usize)
+        .ok_or_else(|| format!("cases: missing integer field {key:?}"))
+}
+
+fn get_u64(v: &serde_json::Value, key: &str) -> Result<u64, String> {
+    v.get(key)
+        .and_then(|x| x.as_u64())
+        .ok_or_else(|| format!("cases: missing integer field {key:?}"))
+}
+
+fn get_bool(v: &serde_json::Value, key: &str) -> Result<bool, String> {
+    v.get(key)
+        .and_then(|x| x.as_bool())
+        .ok_or_else(|| format!("cases: missing boolean field {key:?}"))
+}
+
+fn get_opt_f64(v: &serde_json::Value, key: &str) -> Result<Option<f64>, String> {
+    match v.get(key) {
+        None => Ok(None),
+        Some(serde_json::Value::Null) => Ok(None),
+        Some(x) => x
+            .as_f64()
+            .map(Some)
+            .ok_or_else(|| format!("cases: field {key:?} must be a number or null")),
+    }
+}
+
+fn get_opt_str(v: &serde_json::Value, key: &str) -> Result<Option<String>, String> {
+    match v.get(key) {
+        None => Ok(None),
+        Some(serde_json::Value::Null) => Ok(None),
+        Some(x) => x
+            .as_str()
+            .map(|s| Some(s.to_string()))
+            .ok_or_else(|| format!("cases: field {key:?} must be a string or null")),
+    }
+}
+
+/// Parse one CaseSpecV1 JSON line. Required keys: case_id, body, re,
+/// u_lattice, alpha_deg, les, nx, ny, domain_width, ref_length,
+/// transient, window, note. Nullable keys default to null when absent:
+/// radius, width, height, naca_code, substitutes_for.
+fn parse_spec_line(line: &str) -> Result<ResolvedCase, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(line).map_err(|e| format!("cases: bad JSON line: {e}"))?;
+    let id = get_str(&v, "case_id")?;
+    let body = get_str(&v, "body")?;
+    if id.is_empty() || body.is_empty() {
+        return Err("cases: case_id and body must be non-empty".to_string());
+    }
+    let re = get_f64(&v, "re")?;
+    let u = get_f64(&v, "u_lattice")?;
+    let alpha_deg = get_f64(&v, "alpha_deg")?;
+    let les = get_bool(&v, "les")?;
+    let nx = get_usize(&v, "nx")?;
+    let ny = get_usize(&v, "ny")?;
+    let width = get_f64(&v, "domain_width")?;
+    let ref_length = get_f64(&v, "ref_length")?;
+    let transient = get_u64(&v, "transient")?;
+    let window = get_u64(&v, "window")?;
+    let note = get_str(&v, "note")?;
+    if !re.is_finite() || re <= 0.0 {
+        return Err(format!("cases: re must be positive finite, got {re}"));
+    }
+    if !(0.02..=0.12).contains(&u) {
+        return Err(format!("cases: u_lattice {u} outside [0.02, 0.12]"));
+    }
+    if nx < 4 || ny < 4 || nx > 512 || ny > 512 || nx * ny > 262144 {
+        return Err(format!("cases: bad grid {nx}x{ny}"));
+    }
+    if !ref_length.is_finite() || ref_length <= 0.0 {
+        return Err("cases: ref_length must be positive finite".to_string());
+    }
+    let radius = get_opt_f64(&v, "radius")?;
+    let block_width = get_opt_f64(&v, "width")?;
+    let block_height = get_opt_f64(&v, "height")?;
+    let naca_code = get_opt_str(&v, "naca_code")?;
+    let substitutes_for = get_opt_str(&v, "substitutes_for")?;
+    Ok(ResolvedCase {
+        id,
+        body,
+        re,
+        u,
+        alpha_deg,
+        les,
+        nx,
+        ny,
+        width,
+        radius,
+        block_width,
+        block_height,
+        naca_code,
+        ref_length,
+        transient,
+        window,
+        substitutes_for,
+        note,
+        sha_version: 2,
+    })
+}
+
+fn load_spec_file(path: &str) -> Result<Vec<ResolvedCase>, String> {
+    let text =
+        fs::read_to_string(path).map_err(|e| format!("cases: cannot read {path}: {e}"))?;
+    let mut out: Vec<ResolvedCase> = Vec::new();
+    for (n, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let c = parse_spec_line(line)
+            .map_err(|e| format!("cases: line {}: {e}", n + 1))?;
+        if out.iter().any(|x| x.id == c.id) {
+            return Err(format!("cases: duplicate case_id {:?}", c.id));
+        }
+        out.push(c);
+    }
+    if out.is_empty() {
+        return Err("cases: spec file holds no cases".to_string());
+    }
+    Ok(out)
+}
+
+fn build_grid_for(nx: usize, ny: usize, width: f64, body: &str) -> GridSpec {
+    let dx = width / (nx - 1) as f64;
+    let height = dx * (ny - 1) as f64;
+    let (x_min, x_max) = if body == "naca0012" || body == "naca2412" || body == "naca4" {
+        let x_min = 0.5 - 0.3 * width;
+        (x_min, x_min + width)
+    } else {
+        (0.0, width)
     };
     GridSpec {
-        nx: case.nx,
-        ny: case.ny,
+        nx,
+        ny,
         domain: Domain { x_min, x_max, y_min: -height / 2.0, y_max: height / 2.0 },
     }
 }
 
-fn build_geom(case: &PilotCase, grid: &GridSpec) -> GeometrySpec {
+fn build_geom_for(case: &ResolvedCase, grid: &GridSpec) -> Result<GeometrySpec, String> {
     let cx30 = grid.domain.x_min + 0.3 * case.width;
-    match case.body {
-        "cylinder" => GeometrySpec {
+    match case.body.as_str() {
+        "cylinder" => Ok(GeometrySpec {
             kind: "cylinder".to_string(),
             naca: None,
             chord: 1.0,
             alpha_deg: 0.0,
             n_points: 64,
-            radius: Some(0.2),
+            radius: Some(case.radius.unwrap_or(0.2)),
             center: Some(Xy { x: cx30, y: 0.0 }),
             width: None,
             height: None,
             polygon: None,
-        },
-        "block" => GeometrySpec {
+        }),
+        "block" => Ok(GeometrySpec {
             kind: "block".to_string(),
             naca: None,
             chord: 1.0,
@@ -80,40 +311,32 @@ fn build_geom(case: &PilotCase, grid: &GridSpec) -> GeometrySpec {
             n_points: 64,
             radius: None,
             center: Some(Xy { x: cx30, y: 0.0 }),
-            width: Some(0.4),
-            height: Some(0.4),
+            width: Some(case.block_width.unwrap_or(0.4)),
+            height: Some(case.block_height.unwrap_or(0.4)),
             polygon: None,
-        },
-        "naca0012" => GeometrySpec {
-            kind: "naca4".to_string(),
-            naca: Some(NacaParams { code: "0012".to_string(), m: 0.0, p: 0.0, t: 0.12 }),
-            chord: 1.0,
-            alpha_deg: case.alpha_deg,
-            n_points: 60,
-            radius: None,
-            center: None,
-            width: None,
-            height: None,
-            polygon: None,
-        },
-        "naca2412" => GeometrySpec {
-            kind: "naca4".to_string(),
-            naca: Some(NacaParams { code: "2412".to_string(), m: 0.02, p: 0.4, t: 0.12 }),
-            chord: 1.0,
-            alpha_deg: case.alpha_deg,
-            n_points: 60,
-            radius: None,
-            center: None,
-            width: None,
-            height: None,
-            polygon: None,
-        },
-        "duct" => GeometrySpec {
-            // Plate length spans past the inlet and outlet so the wall
-            // leading edge sits upstream of the inlet plane, mirroring the
-            // Poiseuille validation fixture. A plate cut exactly at the
-            // inlet plane puts a sharp corner on the Zou He column and the
-            // run poisons at the first stability scan.
+        }),
+        "naca0012" | "naca2412" | "naca4" => {
+            let code = if let Some(c) = case.naca_code.clone() {
+                c
+            } else if case.body.starts_with("naca") && case.body.len() == 8 {
+                case.body[4..].to_string()
+            } else {
+                return Err("cases: naca body needs naca_code".to_string());
+            };
+            Ok(GeometrySpec {
+                kind: "naca4".to_string(),
+                naca: Some(naca_params_from_code(&code)?),
+                chord: 1.0,
+                alpha_deg: case.alpha_deg,
+                n_points: 60,
+                radius: None,
+                center: None,
+                width: None,
+                height: None,
+                polygon: None,
+            })
+        }
+        "duct" => Ok(GeometrySpec {
             kind: "duct".to_string(),
             naca: None,
             chord: 1.0,
@@ -121,12 +344,37 @@ fn build_geom(case: &PilotCase, grid: &GridSpec) -> GeometrySpec {
             n_points: 64,
             radius: None,
             center: Some(Xy { x: grid.domain.x_min + case.width / 2.0, y: 0.0 }),
-            width: Some(case.width + 2.0),
-            height: Some(0.4),
+            width: Some(case.block_width.unwrap_or(case.width + 2.0)),
+            height: Some(case.block_height.unwrap_or(0.4)),
             polygon: None,
-        },
-        _ => panic!("unknown pilot body"),
+        }),
+        "orifice" => Ok(GeometrySpec {
+            kind: "orifice".to_string(),
+            naca: None,
+            chord: 1.0,
+            alpha_deg: 0.0,
+            n_points: 64,
+            radius: None,
+            center: Some(Xy { x: cx30, y: 0.0 }),
+            width: Some(case.block_width.unwrap_or(0.1)),
+            height: Some(case.block_height.unwrap_or(0.4)),
+            polygon: None,
+        }),
+        _ => Err(format!("cases: unknown body {:?}", case.body)),
     }
+}
+
+/// SDF grid from the same polygons plus circles that build the mask, so
+/// the sdf.f32 bin matches the obstacle channel cell for cell.
+fn sdf_for_case(grid: &GridSpec, geom: &GeometrySpec) -> Result<Vec<f32>, String> {
+    let polygons = build_polygons(geom)?;
+    let mut circles: Vec<CircleDef> = Vec::new();
+    if geom.kind == "cylinder" {
+        let c = geom.center.unwrap_or(Xy { x: 0.5, y: 0.0 });
+        circles.push(CircleDef { x: c.x, y: c.y, r: geom.radius.unwrap_or(0.25) });
+    }
+    let (sdf, _obstacle) = build_sdf_grid(&polygons, grid.nx, grid.ny, grid.domain, &circles)?;
+    Ok(sdf)
 }
 
 fn write_f32_le(path: &Path, vals: &[f32]) -> std::io::Result<()> {
@@ -216,15 +464,36 @@ fn fmt_f(x: f64) -> String {
     }
 }
 
+fn json_opt_str(v: &Option<String>) -> String {
+    match v {
+        None => "null".to_string(),
+        Some(s) => format!("\"{}\"", esc(s)),
+    }
+}
+
 struct CaseResult {
     row_json: String,
     console_line: String,
     ok: bool,
 }
 
-fn run_case(case: &PilotCase, out_root: &Path, transient: u64, window: u64) -> CaseResult {
-    let grid = build_grid(case);
-    let geom = build_geom(case, &grid);
+fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
+    let grid = build_grid_for(case.nx, case.ny, case.width, &case.body);
+    let geom = match build_geom_for(case, &grid) {
+        Ok(g) => g,
+        Err(e) => {
+            let wall_s = 0.0;
+            let row = format!(
+                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{}}}",
+                esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
+                case.alpha_deg, case.les, case.transient, case.window, esc(&e), wall_s,
+                case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for)
+            );
+            return CaseResult { row_json: row, console_line: format!("{} setup_error: {}", case.id, e), ok: false };
+        }
+    };
+    let transient = case.transient;
+    let window = case.window;
     let inlet = if case.body == "duct" { InletProfile::Parabolic } else { InletProfile::Uniform };
     let cfg = LbmConfig {
         u_lattice: case.u,
@@ -245,9 +514,10 @@ fn run_case(case: &PilotCase, out_root: &Path, transient: u64, window: u64) -> C
         Err(e) => {
             let wall_s = t0.elapsed().as_secs_f64();
             let row = format!(
-                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2}}}",
-                esc(case.id), esc(case.body), case.re, case.u, case.nx, case.ny, case.width,
-                case.alpha_deg, case.les, transient, window, esc(&e), wall_s
+                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{}}}",
+                esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
+                case.alpha_deg, case.les, transient, window, esc(&e), wall_s,
+                case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for)
             );
             return CaseResult { row_json: row, console_line: format!("{} setup_error: {}", case.id, e), ok: false };
         }
@@ -276,10 +546,11 @@ fn run_case(case: &PilotCase, out_root: &Path, transient: u64, window: u64) -> C
     let wall_s = t0.elapsed().as_secs_f64();
     if let Some(e) = diverged {
         let row = format!(
-            "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"status\":\"diverged\",\"error\":\"{}\",\"wall_s\":{:.2},\"note\":\"{}\"}}",
-            esc(case.id), esc(case.body), case.re, case.u, case.nx, case.ny, case.width,
+            "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"status\":\"diverged\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"note\":\"{}\"}}",
+            esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
             case.alpha_deg, case.les, fmt_f(tau), fmt_f(ma), fmt_f(d_lat), fmt_f(blockage),
-            transient, window, st.step, st.stats.samples, esc(&e), wall_s, esc(case.note)
+            transient, window, st.step, st.stats.samples, esc(&e), wall_s,
+            case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for), esc(&case.note)
         );
         return CaseResult { row_json: row, console_line: format!("{} DIVERGED at step {} ({}), wall {:.1}s", case.id, st.step, e, wall_s), ok: false };
     }
@@ -291,7 +562,7 @@ fn run_case(case: &PilotCase, out_root: &Path, transient: u64, window: u64) -> C
         tails.push((tt, s.mean_cd));
         tt += 4000;
     }
-    let tails_json = tails.iter().map(|(a, c)| format!("[{a},{:.4}]", c)).collect::<Vec<_>>().join(",");
+    let tails_json = tails.iter().map(|(a, c)| format!("[{a},{c:.4}]")).collect::<Vec<_>>().join(",");
     let st_val = st.strouhal(transient).ok();
     let st_json = match st_val {
         Some(v) if v.is_finite() => format!("{v:.5}"),
@@ -300,9 +571,21 @@ fn run_case(case: &PilotCase, out_root: &Path, transient: u64, window: u64) -> C
     let samples = st.stats.samples;
     let (mu, mv, mp, tke, wm, rm) = st.stats_dataset_fields();
     let snap = st.snapshot();
-    let case_dir = out_root.join(case.id);
+    let sdf = match sdf_for_case(&grid, &geom) {
+        Ok(s) => s,
+        Err(e) => {
+            let row = format!(
+                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":{},\"status\":\"setup_error\",\"error\":\"sdf: {}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{}}}",
+                esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
+                case.alpha_deg, case.les, transient, window, samples, esc(&e), wall_s,
+                case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for)
+            );
+            return CaseResult { row_json: row, console_line: format!("{} setup_error: sdf: {}", case.id, e), ok: false };
+        }
+    };
+    let case_dir = out_root.join(&case.id);
     let _ = fs::create_dir_all(&case_dir);
-    let files: [(&str, &Vec<f32>); 7] = [
+    let files: [(&str, &Vec<f32>); 8] = [
         ("umean.f32", &mu),
         ("vmean.f32", &mv),
         ("pmean.f32", &mp),
@@ -310,34 +593,40 @@ fn run_case(case: &PilotCase, out_root: &Path, transient: u64, window: u64) -> C
         ("tke.f32", &tke),
         ("recirc.f32", &rm),
         ("obstacle.f32", &snap.obstacle),
+        ("sdf.f32", &sdf),
     ];
-    for (name, vals) in files {
+    for (name, vals) in files.iter() {
         let _ = write_f32_le(&case_dir.join(name), vals);
     }
+    let hash_bins: &[&Vec<f32>] = if case.sha_version >= 2 {
+        &[&mu, &mv, &mp, &wm, &tke, &rm, &snap.obstacle, &sdf]
+    } else {
+        &[&mu, &mv, &mp, &wm, &tke, &rm, &snap.obstacle]
+    };
     let mut hash_input: Vec<u8> = Vec::new();
-    for (_, vals) in files {
-        for v in vals {
+    for vals in hash_bins {
+        for v in vals.iter() {
             hash_input.extend_from_slice(&v.to_le_bytes());
         }
     }
     let sha = sha256_hex(&hash_input);
-    let dx = grid.domain.x_max - grid.domain.x_min;
-    let _ = dx;
     let meta = format!(
-        "{{\n  \"case_id\": \"{}\",\n  \"body\": \"{}\",\n  \"re\": {},\n  \"u_lattice\": {},\n  \"alpha_deg\": {},\n  \"les\": {},\n  \"nx\": {},\n  \"ny\": {},\n  \"x_min\": {:.6},\n  \"x_max\": {:.6},\n  \"y_min\": {:.6},\n  \"y_max\": {:.6},\n  \"transient\": {},\n  \"window\": {},\n  \"steps\": {},\n  \"samples\": {},\n  \"tau\": {},\n  \"ma\": {},\n  \"d_lat\": {},\n  \"blockage\": {},\n  \"cd_mean\": {:.4},\n  \"cl_mean\": {:.4},\n  \"cl_amp\": {:.4},\n  \"strouhal\": {},\n  \"wall_s\": {:.2},\n  \"sha256\": \"{}\",\n  \"note\": \"{}\"\n}}\n",
-        esc(case.id), esc(case.body), case.re, case.u, case.alpha_deg, case.les,
+        "{{\n  \"case_id\": \"{}\",\n  \"body\": \"{}\",\n  \"re\": {},\n  \"u_lattice\": {},\n  \"alpha_deg\": {},\n  \"les\": {},\n  \"nx\": {},\n  \"ny\": {},\n  \"x_min\": {:.6},\n  \"x_max\": {:.6},\n  \"y_min\": {:.6},\n  \"y_max\": {:.6},\n  \"transient\": {},\n  \"window\": {},\n  \"steps\": {},\n  \"samples\": {},\n  \"tau\": {},\n  \"ma\": {},\n  \"d_lat\": {},\n  \"blockage\": {},\n  \"cd_mean\": {:.4},\n  \"cl_mean\": {:.4},\n  \"cl_amp\": {:.4},\n  \"strouhal\": {},\n  \"wall_s\": {:.2},\n  \"sha256\": \"{}\",\n  \"sha_version\": {},\n  \"ref_length\": {},\n  \"substitutes_for\": {},\n  \"note\": \"{}\"\n}}\n",
+        esc(&case.id), esc(&case.body), case.re, case.u, case.alpha_deg, case.les,
         case.nx, case.ny, grid.domain.x_min, grid.domain.x_max, grid.domain.y_min, grid.domain.y_max,
         transient, window, st.step, samples,
         fmt_f(tau), fmt_f(ma), fmt_f(d_lat), fmt_f(blockage),
-        full.mean_cd, full.mean_cl, full.amplitude_cl, st_json, wall_s, sha, esc(case.note)
+        full.mean_cd, full.mean_cl, full.amplitude_cl, st_json, wall_s, sha,
+        case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for), esc(&case.note)
     );
     let _ = fs::write(case_dir.join("meta.json"), meta.as_bytes());
     let row = format!(
-        "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"alpha_deg\":{},\"les\":{},\"nx\":{},\"ny\":{},\"width\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"cd_mean\":{:.4},\"cl_mean\":{:.4},\"cl_amp\":{:.4},\"tail_cd_blocks\":[{}],\"strouhal\":{},\"status\":\"completed\",\"wall_s\":{:.2},\"sha256\":\"{}\",\"note\":\"{}\"}}",
-        esc(case.id), esc(case.body), case.re, case.u, case.alpha_deg, case.les,
+        "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"alpha_deg\":{},\"les\":{},\"nx\":{},\"ny\":{},\"width\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"cd_mean\":{:.4},\"cl_mean\":{:.4},\"cl_amp\":{:.4},\"tail_cd_blocks\":[{}],\"strouhal\":{},\"status\":\"completed\",\"wall_s\":{:.2},\"sha256\":\"{}\",\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"note\":\"{}\"}}",
+        esc(&case.id), esc(&case.body), case.re, case.u, case.alpha_deg, case.les,
         case.nx, case.ny, case.width, fmt_f(tau), fmt_f(ma), fmt_f(d_lat), fmt_f(blockage),
         transient, window, st.step, samples,
-        full.mean_cd, full.mean_cl, full.amplitude_cl, tails_json, st_json, wall_s, sha, esc(case.note)
+        full.mean_cd, full.mean_cl, full.amplitude_cl, tails_json, st_json, wall_s, sha,
+        case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for), esc(&case.note)
     );
     let st_txt = match st_val {
         Some(v) => format!("{v:.5}"),
@@ -351,11 +640,17 @@ fn run_case(case: &PilotCase, out_root: &Path, transient: u64, window: u64) -> C
     CaseResult { row_json: row, console_line: line, ok: true }
 }
 
+fn run_case(case: &PilotCase, out_root: &Path, transient: u64, window: u64) -> CaseResult {
+    let resolved = resolved_from_pilot(case, transient, window);
+    run_resolved_case(&resolved, out_root)
+}
+
 fn print_usage() {
     eprintln!("dataset_pilot: native Phase C pilot sweep");
     eprintln!("usage: dataset_pilot [options]");
-    eprintln!("options: out DIR, transient N, window N, only CASE_ID, list");
+    eprintln!("options: out DIR, transient N, window N, only CASE_ID, list, cases FILE, manifest_out FILE");
     eprintln!("defaults: out data/pilot, transient 8000, window 12000");
+    eprintln!("cases: CaseSpecV1 JSON lines (case_id, body, re, u_lattice, alpha_deg, les, nx, ny, domain_width, radius/width/height/naca_code or null, ref_length, transient, window, substitutes_for or null, note)");
 }
 
 fn main() {
@@ -364,12 +659,28 @@ fn main() {
     let mut transient = 8000u64;
     let mut window = 12000u64;
     let mut only: Option<String> = None;
+    let mut cases_path: Option<String> = None;
+    let mut manifest_out: Option<String> = None;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "list" => {
-                for c in pilot_cases() {
-                    println!("{}", c.id);
+                if let Some(ref p) = cases_path {
+                    match load_spec_file(p) {
+                        Ok(cs) => {
+                            for c in cs {
+                                println!("{}", c.id);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("dataset_pilot: {e}");
+                            std::process::exit(2);
+                        }
+                    }
+                } else {
+                    for c in pilot_cases() {
+                        println!("{}", c.id);
+                    }
                 }
                 return;
             }
@@ -401,15 +712,81 @@ fn main() {
                     only = Some(args[i].clone());
                 }
             }
+            "cases" => {
+                i += 1;
+                if i < args.len() {
+                    cases_path = Some(args[i].clone());
+                }
+            }
+            "manifest_out" => {
+                i += 1;
+                if i < args.len() {
+                    manifest_out = Some(args[i].clone());
+                }
+            }
             _ => {
                 if args[i].starts_with("out=") {
                     out = args[i]["out=".len()..].to_string();
                 } else if args[i].starts_with("only=") {
                     only = Some(args[i]["only=".len()..].to_string());
+                } else if args[i].starts_with("cases=") {
+                    cases_path = Some(args[i]["cases=".len()..].to_string());
+                } else if args[i].starts_with("manifest_out=") {
+                    manifest_out = Some(args[i]["manifest_out=".len()..].to_string());
+                } else if args[i].starts_with("transient=") {
+                    transient = args[i]["transient=".len()..].parse().unwrap_or(8000);
+                } else if args[i].starts_with("window=") {
+                    window = args[i]["window=".len()..].parse().unwrap_or(12000);
                 }
             }
         }
         i += 1;
+    }
+    if let Some(spec_path) = cases_path {
+        let all = match load_spec_file(&spec_path) {
+            Ok(cs) => cs,
+            Err(e) => {
+                eprintln!("dataset_pilot: {e}");
+                std::process::exit(2);
+            }
+        };
+        let selected: Vec<ResolvedCase> = match &only {
+            Some(id) => all.into_iter().filter(|c| &c.id == id).collect(),
+            None => all,
+        };
+        if selected.is_empty() {
+            eprintln!("dataset_pilot: no matching cases");
+            std::process::exit(2);
+        }
+        let out_root = PathBuf::from(&out);
+        let _ = fs::create_dir_all(&out_root);
+        println!("dataset_pilot: {} spec cases out {} spec {}", selected.len(), out, spec_path);
+        let t0 = Instant::now();
+        let mut rows: Vec<String> = Vec::new();
+        let mut ok_count = 0usize;
+        for case in &selected {
+            let res = run_resolved_case(case, &out_root);
+            println!("{}", res.console_line);
+            if res.ok {
+                ok_count += 1;
+            }
+            rows.push(res.row_json);
+        }
+        let manifest = rows.join("\n") + "\n";
+        let manifest_path = out_root.join("manifest.jsonl");
+        if let Err(e) = fs::write(&manifest_path, manifest.as_bytes()) {
+            eprintln!("dataset_pilot: manifest write failed: {e}");
+            std::process::exit(1);
+        }
+        if let Some(frag) = manifest_out {
+            if let Err(e) = fs::write(&frag, manifest.as_bytes()) {
+                eprintln!("dataset_pilot: manifest_out write failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        let total_s = t0.elapsed().as_secs_f64();
+        println!("dataset_pilot: {ok_count}/{} completed, manifest {}, total wall {:.1}s", selected.len(), manifest_path.display(), total_s);
+        return;
     }
     let all = pilot_cases();
     let selected: Vec<PilotCase> = match &only {
@@ -440,6 +817,75 @@ fn main() {
         eprintln!("dataset_pilot: manifest write failed: {e}");
         std::process::exit(1);
     }
+    if let Some(frag) = manifest_out {
+        if let Err(e) = fs::write(&frag, manifest.as_bytes()) {
+            eprintln!("dataset_pilot: manifest_out write failed: {e}");
+            std::process::exit(1);
+        }
+    }
     let total_s = t0.elapsed().as_secs_f64();
-    println!("dataset_pilot: {}/{} completed, manifest {}, total wall {:.1}s", ok_count, selected.len(), manifest_path.display(), total_s);
+    println!("dataset_pilot: {ok_count}/{} completed, manifest {}, total wall {:.1}s", selected.len(), manifest_path.display(), total_s);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spec_line() -> String {
+        "{\"case_id\":\"cyl_r020_re020\",\"body\":\"cylinder\",\"re\":20.0,\"u_lattice\":0.06,\"alpha_deg\":0.0,\"les\":false,\"nx\":160,\"ny\":128,\"domain_width\":4.0,\"radius\":0.2,\"width\":null,\"height\":null,\"naca_code\":null,\"ref_length\":0.4,\"transient\":8000,\"window\":12000,\"substitutes_for\":null,\"note\":\"probe\"}".to_string()
+    }
+
+    #[test]
+    fn spec_parses_all_fields() {
+        let c = parse_spec_line(&spec_line()).unwrap();
+        assert_eq!(c.id, "cyl_r020_re020");
+        assert_eq!(c.body, "cylinder");
+        assert!((c.re - 20.0).abs() < 1e-12);
+        assert!((c.u - 0.06).abs() < 1e-12);
+        assert_eq!(c.nx, 160);
+        assert_eq!(c.ny, 128);
+        assert!((c.width - 4.0).abs() < 1e-12);
+        assert_eq!(c.radius, Some(0.2));
+        assert_eq!(c.block_width, None);
+        assert_eq!(c.naca_code, None);
+        assert!((c.ref_length - 0.4).abs() < 1e-12);
+        assert_eq!(c.transient, 8000);
+        assert_eq!(c.window, 12000);
+        assert_eq!(c.substitutes_for, None);
+        assert_eq!(c.sha_version, 2);
+    }
+
+    #[test]
+    fn spec_rejects_bad_json_and_bad_values() {
+        assert!(parse_spec_line("not json").is_err());
+        assert!(parse_spec_line("{\"case_id\":\"x\"}").is_err());
+        let bad_u = spec_line().replace("0.06", "0.5");
+        assert!(parse_spec_line(&bad_u).is_err());
+        let bad_grid = spec_line().replace("\"nx\":160", "\"nx\":2");
+        assert!(parse_spec_line(&bad_grid).is_err());
+    }
+
+    #[test]
+    fn spec_substitute_and_naca_code_parse() {
+        let line = "{\"case_id\":\"cyl_r020_re060\",\"body\":\"cylinder\",\"re\":60.0,\"u_lattice\":0.06,\"alpha_deg\":0.0,\"les\":false,\"nx\":160,\"ny\":128,\"domain_width\":4.0,\"radius\":0.2,\"width\":null,\"height\":null,\"naca_code\":null,\"ref_length\":0.4,\"transient\":8000,\"window\":12000,\"substitutes_for\":\"cyl_r020_re100\",\"note\":\"sub\"}";
+        let c = parse_spec_line(line).unwrap();
+        assert_eq!(c.substitutes_for, Some("cyl_r020_re100".to_string()));
+        let naca = naca_params_from_code("2412").unwrap();
+        assert!((naca.m - 0.02).abs() < 1e-12);
+        assert!((naca.p - 0.4).abs() < 1e-12);
+        assert!((naca.t - 0.12).abs() < 1e-12);
+        assert!(naca_params_from_code("12").is_err());
+    }
+
+    #[test]
+    fn sdf_bin_matches_mask_length() {
+        let case = parse_spec_line(&spec_line()).unwrap();
+        let grid = build_grid_for(case.nx, case.ny, case.width, &case.body);
+        let geom = build_geom_for(&case, &grid).unwrap();
+        let sdf = sdf_for_case(&grid, &geom).unwrap();
+        assert_eq!(sdf.len(), case.nx * case.ny);
+        assert!(sdf.iter().all(|v| v.is_finite()));
+        assert!(sdf.iter().any(|v| *v < 0.0));
+        assert!(sdf.iter().any(|v| *v > 0.0));
+    }
 }

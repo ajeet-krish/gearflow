@@ -197,6 +197,10 @@ mod tests {
         // Center-ish cell inside the square is masked.
         let inside_count = obs.iter().filter(|&&o| o > 0.5).count();
         assert!(inside_count > 0 && inside_count < 64);
+        // SDF agreement: at or below zero exactly where the obstacle is set.
+        for (s, o) in sdf.iter().zip(obs.iter()) {
+            assert_eq!(*s <= 0.0, *o > 0.5);
+        }
     }
 
     #[test]
