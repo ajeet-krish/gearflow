@@ -1148,3 +1148,35 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Note recurring pattern: none new for the dataset gate. The gate reuses the dataset_v2 and merge_sweep contracts instead of restating them, and the fabricated tests exercise exit classes end to end; the remaining Minors are a duplicated hash loop, one unpinned mixed failure precedence, one malformed frozen sidecar edge, and a name only read only snapshot.
+
+## 2026-10-28 - Gate Fix and Sweep Spec Review
+
+Date: 2026-10-28
+Reviewer: code-reviewer
+Scope: Uncommitted gate fixes and sweep spec on HEAD 9256ed5 (training/verify_lbm_dataset.py, training/tests/test_verify_gate.py, training/make_sweep_spec.py, training/tests/test_make_sweep_spec.py). Ground truth accepted from orchestrator, not rerun: pytest 82 passed 2 skipped, pilot gate ADAPTER_FAILURE exit 3 with 9 ok 1 marginal (naca0012_a00 native 0.0148 vs 0.01), V0 clean, thresholds unchanged.
+Verdict: PASS
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| 1 Native divergence switch | PASS | training/verify_lbm_dataset.py:26 to 37 records the resampled artifact evidence (resampled RMS near 0.09 even far from the wall, native interior near 0.005); DIV_RMS_MAX stays 0.01 at line 206 and the fail branch at lines 635 to 637 is unchanged in strictness; _native_erode_iters at lines 332 to 338 scales erosion to the legacy physical band (10 times max of DX and DY from training/dataset_v2.py:50 to 51) divided by native dx, so airfoil dx 0.01 gives 20 iters rather than a tuned count; isotropy is real because the Rust runner builds height as dx times ny minus 1 at rust/gearflow-wasm/src/bin/dataset_pilot.rs:275 to 277; missing domain_width defaults with an explicit warning at lines 610 to 620, and the width fallback in _domain_width_of at lines 318 to 329 matches pilot rows where width carries the domain width (dataset_pilot.rs:38 to 49, 549 to 553) |
+| 2 Duct exemptions | PASS | Divergence exempt warning at lines 628 to 634 records native rms, cell count, iters, and the free field threshold it does not use; Cp saturation exempt warning at lines 586 to 591 records the saturation fraction and states the adapter clip is unchanged; the shim at lines 152 to 194 mirrors LbmV2Dataset._raw_sample at training/dataset_v2.py:415 to 456 (same conversions, clips, and solid zeroing), so the adapter contract is untouched; div_exempt is recorded per case at line 656, so there is no silent pass |
+| 3 Compat defaults | PASS | Flat layout resolved flat first at lines 111 to 128 and exercised end to end by the fabricated flat pilot in training/tests/test_verify_gate.py:292 to 349; v1 ref_length, sha_version, and substitutes_for defaults each warn per row at lines 424 to 449; diverged rows are counted and skipped before bin checks at lines 454 to 456, pinned at test_verify_gate.py:351 to 376; v2 strictness preserved: a v2 row missing ref_length still fails as DATA_FAILURE, pinned at test_verify_gate.py:379 to 395 |
+| 4 Marginal a00 case | PASS | No case id special casing exists in the gate (the only naca0012_a00 references are the pilot pin table at lines 224 to 227); naca0012_a00 at 0.0148 hits the generic fail branch at lines 635 to 637, is excluded from ok rows, and drives ADAPTER_FAILURE exit 3 per the accepted pilot ground truth; refusing to tune erosion iters to pass it is correct because the iter count derives from the physical band formula at lines 332 to 338, not from a per case target |
+| 5 Sweep spec | PASS | build_cases at training/make_sweep_spec.py:127 to 215 yields 12 plus 10 plus 30 plus 6 plus 2 equals 60 rows in fixed order with no randomness; validate_case at lines 222 to 283 mirrors the Rust CaseSpecV1 parser at dataset_pilot.rs:190 to 251 (required keys, u range, grid caps, ref_length); the Re 100 bluff BGK exclusion is documented with pilot evidence at lines 9 to 19 and pinned at training/tests/test_make_sweep_spec.py:112 to 138, which also asserts 12 LES bluff rows (6 cylinder, 6 block) at u 0.08; LES coverage is honest: airfoils all LES, duct BGK at low Re, orifice BGK at Re 100 and LES at Re 200 (lines 191 to 214) |
+| 6 Behavioral tests | PASS | Gate tests fabricate real sweep dirs and assert exit codes plus report contents end to end (training/tests/test_verify_gate.py:167 to 289, 334 to 521), including non duct native divergence still failing at lines 498 to 521 and the duct exemption at lines 478 to 495; sweep tests assert generated row data, counts, mappings, and roundtrip file contents (training/tests/test_make_sweep_spec.py:23 to 149) rather than implementation strings, except the punctuation source check at lines 152 to 157 |
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Minor | training/verify_lbm_dataset.py:300 to 315 | Legacy resampled _div_rms is now dead code (no callers); only its ERODE_ITERS constant still feeds the native scaling | backend-dev: remove _div_rms in a separate cleanup, keep ERODE_ITERS |
+| Minor | training/verify_lbm_dataset.py:432 to 437 | A v2 row missing substitutes_for is defaulted to null silently, while the v1 path warns; ref_length v2 strictness is pinned but this field is not | backend-dev: error on missing substitutes_for for sha_version 2 rows, or record a warning, and add a v2 missing substitutes_for test via tester |
+| Minor | training/tests/test_verify_gate.py:334 to 349, 478 to 495 | Flat pilot test does not assert the domain_width warning text, and the duct test does not isolate the Cp saturation exempt warning from the divergence exempt warning | tester: assert the domain_width warning text in the flat test and a duct Cp saturation warning in the duct test |
+| Minor | training/tests/test_make_sweep_spec.py:24 to 54 | No test feeds a corrupted row to validate_case, so the validator negative branches (bad grid, bad u, mismatched naca_code) are unpinned | tester: add parametrized invalid row cases asserting validate_case messages |
+
+### Verification Checklist
+- [x] All checks passed (6 of 6, four Minor findings, none blocking)
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this review session (no shell tool available to the reviewer). Accepted ground truth: pytest 82 passed 2 skipped; pilot gate ADAPTER_FAILURE exit 3, 9 ok, 1 marginal. Note recurring pattern: none new. The gate now measures divergence where the physics lives (native grid) without moving the threshold, exemptions and compat defaults announce themselves in warnings and report fields, and the marginal airfoil case is allowed to fail honestly instead of being tuned into a pass. Remaining Minors are dead legacy code, one silent v2 field default, and two unpinned warning branches.
