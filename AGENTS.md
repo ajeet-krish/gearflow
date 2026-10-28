@@ -42,6 +42,10 @@ Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKAT
 | Phase 14 | LBM preflight honesty gate | Complete |
 | Phase 15 | Right panel rework with orifice terminal and rotation | Complete |
 | Phase 16 | Dataset pilot | In Progress |
+| Phase 17 | Field overlay, router, domain, preset contracts | Complete |
+| Phase 18 | Backend unification, auto router | Complete |
+| Phase 19 | Display coupling, navbar trim | Complete |
+| Phase 20 | Agent case setup presets | Complete |
 
 ## Deep Docs
 * Rules: docs/HACKATHON_RULES.md
