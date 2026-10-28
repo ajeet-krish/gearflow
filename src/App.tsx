@@ -35,8 +35,12 @@ import {
 } from "@/flow/lbmRunConfig";
 import { LbmFlowProvider, type LbmProviderStatus } from "@/flow/lbmFlowProvider";
 import { SurrogateV2Provider, SURROGATE_V2_DOMAIN } from "@/flow/surrogateV2";
+import { SurrogateV3Provider, SURROGATE_V3_DOMAIN } from "@/flow/surrogateV3";
 import { NeuralV2Adapter, neuralRequestKey, isUsableNeuralField, createNeuralRequestTracker } from "@/flow/neuralV2Adapter";
-import { decideFastPath, analyticProvenanceLabel, neuralProvenanceLabel, type NeuralStatus, type SolverPath } from "@/flow/solverRouter";
+import { NeuralV3Adapter, neuralV3RequestKey } from "@/flow/neuralV3Adapter";
+import { StreetLoop, shouldAnimateStreet } from "@/flow/streetLoop";
+import { reconstructAtPhase } from "@/flow/phaseReconstruction";
+import { decideFastPath, analyticProvenanceLabel, neuralProvenanceLabel, neuralPhaseAveragedLabel, neuralSteadyLabel, type NeuralStatus, type SolverPath } from "@/flow/solverRouter";
 import { classifyNeuralDomain, PROVISIONAL_NEURAL_ENVELOPE } from "@/flow/neuralDomain";
 import { useResolution } from "@/flow/gridController";
 import { useDisplayPrefs } from "@/ui/displayStore";
@@ -166,18 +170,23 @@ export interface AppBackendNameInput {
     solveError: string | null;
     isNeuralPending: boolean;
     isNeuralActive: boolean;
+    isNeuralV3Pending?: boolean;
+    isNeuralV3Active?: boolean;
     solveGridNx: number;
 }
 
 /** Backend name follows the displayed frame, never the router alone.
  *  Neural live requires a keyed neural frame (isNeuralActive). A pending
- *  or failed predict with no keyed frame stays on analytic wording. */
+ *  or failed predict with no keyed frame stays on analytic wording. The
+ *  v3 street is named first: the v3 bundle is tried before v2. */
 export function selectBackendName(input: AppBackendNameInput): string {
     if (input.isFixture) return "fixture preview";
     if (input.lbmFailedActive) return "analytic fallback (lbm failover)";
     if (input.lbmEffective && !input.lbmHasSnapshot) return "lbm pending";
     if (input.lbmEffective) return "lbm live";
     if (input.solveError !== null) return "analytic held";
+    if (input.isNeuralV3Pending === true) return "neural-v3 loading";
+    if (input.isNeuralV3Active === true) return "neural-v3 live";
     if (input.isNeuralPending) return "neural-v2 loading";
     if (input.isNeuralActive) return "neural-v2 live";
     return `analytic live ${input.solveGridNx}`;
@@ -880,17 +889,67 @@ export default function App() {
         }
     }
 
-    // Router inputs come from the debounced case plus availability. The body
-    // token mirrors the BODY select so the envelope allowlist stays single
-    // sourced.
+    // Neural v3 availability plus request tracking. Mirrors the v2 wiring:
+    // the adapter owns the provider and the last frame cache, the tracker
+    // hands out monotonic request ids so only the latest async predict can
+    // commit. The v3 bundle is tried first, v2 stays the exact fallback.
+    const [neuralV3Status, setNeuralV3Status] = useState<NeuralStatus>("loading");
+    const [neuralV3Frame, setNeuralV3Frame] = useState<{
+        key: string;
+        flow: FlowField;
+        cl: number;
+        cpMin: number;
+        solveMs: number;
+        latencyMs: number;
+        cached: boolean;
+        weightsVersion: string;
+        harmonicValid: boolean;
+        harmonicInvalidReason: string | null;
+        strouhal: number | null;
+        explained: number | null;
+    } | null>(null);
+    const neuralV3AdapterRef = useRef<NeuralV3Adapter | null>(null);
+    const neuralV3TrackerRef = useRef(createNeuralRequestTracker());
+    const [neuralV3RetryTick, setNeuralV3RetryTick] = useState(0);
+    const neuralV3RetriedKeyRef = useRef<string | null>(null);
+    if (neuralV3AdapterRef.current === null) {
+        try {
+            const provider = new SurrogateV3Provider({
+                grid: { nx: 128, ny: 128, domain: { ...SURROGATE_V3_DOMAIN } },
+                geom: DEFAULT_SPEC,
+                Re: 50000,
+            });
+            neuralV3AdapterRef.current = new NeuralV3Adapter(provider);
+        } catch {
+            neuralV3AdapterRef.current = null;
+        }
+    }
+
+    // Phase averaged street animation. One StreetLoop per served v3 street
+    // writes reconstructed u, v, and omega into caller owned buffers via
+    // reconstructAtPhase; the same buffers feed the canvas field and the
+    // particle advection, so particles and phase cannot drift. Pause, tab
+    // hide, and unmount never jump the phase, and the loop never starts for
+    // LBM or analytic frames (see shouldAnimateStreet).
+    const streetLoopRef = useRef<StreetLoop | null>(null);
+    const streetBaseRef = useRef<FlowField | null>(null);
+    const streetAnimRef = useRef<FlowField | null>(null);
+    const streetKeyRef = useRef<string | null>(null);
+    const [streetTick, setStreetTick] = useState(0);
+
+    // Router inputs come from the debounced case plus both availabilities.
+    // The v3 bundle is tried first: when it is usable and the case sits
+    // inside the envelope the path is neural-v3, otherwise the router falls
+    // back to v2 exactly as before. The body token mirrors the BODY select
+    // so the envelope allowlist stays single sourced.
     const routerBody = bodySelectValueFor(debouncedSpec);
     const domainVerdict = useMemo(
         () => classifyNeuralDomain(routerBody, debouncedSpec.alphaDeg, debouncedRe),
         [routerBody, debouncedSpec.alphaDeg, debouncedRe]
     );
     const fastDecision = useMemo(
-        () => decideFastPath({ body: routerBody, alphaDeg: debouncedSpec.alphaDeg, reynolds: debouncedRe, neuralStatus }),
-        [routerBody, debouncedSpec.alphaDeg, debouncedRe, neuralStatus]
+        () => decideFastPath({ body: routerBody, alphaDeg: debouncedSpec.alphaDeg, reynolds: debouncedRe, neuralStatus, neuralV3Status }),
+        [routerBody, debouncedSpec.alphaDeg, debouncedRe, neuralStatus, neuralV3Status]
     );
 
     // Availability load runs once. Any failure latches to failed so the
@@ -907,6 +966,27 @@ export default function App() {
             if (!cancelled) setNeuralStatus(status);
         }).catch(() => {
             if (!cancelled) setNeuralStatus("failed");
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    // v3 availability load runs once and never throws at startup. Any
+    // failure latches so the router falls back to v2, then analytic, with
+    // an honest reason.
+    useEffect(() => {
+        let cancelled = false;
+        const adapter = neuralV3AdapterRef.current;
+        if (adapter === null) {
+            setNeuralV3Status("unavailable");
+            return;
+        }
+        setNeuralV3Status(adapter.availability === "ready" ? "ready" : "loading");
+        void adapter.ensureLoaded().then((status) => {
+            if (!cancelled) setNeuralV3Status(status);
+        }).catch(() => {
+            if (!cancelled) setNeuralV3Status("failed");
         });
         return () => {
             cancelled = true;
@@ -953,6 +1033,51 @@ export default function App() {
             cancelled = true;
         };
     }, [debouncedSpec, debouncedRe, neuralStatus, fastDecision.path, neuralRetryTick]);
+
+    // v3 neural effect, additive and minimal. Runs one inference per case
+    // key only while the router holds neural-v3. Same latest only commit
+    // and one clean retry per failed key as v2, then the analytic frame
+    // underneath stays.
+    useEffect(() => {
+        void neuralV3RetryTick;
+        if (fastDecision.path !== "neural-v3") return;
+        const adapter = neuralV3AdapterRef.current;
+        if (adapter === null) return;
+        const requestId = neuralV3TrackerRef.current.next();
+        let cancelled = false;
+        void adapter.predictFor(debouncedSpec, debouncedRe).then((res) => {
+            if (cancelled) return;
+            if (!neuralV3TrackerRef.current.isLatest(requestId)) return;
+            const currentKey = neuralV3RequestKey(debouncedSpec, debouncedRe);
+            if (res.key !== currentKey) return;
+            if (!isUsableNeuralField(res.flow, res.cl, res.cpMin)) return;
+            if (!isUsableField(res.flow, res.cl, res.cpMin)) return;
+            setNeuralV3Frame({
+                key: res.key,
+                flow: res.flow,
+                cl: res.cl,
+                cpMin: res.cpMin,
+                solveMs: res.solveMs,
+                latencyMs: res.latencyMs,
+                cached: res.cached,
+                weightsVersion: adapter.version,
+                harmonicValid: res.harmonicValid,
+                harmonicInvalidReason: res.harmonicInvalidReason,
+                strouhal: res.strouhal,
+                explained: res.explained,
+            });
+        }).catch(() => {
+            if (cancelled) return;
+            if (!neuralV3TrackerRef.current.isLatest(requestId)) return;
+            const failedKey = neuralV3RequestKey(debouncedSpec, debouncedRe);
+            if (!shouldRetryNeuralPredict(neuralV3RetriedKeyRef.current, failedKey)) return;
+            neuralV3RetriedKeyRef.current = failedKey;
+            setNeuralV3RetryTick((t) => t + 1);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [debouncedSpec, debouncedRe, neuralV3Status, fastDecision.path, neuralV3RetryTick]);
 
     const solved = useMemo<{ frame: SolvedFrame; error: string | null }>(() => {
         try {
@@ -1058,9 +1183,126 @@ export default function App() {
             },
         }
         : null;
-    // Frame selector: fixture debug preview, then LBM, then neural keyed,
-    // then analytic. Analytic always solves first, neural overlays when its
-    // key matches.
+    // v3 keyed frame: same key gate as v2, served only while the router
+    // holds neural-v3. A harmonic invalid frame still serves, steady, with
+    // the failing gate reason in the label; it never falls back to v2.
+    const neuralV3Key = neuralV3RequestKey(debouncedSpec, debouncedRe);
+    const neuralV3Keyed = neuralV3Frame !== null && neuralV3Frame.key === neuralV3Key && fastDecision.path === "neural-v3"
+        ? neuralV3Frame
+        : null;
+
+    // Street gate, evaluated during render so the effect and the display
+    // agree on one decision. True only for a served v3 street with valid
+    // harmonics: LBM, fixture, held analytic, and steady v3 frames never
+    // start the loop and keep the mean field.
+    const streetActive = neuralV3Keyed !== null && shouldAnimateStreet({
+        path: fastDecision.path,
+        harmonicValid: neuralV3Keyed.harmonicValid,
+        lbmEffective,
+        isFixture,
+        solveError: isFixture || lbmEffective ? null : solved.error,
+        strouhal: neuralV3Keyed.strouhal,
+    });
+
+    // Street loop effect. Starts one StreetLoop while streetActive holds,
+    // reuses the clock and buffers for the same key so pause and resume
+    // never jump the phase, and stops on key change, on gate off, and on
+    // unmount. Each visible frame rewrites the display u, v, and omega in
+    // place via reconstructAtPhase and bumps the street tick.
+    useEffect(() => {
+        const keyed = neuralV3Keyed;
+        if (!streetActive || keyed === null) {
+            streetLoopRef.current?.stop();
+            return;
+        }
+        if (streetKeyRef.current !== keyed.key || streetBaseRef.current !== keyed.flow) {
+            streetLoopRef.current?.stop();
+            streetLoopRef.current = null;
+            streetKeyRef.current = keyed.key;
+            streetBaseRef.current = keyed.flow;
+            streetAnimRef.current = {
+                ...keyed.flow,
+                u: keyed.flow.u.slice(),
+                v: keyed.flow.v.slice(),
+                omega: keyed.flow.omega.slice(),
+            };
+            setStreetTick((t) => t + 1);
+        }
+        if (streetLoopRef.current === null) {
+            const strouhal = keyed.strouhal;
+            if (strouhal === null || !Number.isFinite(strouhal) || !(strouhal > 0)) return;
+            const refLen = Number.isFinite(debouncedSpec.chord) && debouncedSpec.chord > 0
+                ? debouncedSpec.chord
+                : 1;
+            const loop = new StreetLoop({
+                strouhal,
+                referenceLength: refLen,
+                speed: 1,
+                onFrame: (phase) => {
+                    const base = streetBaseRef.current;
+                    const anim = streetAnimRef.current;
+                    if (base === null || anim === null) return;
+                    try {
+                        reconstructAtPhase(base, phase, anim);
+                    } catch {
+                        // A bad phase never blanks the last good frame.
+                    }
+                    setStreetTick((t) => t + 1);
+                },
+            });
+            streetLoopRef.current = loop;
+            loop.start(0);
+        }
+    }, [streetActive, neuralV3Keyed, debouncedSpec.chord]);
+
+    // Unmount stops the street loop without touching the clock phase.
+    useEffect(() => () => {
+        streetLoopRef.current?.stop();
+        streetLoopRef.current = null;
+    }, []);
+
+    // Animated display field. A fresh wrapper identity per street tick
+    // drives the canvas repaint, while the u and v arrays stay the same
+    // reconstructed buffers the particles advect on. The mean toggle
+    // bypasses the animation and shows the served mean arrays.
+    const streetDisplay = useMemo(() => {
+        if (!streetActive || neuralV3Keyed === null) return null;
+        if (prefs.meanFields) return null;
+        const anim = streetAnimRef.current;
+        if (anim === null) return null;
+        return { ...anim };
+    }, [streetTick, streetActive, neuralV3Keyed, prefs.meanFields]);
+
+    const neuralV3Solved: SolvedFrame | null = neuralV3Keyed !== null
+        ? {
+            flow: streetDisplay ?? neuralV3Keyed.flow,
+            polygons: buildPolygons(debouncedSpec),
+            cl: neuralV3Keyed.cl,
+            cpMin: neuralV3Keyed.cpMin,
+            solveMs: neuralV3Keyed.solveMs,
+            provenance: {
+                source: "surrogate",
+                label: neuralV3Keyed.harmonicValid
+                    ? neuralPhaseAveragedLabel({
+                        strouhal: neuralV3Keyed.strouhal ?? undefined,
+                        explained: neuralV3Keyed.explained ?? undefined,
+                        weightsVersion: neuralV3Keyed.weightsVersion,
+                        latencyMs: neuralV3Keyed.latencyMs,
+                    })
+                    : neuralSteadyLabel(
+                        neuralV3Keyed.harmonicInvalidReason ?? "no valid shedding",
+                        neuralV3Keyed.weightsVersion,
+                    ),
+                generatedAt: new Date().toISOString(),
+                gridLabel: "128x128",
+                geometryLabel: `${debouncedSpec.kind} a${debouncedSpec.alphaDeg}`,
+                note: "Neural v3 prediction, not validated physics.",
+            },
+        }
+        : null;
+    // Frame selector: fixture debug preview, then LBM, then v3 neural
+    // keyed, then v2 neural keyed, then analytic. Analytic always solves
+    // first, neural overlays when its key matches. v3 wins over v2.
     const fixtureSolved: SolvedFrame | null = isFixture && pack !== null
         ? {
             flow: pack.flow,
@@ -1071,13 +1313,15 @@ export default function App() {
             provenance: pack.provenance,
         }
         : null;
-    const frame = fixtureSolved ?? lbmSolved ?? neuralSolved ?? solved.frame;
+    const frame = fixtureSolved ?? lbmSolved ?? neuralV3Solved ?? neuralSolved ?? solved.frame;
     const solveError = isFixture ? null : lbmEffective ? null : solved.error;
     const isNeuralActive = neuralSolved !== null && solveError === null;
     const isNeuralPending = neuralStatus === "loading" && fastDecision.path === "neural-v2" && neuralSolved === null;
+    const isNeuralV3Active = neuralV3Solved !== null && solveError === null;
+    const isNeuralV3Pending = neuralV3Status === "loading" && fastDecision.path === "neural-v3" && neuralV3Solved === null;
     const flow = frame.flow;
     const airfoil = frame.polygons;
-    const solverPath: SolverPath = neuralKeyed !== null ? "neural-v2" : "analytic";
+    const solverPath: SolverPath = neuralV3Keyed !== null ? "neural-v3" : neuralKeyed !== null ? "neural-v2" : "analytic";
     const neuralNote = neuralStatus === "ready" && neuralKeyed !== null
         ? `weights ${neuralKeyed.weightsVersion}, ${neuralKeyed.latencyMs.toFixed(1)} ms${neuralKeyed.cached ? ", cached" : ""}`
         : neuralStatus === "loading"
@@ -1085,6 +1329,17 @@ export default function App() {
             : neuralStatus === "failed"
                 ? "weights failed to load"
                 : "weights unavailable";
+    // Panel neural line follows the active fast path: v3 note while the
+    // router holds neural-v3, v2 note otherwise.
+    const neuralV3Note = neuralV3Status === "ready" && neuralV3Keyed !== null
+        ? `weights ${neuralV3Keyed.weightsVersion}, ${neuralV3Keyed.latencyMs.toFixed(1)} ms${neuralV3Keyed.cached ? ", cached" : ""}`
+        : neuralV3Status === "loading"
+            ? "weights still loading"
+            : neuralV3Status === "failed"
+                ? "weights failed to load"
+                : "weights unavailable";
+    const panelNeuralStatus = fastDecision.path === "neural-v3" ? neuralV3Status : neuralStatus;
+    const panelNeuralNote = fastDecision.path === "neural-v3" ? neuralV3Note : neuralNote;
     const provenanceLabel = selectProvenanceLabel({
         isFixture,
         fixtureLabel: isFixture && fixtureSolved !== null ? fixtureSolved.provenance.label : null,
@@ -1101,6 +1356,8 @@ export default function App() {
         : lbmFailedActive ? "fallback"
         : lbmEffective && !lbmHasSnapshot ? "pending"
         : lbmEffective ? "analytic"
+        : isNeuralV3Pending ? "pending"
+        : isNeuralV3Active ? "surrogate"
         : isNeuralPending ? "pending"
         : isNeuralActive ? "surrogate"
         : isFixture ? "fixture"
@@ -1113,6 +1370,8 @@ export default function App() {
         solveError,
         isNeuralPending,
         isNeuralActive,
+        isNeuralV3Pending,
+        isNeuralV3Active,
         solveGridNx: solveGrid.nx,
     });
     // Bottom terminal status: grey idle before the first LBM snapshot, green
@@ -1150,7 +1409,7 @@ export default function App() {
     }, [runLog, lbmFailedActive, lbmFailed, solveError, isFixture, gridState.notice, valSummary]);
     const regime = regimeLabel(debouncedRe);
     const alphaNote = alphaOutOfBandNote(debouncedSpec.alphaDeg);
-    const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${solverPath}|${flow.nx}x${flow.ny}|${lbmTick}|${neuralKey}`;
+    const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${solverPath}|${flow.nx}x${flow.ny}|${lbmTick}|${neuralKey}|${neuralV3Key}`;
 
     // Honest gating: TKE and recirculation chips enable only when the live
     // frame actually carries the channel and the first statistics sample
@@ -1296,16 +1555,22 @@ export default function App() {
     // the per-action envelope Re floor). Geometry, Re, and field flow
     // through the same funnels as the bars (onVariable recouple the
     // overlays), and presets never arm LBM. Canvas plus sim settings update
-    // on the next render from state.
+    // on the next render from state. A failed preset surfaces its reason to
+    // the console instead of silently doing nothing.
     const applyAgentAction = useCallback((action: AgentAction) => {
-        if (action.kind === "setup_shedding" || action.kind === "setup_high_pressure" || action.kind === "setup_airfoil") {
+        if (action.kind === "setup_shedding" || action.kind === "setup_high_pressure" || action.kind === "setup_high_re_wake" || action.kind === "setup_airfoil") {
             const request = action.kind === "setup_shedding"
                 ? { preset: "shedding" as const }
                 : action.kind === "setup_high_pressure"
                     ? { preset: "high_pressure" as const, body: action.body }
-                    : { preset: "airfoil" as const, body: action.body, alphaDeg: action.alphaDeg };
+                    : action.kind === "setup_high_re_wake"
+                        ? { preset: "high_re_wake" as const }
+                        : { preset: "airfoil" as const, body: action.body, alphaDeg: action.alphaDeg };
             const expanded = expandCasePreset(request);
-            if (!expanded.ok) return;
+            if (!expanded.ok) {
+                console.warn(`setup preset rejected: ${expanded.reason ?? "unknown reason"}`);
+                return;
+            }
             for (const prim of expanded.actions) {
                 if (prim.kind === "set_body") {
                     const next = applyBodyPreset(spec, prim.body);
@@ -1363,6 +1628,7 @@ export default function App() {
     }, [spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setLbmArmedAndMirror, applyParametric]);
 
     // Telemetry engine word. Short uppercase token for the status strip.
+    // v3 names first: the v3 street is tried before v2.
     const engineLabel = lbmFailedActive
         ? "ANALYTIC-FB"
         : lbmEffective
@@ -1371,11 +1637,13 @@ export default function App() {
                 ? "FIXTURE"
                 : solveError !== null
                     ? "HELD"
-                    : isNeuralPending
+                    : isNeuralV3Pending || isNeuralPending
                         ? "LOADING"
-                        : isNeuralActive
-                            ? "NEURAL-V2"
-                            : "ANALYTIC";
+                        : isNeuralV3Active
+                            ? "NEURAL-V3"
+                            : isNeuralActive
+                                ? "NEURAL-V2"
+                                : "ANALYTIC";
     const bodyRowLabel = bodySelectValue === "naca0012"
         ? "NACA 0012"
         : bodySelectValue === "naca2412"
@@ -1411,10 +1679,10 @@ export default function App() {
         validation: { pass: valSummary.pass, warn: valSummary.warn, fail: valSummary.fail, info: valSummary.info },
         provenanceLabel,
         offline,
-        neuralAvailable: isNeuralActive,
+        neuralAvailable: isNeuralActive || isNeuralV3Active,
         neuralEnvelopeSummary: `provisional neural envelope [${PROVISIONAL_NEURAL_ENVELOPE.kinds.join(", ")}], alpha [${PROVISIONAL_NEURAL_ENVELOPE.alphaMin}, ${PROVISIONAL_NEURAL_ENVELOPE.alphaMax}], Re [${PROVISIONAL_NEURAL_ENVELOPE.reMin}, ${PROVISIONAL_NEURAL_ENVELOPE.reMax}], ${PROVISIONAL_NEURAL_ENVELOPE.note}`,
         displayedPath: solverPath,
-    }), [debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, lbmArmed, flow, frame, lbmStatus, lbmHasSnapshot, lbmEffective, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline, isNeuralActive, solverPath]);
+    }), [debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, lbmArmed, flow, frame, lbmStatus, lbmHasSnapshot, lbmEffective, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline, isNeuralActive, isNeuralV3Active, solverPath]);
     const agentContextValue = useMemo(() => buildAgentContext(agentSnapshot), [agentSnapshot]);
 
     return (
@@ -1570,10 +1838,19 @@ export default function App() {
                             {isNeuralPending && (
                                 <p className="loading notice" role="status">Neural v2 weights loading, showing analytic meanwhile. No action needed.</p>
                             )}
+                            {isNeuralV3Pending && (
+                                <p className="loading notice" role="status">Neural v3 weights loading, showing analytic meanwhile. No action needed.</p>
+                            )}
                             {neuralStatus === "failed" && (
                                 <p className="fallbackNote notice" role="status">Neural v2 weights failed to load, analytic fallback active.</p>
                             )}
+                            {neuralV3Status === "failed" && (
+                                <p className="fallbackNote notice" role="status">Neural v3 weights failed to load, analytic fallback active.</p>
+                            )}
                             {neuralStatus === "unavailable" && fastDecision.path === "analytic" && (
+                                <p className="fallbackNote notice" role="status">{fastDecision.reason}, analytic fallback active.</p>
+                            )}
+                            {neuralV3Status === "unavailable" && neuralStatus !== "unavailable" && fastDecision.path === "analytic" && (
                                 <p className="fallbackNote notice" role="status">{fastDecision.reason}, analytic fallback active.</p>
                             )}
                             {gridState.notice !== null && (
@@ -1663,8 +1940,8 @@ export default function App() {
                                             onGridMode={setGridMode}
                                             onClearGridNotice={clearNotice}
                                             solverPath={solverPath}
-                                            neuralStatus={neuralStatus}
-                                            neuralNote={neuralNote}
+                                            neuralStatus={panelNeuralStatus}
+                                            neuralNote={panelNeuralNote}
                                             domainIn={domainVerdict.inDomain}
                                             domainReason={domainVerdict.reason}
                                             reynolds={reynolds}

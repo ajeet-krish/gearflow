@@ -10,7 +10,7 @@ import {
 
 describe("decideFastPath", () => {
     it("routes ready plus in-domain to neural-v2", () => {
-        const decision = decideFastPath({ body: "naca2412", alphaDeg: 6, reynolds: 2000, neuralStatus: "ready" });
+        const decision = decideFastPath({ body: "naca2412", alphaDeg: 6, reynolds: 1200, neuralStatus: "ready" });
         expect(decision.path).toBe("neural-v2");
         expect(decision.inDomain).toBe(true);
         expect(decision.reason).toBe("neural-v2 weights ready and case inside the provisional envelope");
@@ -21,7 +21,7 @@ describe("decideFastPath", () => {
         expect(decision.path).toBe("analytic");
         expect(decision.inDomain).toBe(false);
         expect(decision.reason).toBe(
-            "case outside the provisional neural envelope (alpha 30 deg is outside the provisional envelope [-4, 12] deg), analytic fallback",
+            "case outside the provisional neural envelope (alpha 30 deg is outside the provisional envelope [-4, 8] deg), analytic fallback",
         );
     });
 
@@ -30,7 +30,7 @@ describe("decideFastPath", () => {
         expect(decision.path).toBe("analytic");
         expect(decision.inDomain).toBe(false);
         expect(decision.reason).toBe(
-            "case outside the provisional neural envelope (Re 19 is outside the provisional envelope [20, 2000]), analytic fallback",
+            "case outside the provisional neural envelope (Re 19 is outside the provisional envelope [20, 700] for cylinder, nearest cylinder Re 20), analytic fallback",
         );
     });
 

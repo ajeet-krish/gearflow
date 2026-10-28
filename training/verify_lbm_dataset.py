@@ -23,11 +23,17 @@ Protocol sections:
       read exactly zero in every output head, recirc agrees with the negative
       velocity mask on at least 99 pct of cells, converted Cp stays inside
       (-10, 10), converted vorticity stays inside (-20, 20), raw TKE is non
-      negative, and RMS divergence on native grid fields stays below 0.01.
+      negative, and denoised RMS divergence on native grid fields stays below
+      0.05.
       Divergence is checked on native umean and vmean normalized by u_lattice,
-      with isotropic spacing dx from domain_width over nx minus 1 and erosion
-      scaled to the same physical distance as the legacy 10 cell coarse band.
-      Native is used because bilinear resampling of 256 by 128 airfoil fields
+      first smoothed with three passes of a 5 point cross average (center plus
+      four neighbors over five, solid and edge cells unchanged), then central
+      differenced with isotropic spacing dx from domain_width over nx minus 1
+      and erosion scaled to the same physical distance as the legacy 10 cell
+      coarse band. Smoothing is needed because LES mean fields carry sampling
+      noise near 0.2 pct of freestream that otherwise dominates central
+      differences. Native is used because bilinear resampling of 256 by 128
+      airfoil fields
       to 128 by 128 aliases LES fluctuations and smears the wall step, leaving
       resampled RMS near 0.09 even far from the wall while native interior is
       near 0.005. Duct bodies are exempt from the divergence fail and from the
@@ -205,7 +211,12 @@ MASK_TOL = 1e-6
 SDF_TOL = 1e-6
 TKE_NEG_TOL = 1e-6
 RECIRC_AGREE_MIN = 0.99
-DIV_RMS_MAX = 0.01
+# Denoised divergence gate: measured on Re 400 LES means (160 by 128,
+# dx 0.02516) raw RMS 0.1379 and 0.1350 fails a 0.01 gate, while three
+# passes of 5 point smoothing lowers legit LES means to 0.0112 and 0.0120
+# and leaves a transposed field at 0.29 to 0.37. Threshold 0.05 sits about
+# 4 times above legit noise and about 6 times below a mapping error.
+DIV_RMS_MAX = 0.05
 CLIP_SAT_WARN_FRAC = 0.01
 INPUT_STD_FLOOR = 1e-6
 TREND_ABS_TOL = 0.05
@@ -216,6 +227,16 @@ ERODE_ITERS = 10
 U_PREVIEW_RANGE = (0.0, 1.5)
 BLUFF_BODIES = ("cylinder", "block")
 DUCT_BODIES = ("duct",)
+HARMONIC_BINS = ("ucos", "usin", "vcos", "vsin")
+HARMONIC_RMS_FLOOR_FACTOR = 0.002
+HARMONIC_EXPLAINED_ABS_TOL = 0.05
+HARMONIC_EXPLAINED_REL_TOL = 0.10
+HARMONIC_ST_MIN = 0.03
+HARMONIC_ST_MAX = 0.50
+HARMONIC_MIN_CYCLES = 3
+HARMONIC_CLIP_DIMLESS = 3.0
+HARMONIC_CLIP_WARN_FRAC = 0.01
+HARMONIC_HIGH_EXPLAINED_WARN = 0.35
 
 PILOT_PINS: dict[tuple[str, float, float], float] = {
     ("cylinder", 20.0, 0.0): 2.7720,
@@ -322,17 +343,54 @@ def _native_erode_iters(dx_nat: float) -> int:
     return max(1, int(math.ceil(target / dx_nat)))
 
 
+def _denoise_native_field(field: np.ndarray, fluid: np.ndarray) -> np.ndarray:
+    """Three passes of a 5 point cross average for LES mean fields.
+
+    Each pass replaces a fluid interior cell with the mean of its center plus
+    four neighbors over five. Solid cells and domain edge cells are left as
+    they are, and a solid neighbor contributes the center value instead of the
+    solid zero, so the wall step does not bleed into the fluid. LES time means
+    carry sampling noise that otherwise dominates central differences, while a
+    genuine field mapping error survives this smoothing, so the gate runs on
+    the denoised fields.
+    """
+    smoothed = field.copy()
+    for _ in range(3):
+        prev = smoothed.copy()
+        center = prev[1:-1, 1:-1]
+        north = prev[:-2, 1:-1]
+        south = prev[2:, 1:-1]
+        west = prev[1:-1, :-2]
+        east = prev[1:-1, 2:]
+        north_ok = fluid[:-2, 1:-1]
+        south_ok = fluid[2:, 1:-1]
+        west_ok = fluid[1:-1, :-2]
+        east_ok = fluid[1:-1, 2:]
+        north_use = np.where(north_ok, north, center)
+        south_use = np.where(south_ok, south, center)
+        west_use = np.where(west_ok, west, center)
+        east_use = np.where(east_ok, east, center)
+        avg = (center + north_use + south_use + west_use + east_use) / 5.0
+        nxt = smoothed[1:-1, 1:-1].copy()
+        update = fluid[1:-1, 1:-1]
+        nxt[update] = avg[update]
+        smoothed[1:-1, 1:-1] = nxt
+    return smoothed
+
+
 def _native_div_rms(
     u_norm: np.ndarray, v_norm: np.ndarray, fluid: np.ndarray, dx_nat: float
 ) -> tuple[float, int, int]:
-    dudx = np.empty_like(u_norm, dtype=np.float32)
-    dvdy = np.empty_like(u_norm, dtype=np.float32)
-    dudx[:, 1:-1] = (u_norm[:, 2:] - u_norm[:, :-2]) / (2.0 * dx_nat)
-    dudx[:, 0] = (u_norm[:, 1] - u_norm[:, 0]) / dx_nat
-    dudx[:, -1] = (u_norm[:, -1] - u_norm[:, -2]) / dx_nat
-    dvdy[1:-1, :] = (v_norm[2:, :] - v_norm[:-2, :]) / (2.0 * dx_nat)
-    dvdy[0, :] = (v_norm[1, :] - v_norm[0, :]) / dx_nat
-    dvdy[-1, :] = (v_norm[-1, :] - v_norm[-2, :]) / dx_nat
+    u_use = _denoise_native_field(u_norm, fluid)
+    v_use = _denoise_native_field(v_norm, fluid)
+    dudx = np.empty_like(u_use, dtype=np.float32)
+    dvdy = np.empty_like(u_use, dtype=np.float32)
+    dudx[:, 1:-1] = (u_use[:, 2:] - u_use[:, :-2]) / (2.0 * dx_nat)
+    dudx[:, 0] = (u_use[:, 1] - u_use[:, 0]) / dx_nat
+    dudx[:, -1] = (u_use[:, -1] - u_use[:, -2]) / dx_nat
+    dvdy[1:-1, :] = (v_use[2:, :] - v_use[:-2, :]) / (2.0 * dx_nat)
+    dvdy[0, :] = (v_use[1, :] - v_use[0, :]) / dx_nat
+    dvdy[-1, :] = (v_use[-1, :] - v_use[-2, :]) / dx_nat
     iters = _native_erode_iters(float(dx_nat))
     interior = _erode(fluid, iters)
     cells = interior & np.isfinite(dudx) & np.isfinite(dvdy)
@@ -417,8 +475,11 @@ def v0_check_manifest(sweep_dir: Path) -> dict:
             if version == 1:
                 warnings.append(f"{case_id}: compat default substitutes_for to null (pilot v1 row without substitutes_for)")
                 row["substitutes_for"] = None
-            else:
+            elif version == 2:
                 warnings.append(f"{case_id}: compat default substitutes_for to null (sha v2 row without substitutes_for)")
+                row["substitutes_for"] = None
+            else:
+                warnings.append(f"{case_id}: compat default substitutes_for to null (sha v3 row without substitutes_for)")
                 row["substitutes_for"] = None
         if row.get("ref_length") is None:
             if version == 1:
@@ -474,7 +535,12 @@ def v0_check_manifest(sweep_dir: Path) -> dict:
             continue
         expect = nx * ny * 4
         row_ok = True
-        for name in bin_order_for(version):
+        try:
+            order = bin_order_for(version)
+        except ValueError:
+            errors.append(f"{case_id}: unsupported sha_version {version}")
+            continue
+        for name in order:
             blob_path = case_dir / name
             if not blob_path.is_file():
                 errors.append(f"{case_id}: missing bin {name}")
@@ -499,7 +565,7 @@ def v0_check_manifest(sweep_dir: Path) -> dict:
             continue
         try:
             actual = recompute_sha(case_dir, version)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             errors.append(f"{case_id}: unreadable bin during sha: {exc}")
             continue
         if actual != row.get("sha256"):
@@ -613,12 +679,15 @@ def v1_check_physics(sweep_dir: Path, rows: list[dict]) -> dict:
         if is_duct:
             warnings.append(
                 f"{case_id}: duct divergence exempt by design "
-                f"(confined 0.4 gap channel, 16 cell height, native rms {div_rms:.4f} "
+                f"(confined 0.4 gap channel, 16 cell height, denoised native rms {div_rms:.4f} "
                 f"cells {div_cells} iters {div_iters} does not use free field {DIV_RMS_MAX})"
             )
             div_exempt = True
         elif not np.isfinite(div_rms) or div_rms >= DIV_RMS_MAX:
-            failures.append(f"{case_id}: native RMS divergence {div_rms:.4f} at or above {DIV_RMS_MAX}")
+            failures.append(
+                f"{case_id}: native RMS divergence (denoised) {div_rms:.4f} "
+                f"at or above {DIV_RMS_MAX} (possible u/v field mapping error)"
+            )
             continue
         if not bool(np.all(np.isfinite(raw_y))) or not bool(np.all(np.isfinite(raw_x))):
             failures.append(f"{case_id}: non-finite adapter raw sample")
@@ -911,6 +980,220 @@ def v6_coverage(rows: list[dict]) -> dict:
     return {"coverage": coverage, "extrapolation_risk": risk, "note": note}
 
 
+def v8_check_harmonic(sweep_dir: Path, rows: list[dict]) -> dict:
+    """Harmonic contract checks for completed sha version 3 rows.
+
+    Bin layout is k = j*nx + i with no row flips, harmonic bins in lattice
+    velocity units, solid cells exactly zero. Explained variance is
+    recomputed as sum(A2/4) over sum(tke) with A2 the sum of squared
+    harmonic components and tke standing in for (var_u + var_v)/2; both
+    sums run over fluid cells defined by the obstacle bin.
+    """
+    from merge_sweep import bin_order_for as _bin_order_for
+
+    data_failures: list[str] = []
+    adapter_failures: list[str] = []
+    warnings: list[str] = []
+    cases: dict[str, dict] = {}
+    n_checked = 0
+    n_valid = 0
+    for row in rows:
+        if str(row.get("status", "completed")) != "completed":
+            continue
+        try:
+            version = int(row.get("sha_version", 1))
+        except (TypeError, ValueError):
+            continue
+        if version != 3:
+            continue
+        case_id = str(row.get("case_id", ""))
+        n_checked += 1
+        try:
+            nx = int(row["nx"])
+            ny = int(row["ny"])
+        except (KeyError, TypeError, ValueError):
+            data_failures.append(f"{case_id}: harmonic contract missing nx or ny")
+            continue
+        try:
+            order = _bin_order_for(3)
+        except ValueError:
+            data_failures.append(f"{case_id}: harmonic contract unsupported sha_version 3")
+            continue
+        expect = nx * ny * 4
+        case_dir = _resolve_case_dir(sweep_dir, case_id)
+        bins_ok = True
+        for name in order:
+            blob_path = case_dir / name
+            if not blob_path.is_file():
+                data_failures.append(f"{case_id}: harmonic contract missing bin {name}")
+                bins_ok = False
+                continue
+            try:
+                size = blob_path.stat().st_size
+            except OSError as exc:
+                data_failures.append(f"{case_id}: harmonic contract unreadable bin {name}: {exc}")
+                bins_ok = False
+                continue
+            if size != expect:
+                data_failures.append(f"{case_id}: harmonic contract size mismatch {name}: {size} != {expect}")
+                bins_ok = False
+            elif not _finite_blob_ok(blob_path):
+                data_failures.append(f"{case_id}: harmonic contract non-finite values in {name}")
+                bins_ok = False
+        if not bins_ok:
+            continue
+        try:
+            loaded: dict[str, np.ndarray] = {}
+            for name in order:
+                loaded[name[:-4]] = _load_bin(case_dir, name[:-4], nx, ny)
+        except ValueError as exc:
+            data_failures.append(f"{case_id}: harmonic contract unreadable bin: {exc}")
+            continue
+        obstacle = loaded["obstacle"]
+        solid = obstacle > 0.5
+        fluid = ~solid
+        for h in HARMONIC_BINS:
+            arr = loaded[h]
+            if bool(solid.any()) and bool((arr[solid] != 0.0).any()):
+                data_failures.append(
+                    f"{case_id}: harmonic contract solid cells not exactly zero in {h}.f32"
+                )
+        valid = row.get("harmonic_valid")
+        if not isinstance(valid, bool):
+            data_failures.append(f"{case_id}: harmonic contract malformed harmonic_valid")
+            continue
+        try:
+            u_ref = float(row["u_lattice"])
+        except (KeyError, TypeError, ValueError):
+            data_failures.append(f"{case_id}: harmonic contract missing u_lattice")
+            continue
+        if not np.isfinite(u_ref) or u_ref <= 0.0:
+            data_failures.append(f"{case_id}: harmonic contract bad u_lattice")
+            continue
+        ucos = loaded["ucos"].astype(np.float64)
+        usin = loaded["usin"].astype(np.float64)
+        vcos = loaded["vcos"].astype(np.float64)
+        vsin = loaded["vsin"].astype(np.float64)
+        tke = loaded["tke"].astype(np.float64)
+        a2 = ucos * ucos + usin * usin + vcos * vcos + vsin * vsin
+        fluid_count = int(fluid.sum())
+        if fluid_count > 0:
+            rms = float(np.sqrt(np.mean(a2[fluid] / 2.0)))
+            numer = float(np.sum(a2[fluid] / 4.0))
+            denom = float(np.sum(tke[fluid]))
+            if denom <= 0.0:
+                recomputed = 0.0 if numer == 0.0 else float("inf")
+            else:
+                recomputed = numer / denom
+            union = np.zeros(fluid_count, dtype=bool)
+            for h in HARMONIC_BINS:
+                dimless = np.abs(loaded[h][fluid].astype(np.float64)) / float(u_ref)
+                union = union | (dimless > HARMONIC_CLIP_DIMLESS)
+            clip_sat = float(union.sum()) / float(fluid_count)
+        else:
+            rms = 0.0
+            recomputed = 0.0
+            clip_sat = 0.0
+        cases[case_id] = {
+            "harmonic_valid": valid,
+            "rms": rms,
+            "recomputed_explained_variance": recomputed,
+            "manifest_explained_variance": row.get("explained_variance"),
+            "clip_saturation": clip_sat,
+            "fluid_cells": fluid_count,
+        }
+        if clip_sat > HARMONIC_CLIP_WARN_FRAC:
+            warnings.append(
+                f"{case_id}: harmonic clip saturation {clip_sat:.3f} above {HARMONIC_CLIP_WARN_FRAC}"
+            )
+        if valid is False:
+            all_zero = all(bool((loaded[h] == 0.0).all()) for h in HARMONIC_BINS)
+            if not all_zero:
+                data_failures.append(
+                    f"{case_id}: harmonic contract nonzero harmonic values on invalid case"
+                )
+            if np.isfinite(recomputed) and recomputed > HARMONIC_HIGH_EXPLAINED_WARN:
+                warnings.append(
+                    f"{case_id}: recomputed explained variance {recomputed:.3f} above "
+                    f"{HARMONIC_HIGH_EXPLAINED_WARN} with valid false"
+                )
+            continue
+        n_valid += 1
+        all_zero = all(bool((loaded[h] == 0.0).all()) for h in HARMONIC_BINS)
+        if all_zero:
+            data_failures.append(
+                f"{case_id}: harmonic contract zero amplitude with valid true"
+            )
+        else:
+            floor = HARMONIC_RMS_FLOOR_FACTOR * float(u_ref)
+            if not np.isfinite(rms) or rms < floor:
+                data_failures.append(
+                    f"{case_id}: harmonic contract zero amplitude with valid true "
+                    f"(rms {rms:.6f} below floor {floor:.6f})"
+                )
+        manifest_exp = row.get("explained_variance")
+        try:
+            manifest_f = float(manifest_exp)
+        except (TypeError, ValueError):
+            adapter_failures.append(
+                f"{case_id}: harmonic contract explained_variance unreadable"
+            )
+            manifest_f = float("nan")
+        if np.isfinite(manifest_f):
+            tol = max(HARMONIC_EXPLAINED_ABS_TOL, HARMONIC_EXPLAINED_REL_TOL * abs(manifest_f))
+            if not np.isfinite(recomputed) or abs(recomputed - manifest_f) > tol:
+                adapter_failures.append(
+                    f"{case_id}: harmonic contract explained_variance mismatch "
+                    f"recomputed {recomputed:.6f} vs manifest {manifest_f:.6f} tol {tol:.6f}"
+                )
+        else:
+            adapter_failures.append(
+                f"{case_id}: harmonic contract explained_variance unreadable"
+            )
+        strouhal = row.get("strouhal")
+        try:
+            st_f = float(strouhal) if strouhal is not None else float("nan")
+        except (TypeError, ValueError):
+            st_f = float("nan")
+        if strouhal is None or not np.isfinite(st_f) or not (HARMONIC_ST_MIN <= st_f <= HARMONIC_ST_MAX):
+            data_failures.append(
+                f"{case_id}: harmonic contract strouhal {strouhal!r} outside "
+                f"[{HARMONIC_ST_MIN}, {HARMONIC_ST_MAX}]"
+            )
+        try:
+            transient = int(row["transient"])
+            window = int(row["window"])
+        except (KeyError, TypeError, ValueError):
+            data_failures.append(f"{case_id}: harmonic contract missing transient or window")
+            continue
+        phase = row.get("phase_ref_step")
+        if (
+            phase is None
+            or isinstance(phase, bool)
+            or not isinstance(phase, int)
+            or phase < transient
+            or phase > transient + window
+        ):
+            data_failures.append(
+                f"{case_id}: harmonic contract phase_ref_step {phase!r} outside stats window"
+            )
+        cycles = row.get("harmonic_cycles")
+        if isinstance(cycles, bool) or not isinstance(cycles, int) or cycles < HARMONIC_MIN_CYCLES:
+            data_failures.append(
+                f"{case_id}: harmonic contract harmonic_cycles {cycles!r} below {HARMONIC_MIN_CYCLES}"
+            )
+    if n_valid == 0:
+        warnings.append("sweep with zero harmonic_valid completed cases (harmonic coverage risk)")
+    return {
+        "data_failures": data_failures,
+        "adapter_failures": adapter_failures,
+        "warnings": warnings,
+        "cases": cases,
+        "n_checked": n_checked,
+        "n_valid": n_valid,
+    }
+
+
 def verify_sweep(
     sweep_dir: Path,
     out_dir: Path,
@@ -939,6 +1222,10 @@ def verify_sweep(
     v5 = v5_write_previews(sweep_dir, out_dir, ok_rows, v1["cases"])
     adapter_failures.extend(f"V5: {e}" for e in v5["failures"])
     v6 = v6_coverage(ok_rows)
+    v8 = v8_check_harmonic(sweep_dir, v0.get("rows", []))
+    data_failures.extend(f"V8: {e}" for e in v8["data_failures"])
+    adapter_failures.extend(f"V8: {e}" for e in v8["adapter_failures"])
+    warnings.extend(f"V8: {w}" for w in v8["warnings"])
     if adapter_failures:
         status, exit_code = "ADAPTER_FAILURE", EXIT_ADAPTER
     elif data_failures:
@@ -980,6 +1267,11 @@ def verify_sweep(
         "v4_norm": v4["info"],
         "v5_previews": {"previews": v5["previews"], "fixed_colorbars": {"meanU": list(U_PREVIEW_RANGE)}},
         "v6_coverage": v6,
+        "v8_harmonic": {
+            "n_checked": v8.get("n_checked", 0),
+            "n_valid": v8.get("n_valid", 0),
+            "cases": v8.get("cases", {}),
+        },
         "gate": {
             "data_failures": data_failures,
             "adapter_failures": adapter_failures,

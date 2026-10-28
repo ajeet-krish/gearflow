@@ -24,7 +24,7 @@ function makeCtx(over: Partial<AgentContext> = {}): AgentContext {
         honesty: [],
         neural: {
             available: false,
-            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block, duct, orifice], alpha [-4, 12], Re [20, 2000], no weights yet",
+            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block], alpha [-4, 8], Re [20, 1200], no weights yet",
             path: "analytic",
         },
         ...over,
@@ -162,21 +162,21 @@ describe("localReply engine, field, and run", () => {
         expect(out.rejections.join(" ")).toContain("LBM");
     });
 
-    it("names the resolved high pressure body instead of always saying orifice", () => {
+    it("retires the high pressure preset with the honest divergence reason", () => {
         const orifice = localReply("show the high pressure zone", makeCtx());
-        expect(orifice.actions).toContainEqual({ kind: "setup_high_pressure" });
-        expect(orifice.reply).toContain("(orifice, alpha 0, Re 1000, cp field)");
+        expect(orifice.actions).toEqual([{ kind: "set_field", field: "cp" }]);
+        expect(orifice.rejections.join(" ")).toContain("diverges at every tested gap and Re");
+        expect(orifice.reply).toContain("high pressure case is outside the serving envelope");
         const block = localReply("show the high pressure zone in the block", makeCtx());
-        expect(block.actions).toContainEqual({ kind: "setup_high_pressure", body: "block" });
-        expect(block.reply).toContain("(block, alpha 0, Re 1000, cp field)");
-        expect(block.reply).not.toContain("(orifice, alpha 0, Re 1000, cp field)");
+        expect(block.actions).toEqual([{ kind: "set_field", field: "cp" }]);
+        expect(block.rejections.join(" ")).toContain("diverges at every tested gap and Re");
     });
 
-    it("leaves applied setup replies without a Canvas unchanged suffix", () => {
+    it("keeps the retired preset rejection visible alongside the field note", () => {
         const out = localReply("show the high pressure zone", makeCtx());
-        expect(out.actions.length).toBeGreaterThan(0);
-        expect(out.reply).toContain("Canvas updates on apply");
-        expect(out.reply).not.toContain("Canvas unchanged");
+        expect(out.actions).toEqual([{ kind: "set_field", field: "cp" }]);
+        expect(out.reply).toContain("high pressure case is outside the serving envelope");
+        expect(out.reply).toContain("Switching field to cp");
     });
 });
 

@@ -1,6 +1,7 @@
 """Local entrypoint wiring for training/modal_train.py: git sha handoff."""
 
 import inspect
+import json
 import sys
 import types
 from pathlib import Path
@@ -132,18 +133,92 @@ def test_validate_hparams_epochs_cap() -> None:
         modal_train._validate_hparams("finetune", 8, 0, 8, 5e-5)
 
 
+def test_checkpoint_config_records_v3_contract() -> None:
+    modal_train = _import_modal_train()
+    src = (Path(__file__).resolve().parent.parent / "modal_train.py").read_text()
+    assert modal_train.NORM_SCHEMA == "gearflow-surrogate-norm/v3"
+    assert '"unet-v3"' in src
+    assert '"outCh": 10' in src
+    assert '"auxCh": 3' in src
+    assert "gearflow-surrogate-norm/v3" in src
+    assert "harmonicCapable" in src
+
+
+def test_image_local_file_list_includes_dataset_v3() -> None:
+    src = (Path(__file__).resolve().parent.parent / "modal_train.py").read_text()
+    assert "training/dataset_v3.py" in src
+    assert "training/losses.py" in src
+    assert "training/model.py" in src
+
+
+def test_harmonic_capability_gate() -> None:
+    modal_train = _import_modal_train()
+    assert modal_train.HARM_MIN_VALID == 8
+    assert modal_train._harmonic_capable(8, 1) is True
+    assert modal_train._harmonic_capable(12, 200) is True
+    assert modal_train._harmonic_capable(7, 200) is False
+    assert modal_train._harmonic_capable(0, 200) is False
+    assert modal_train._harmonic_capable(8, 0) is False
+    assert modal_train._harmonic_capable(20, 0) is False
+
+
+def test_run_log_carries_harmonic_counts() -> None:
+    src = (Path(__file__).resolve().parent.parent / "modal_train.py").read_text()
+    assert "harmonicTrain" in src
+    assert "harmonicVal" in src
+
+
+def test_loss_wiring_passes_six_tensors() -> None:
+    modal_train = _import_modal_train()
+    src = inspect.getsource(modal_train.run_stage)
+    assert "multihead_loss_v3" in src
+    assert "aux_mask" in src
+    assert "pair_std_u" in src
+    assert "pair_std_v" in src
+    assert "for x, y, fluid, aux, aux_mask, weight in" in src
+    assert "pred_spatial, pred_aux" in src
+
+
+def test_finetune_zero_completed_rows_fails_closed(tmp_path: Path) -> None:
+    modal_train = _import_modal_train()
+    sweep_dir = tmp_path / "lbm" / "pilot"
+    sweep_dir.mkdir(parents=True)
+    rows = [
+        {"case_id": "c001", "status": "diverged"},
+        {"case_id": "c002", "status": "setup_error"},
+    ]
+    (sweep_dir / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    assert modal_train._completed_lbm_rows(sweep_dir) == []
+    with pytest.raises(ValueError, match="zero completed LBM rows"):
+        modal_train._require_completed_rows(sweep_dir)
+
+
+def test_require_completed_rows_passes_with_completed(tmp_path: Path) -> None:
+    modal_train = _import_modal_train()
+    sweep_dir = tmp_path / "lbm" / "pilot"
+    sweep_dir.mkdir(parents=True)
+    rows = [
+        {"case_id": "c001", "status": "completed"},
+        {"case_id": "c002"},
+        {"case_id": "c003", "status": "diverged"},
+    ]
+    (sweep_dir / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    kept = modal_train._require_completed_rows(sweep_dir)
+    assert [r["case_id"] for r in kept] == ["c001", "c002"]
+
+
 def test_download_routes_per_stage() -> None:
     modal_train = _import_modal_train()
     run_id = "r9"
     train_routes = modal_train._download_routes("train", run_id)
     assert [r for r, _ in train_routes] == [f"{run_id}/finetune/{n}" for n in modal_train.ARTIFACT_NAMES]
-    assert [str(p) for _, p in train_routes] == [f"training/checkpoints/v2/{run_id}/{n}" for n in modal_train.ARTIFACT_NAMES]
+    assert [str(p) for _, p in train_routes] == [f"training/checkpoints/v3/{run_id}/{n}" for n in modal_train.ARTIFACT_NAMES]
     assert all("pretrain" not in str(p) for _, p in train_routes)
     finetune_routes = modal_train._download_routes("finetune", run_id)
     assert [(r, str(p)) for r, p in finetune_routes] == [(r, str(p)) for r, p in train_routes]
     pretrain_routes = modal_train._download_routes("pretrain", run_id)
     assert [r for r, _ in pretrain_routes] == [f"{run_id}/pretrain/{n}" for n in modal_train.ARTIFACT_NAMES]
-    assert [str(p) for _, p in pretrain_routes] == [f"training/checkpoints/v2/{run_id}/pretrain/{n}" for n in modal_train.ARTIFACT_NAMES]
+    assert [str(p) for _, p in pretrain_routes] == [f"training/checkpoints/v3/{run_id}/pretrain/{n}" for n in modal_train.ARTIFACT_NAMES]
     with pytest.raises(ValueError):
         modal_train._download_routes("nope", run_id)
 
@@ -161,10 +236,10 @@ def test_pretrain_only_runs_single_stage(monkeypatch: pytest.MonkeyPatch, tmp_pa
     stage, _ = _patch_entrypoint(monkeypatch, tmp_path, modal_train, _blobs_for(run_id, "pretrain"))
     modal_train.main(action="pretrain", run_id=run_id, sweep_id="pilot")
     assert stage.calls == ["pretrain"]
-    dest = tmp_path / "training" / "checkpoints" / "v2" / run_id / "pretrain"
+    dest = tmp_path / "training" / "checkpoints" / "v3" / run_id / "pretrain"
     for name in modal_train.ARTIFACT_NAMES:
         assert (dest / name).is_file()
-    assert not (tmp_path / "training" / "checkpoints" / "v2" / run_id / "best.pt").exists()
+    assert not (tmp_path / "training" / "checkpoints" / "v3" / run_id / "best.pt").exists()
 
 
 def test_finetune_only_runs_single_stage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -175,7 +250,7 @@ def test_finetune_only_runs_single_stage(monkeypatch: pytest.MonkeyPatch, tmp_pa
     stage, _ = _patch_entrypoint(monkeypatch, tmp_path, modal_train, blobs)
     modal_train.main(action="finetune", run_id=run_id, sweep_id="pilot")
     assert stage.calls == ["finetune"]
-    dest = tmp_path / "training" / "checkpoints" / "v2" / run_id
+    dest = tmp_path / "training" / "checkpoints" / "v3" / run_id
     for name in modal_train.ARTIFACT_NAMES:
         assert (dest / name).is_file()
 
@@ -190,7 +265,7 @@ def test_train_default_runs_both_stages(monkeypatch: pytest.MonkeyPatch, tmp_pat
     stage, volume = _patch_entrypoint(monkeypatch, tmp_path, modal_train, blobs)
     modal_train.main(run_id=run_id, sweep_id="pilot")
     assert stage.calls == ["pretrain", "finetune"]
-    dest = tmp_path / "training" / "checkpoints" / "v2" / run_id
+    dest = tmp_path / "training" / "checkpoints" / "v3" / run_id
     for name in modal_train.ARTIFACT_NAMES:
         assert (dest / name).is_file()
         assert (dest / name).read_bytes() == f"finetune:{name}".encode()

@@ -14,7 +14,7 @@ use crate::lattice::{
     CS_SMAG_DEFAULT, CX, CY, OPP, ST_DEFAULT, U_LAT_MAX, U_LAT_MIN,
 };
 use crate::sdf::build_sdf_grid;
-use crate::stats::{FinalStats, StatsAccumulator};
+use crate::stats::{FinalStats, HarmonicAccumulator, HarmonicConfig, HarmonicResult, StatsAccumulator};
 use crate::types::{CircleDef, Domain, FlowField, GeometrySpec, GridSpec, Xy, ORIFICE_GAP_DEFAULT};
 
 /// Maximum accepted statistics transient cut in steps. Mirrors
@@ -38,6 +38,7 @@ pub struct LbmConfig {
     pub sample_every: u64,
     pub seed: u64,
     pub max_steps_per_call: u64,
+    pub harmonic: bool,
 }
 
 impl Default for LbmConfig {
@@ -53,6 +54,7 @@ impl Default for LbmConfig {
             sample_every: 10,
             seed: 42,
             max_steps_per_call: 512,
+            harmonic: false,
         }
     }
 }
@@ -112,6 +114,7 @@ pub struct LbmState {
     pub step: u64,
     pub force: ForceAccumulator,
     pub stats: StatsAccumulator,
+    pub harmonic: Option<HarmonicAccumulator>,
     pub cancelled: bool,
     pub poisoned: bool,
     pub poison_step: u64,
@@ -204,6 +207,22 @@ impl LbmState {
         let (ref_cd, ref_cl) = reference_lengths(geom, params.d_lat, chord_lat);
         let force = ForceAccumulator::new(ref_cd, ref_cl, cfg.u_lattice)?;
         let stats = StatsAccumulator::new(nx, ny, cfg.stats_start_step, cfg.sample_every)?;
+        let harmonic = if cfg.harmonic {
+            Some(HarmonicAccumulator::new(
+                nx,
+                ny,
+                cfg.stats_start_step,
+                cfg.sample_every,
+                HarmonicConfig {
+                    d_lat: params.d_lat,
+                    u_lattice: cfg.u_lattice,
+                    skip_cycles: 2,
+                    min_cycles: 3,
+                },
+            )?)
+        } else {
+            None
+        };
         let n = nx * ny;
         let mut st = LbmState {
             nx,
@@ -222,6 +241,7 @@ impl LbmState {
             step: 0,
             force,
             stats,
+            harmonic,
             cancelled: false,
             poisoned: false,
             poison_step: 0,
@@ -276,6 +296,9 @@ impl LbmState {
         self.poison_step = 0;
         self.force.reset();
         self.stats.reset();
+        if let Some(harm) = self.harmonic.as_mut() {
+            harm.reset();
+        }
         self.init_populations()?;
         Ok(())
     }
@@ -467,11 +490,18 @@ impl LbmState {
                 self.v[k] = uy as f32;
             }
         }
-        // 7. Normalise force, history, stats, stability scan.
+        // 7. Normalise force, history, harmonic, stats, stability scan.
         self.force.normalise_step();
+        let cl_now = self.force.cl;
+        if let Some(harm) = self.harmonic.as_mut() {
+            harm.note_cl(self.step, cl_now);
+        }
         self.force.push_history(self.step);
         self.stats
             .sample(self.step, &self.rho, &self.u, &self.v, &self.solid);
+        if let Some(harm) = self.harmonic.as_mut() {
+            harm.sample(self.step, &self.u, &self.v, &self.solid);
+        }
         if self.step % 32 == 0 {
             self.stability_scan()?;
         }
@@ -599,6 +629,29 @@ impl LbmState {
         let dy = (self.domain.y_max - self.domain.y_min) / (self.ny - 1) as f64;
         self.stats
             .fields_or_zeros_full(&self.solid, self.nx, self.ny, dx, dy)
+    }
+
+    /// Dataset v3 export: the existing six mean channels plus the
+    /// phase averaged first harmonic result. The six channels are byte
+    /// identical to stats_dataset_fields. When the harmonic flag is
+    /// off the result is all zero coefficients with valid false.
+    pub fn stats_dataset_fields_v3(
+        &self,
+    ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, HarmonicResult) {
+        let (mu, mv, mp, tke, wm, rm) = self.stats_dataset_fields();
+        let harm = match &self.harmonic {
+            Some(h) => h.finalise(&self.solid),
+            None => HarmonicResult::zeros(self.nx * self.ny),
+        };
+        (mu, mv, mp, tke, wm, rm, harm)
+    }
+
+    /// Strouhal from the frozen harmonic period, None when the harmonic
+    /// flag is off or the period has not frozen yet. Additive, the
+    /// force history Strouhal is untouched.
+    pub fn harmonic_strouhal(&self) -> Option<f64> {
+        let harm = self.harmonic.as_ref()?;
+        harm.strouhal()
     }
 
     /// Stats report for the UI. Never panics, never returns NaN or
@@ -1178,6 +1231,7 @@ mod tests {
             sample_every: 10,
             seed: 42,
             max_steps_per_call: 2048,
+            harmonic: false,
         };
         let mut st = LbmState::new(&grid, &geom, &cfg).unwrap();
         assert!((st.params.tau - 0.8).abs() < 1e-6, "tau = {}", st.params.tau);
@@ -1351,6 +1405,7 @@ mod tests {
             sample_every: 10,
             seed: 42,
             max_steps_per_call: 512,
+            harmonic: false,
         };
         (grid, geom, cfg)
     }
@@ -1443,6 +1498,7 @@ mod tests {
             sample_every: 10,
             seed: 42,
             max_steps_per_call: 512,
+            harmonic: false,
         };
         (grid, geom, cfg)
     }
@@ -1790,6 +1846,7 @@ mod tests {
             sample_every: 10,
             seed: 42,
             max_steps_per_call: 2048,
+            harmonic: false,
         };
         let mut st = LbmState::new(&grid, &geom, &cfg).unwrap();
         eprintln!(
@@ -1959,6 +2016,7 @@ mod tests {
             sample_every: 10,
             seed: 42,
             max_steps_per_call: 512,
+            harmonic: false,
         };
         let mut st = LbmState::new(&grid, &geom, &cfg).unwrap();
         let mut done = 0u64;
@@ -2009,6 +2067,7 @@ mod tests {
             sample_every: 10,
             seed: 42,
             max_steps_per_call: 512,
+            harmonic: false,
         };
         let mut st = LbmState::new(&grid, &geom, &cfg).unwrap();
         assert!((st.params.d_lat - 12.0).abs() < 0.5, "D_lat = {}", st.params.d_lat);
@@ -2093,6 +2152,7 @@ mod tests {
             sample_every,
             seed: 42,
             max_steps_per_call: 512,
+            harmonic: false,
         };
         (grid, geom, cfg)
     }
@@ -2305,5 +2365,156 @@ mod tests {
                 assert_eq!(*val, 0.0);
             }
         }
+    }
+
+    #[test]
+    fn harmonic_flag_plumbing_keeps_interactive_path_identical() {
+        // Small square grid for debug wall clock. The flag off path
+        // holds no accumulator and the v3 export matches the existing
+        // six channel export exactly. The flag on path accumulates
+        // without changing the six channels.
+        let grid = GridSpec {
+            nx: 32,
+            ny: 32,
+            domain: Domain { x_min: 0.0, x_max: 1.24, y_min: -0.62, y_max: 0.62 },
+        };
+        let geom = cylinder_geom(0.372, 0.0, 0.1);
+        let mut plain = LbmConfig::default();
+        plain.stats_start_step = 0;
+        let mut with_harm = plain;
+        with_harm.harmonic = true;
+        assert!(!plain.harmonic);
+        let mut st_plain = LbmState::new(&grid, &geom, &plain).unwrap();
+        let mut st_harm = LbmState::new(&grid, &geom, &with_harm).unwrap();
+        assert!(st_plain.harmonic.is_none());
+        assert!(st_harm.harmonic.is_some());
+        st_plain.run_steps(30).unwrap();
+        st_harm.run_steps(30).unwrap();
+        let n = grid.nx * grid.ny;
+        let (a_mu, a_mv, a_mp, a_k, a_w, a_m) = st_plain.stats_dataset_fields();
+        let (b_mu, b_mv, b_mp, b_k, b_w, b_m, harm) = st_harm.stats_dataset_fields_v3();
+        assert_eq!(a_mu, b_mu);
+        assert_eq!(a_mv, b_mv);
+        assert_eq!(a_mp, b_mp);
+        assert_eq!(a_k, b_k);
+        assert_eq!(a_w, b_w);
+        assert_eq!(a_m, b_m);
+        // Thirty steps hold no shedding cycle, so the fit is invalid
+        // zeros on both paths.
+        let (_, _, _, _, _, _, plain_harm) = st_plain.stats_dataset_fields_v3();
+        assert!(!plain_harm.valid);
+        assert!(!harm.valid);
+        for arr in [&harm.u_cos, &harm.u_sin, &harm.v_cos, &harm.v_sin] {
+            assert_eq!(arr.len(), n);
+            for val in arr {
+                assert_eq!(*val, 0.0);
+            }
+        }
+        assert!(st_plain.harmonic_strouhal().is_none());
+        assert!(st_harm.harmonic_strouhal().is_none());
+        // Reset clears the harmonic accumulator without touching config.
+        st_harm.reset().unwrap();
+        assert!(st_harm.harmonic.is_some());
+        assert_eq!(st_harm.harmonic.as_ref().unwrap().committed_cycles(), 0);
+        assert_eq!(st_harm.harmonic.as_ref().unwrap().committed_samples(), 0);
+    }
+
+    #[test]
+    fn harmonic_shedding_state_is_valid_nonzero() {
+        // Wiring guard on LbmState: a shedding configuration (cylinder,
+        // Re 100, harmonic on) on a small grid, driven with a shedding
+        // consistent Cl trace and synthetic first harmonic fields at
+        // the Strouhal period derived from the state's own d_lat. The
+        // export must go valid with nonzero ucos and vsin on fluid
+        // cells and reason ok, so this wiring class cannot regress to
+        // silent zeros. Deterministic and millisecond fast.
+        let grid = GridSpec {
+            nx: 48,
+            ny: 40,
+            domain: Domain { x_min: 0.0, x_max: 2.0, y_min: -0.833, y_max: 0.833 },
+        };
+        let geom = cylinder_geom(0.6, 0.0, 0.2);
+        let cfg = LbmConfig {
+            u_lattice: 0.08,
+            re: 100.0,
+            cs_smag: 0.17,
+            les_enabled: false,
+            inlet: InletProfile::Uniform,
+            outlet: OutletKind::Convective,
+            stats_start_step: 0,
+            sample_every: 10,
+            seed: 42,
+            max_steps_per_call: 512,
+            harmonic: true,
+        };
+        let st = LbmState::new(&grid, &geom, &cfg).unwrap();
+        let harm_cfg = HarmonicConfig {
+            d_lat: st.params.d_lat,
+            u_lattice: cfg.u_lattice,
+            skip_cycles: 2,
+            min_cycles: 3,
+        };
+        let mut harm = HarmonicAccumulator::new(
+            grid.nx,
+            grid.ny,
+            cfg.stats_start_step,
+            cfg.sample_every,
+            harm_cfg,
+        )
+        .unwrap();
+        // Shedding consistent period from St 0.2 at the state's d_lat.
+        let period = st.params.d_lat / (0.2 * cfg.u_lattice);
+        assert!(period.is_finite() && period > 0.0, "period = {period}");
+        let cells = grid.nx * grid.ny;
+        let solid = st.solid.clone();
+        let total = (11.0 * period).ceil() as u64;
+        for t in 0..=total {
+            let cl = 0.5 * (2.0 * std::f64::consts::PI * t as f64 / period).cos();
+            harm.note_cl(t, cl);
+            if t % cfg.sample_every != 0 {
+                continue;
+            }
+            let phi = 2.0 * std::f64::consts::PI * t as f64 / period;
+            let uval = (0.06 + 0.03 * (phi + 0.3).cos()) as f32;
+            let vval = (0.005 + 0.02 * (phi - 0.5).cos()) as f32;
+            harm.sample(t, &vec![uval; cells], &vec![vval; cells], &solid);
+        }
+        let res = harm.finalise(&solid);
+        eprintln!(
+            "harm state: valid = {}, reason = {}, explained = {:.4}, cycles = {}, samples = {}",
+            res.valid, res.reason, res.explained_variance, res.cycles, res.samples
+        );
+        assert!(res.valid, "reason = {}", res.reason);
+        assert_eq!(res.reason, "ok");
+        assert!(res.explained_variance >= 0.35, "explained = {}", res.explained_variance);
+        let mut fluid = 0u64;
+        let mut nz_cos = 0u64;
+        let mut nz_sin = 0u64;
+        let mut max_cos = 0.0f64;
+        for k in 0..cells {
+            if solid[k] != 0 {
+                assert_eq!(res.u_cos[k], 0.0);
+                assert_eq!(res.v_sin[k], 0.0);
+                continue;
+            }
+            fluid += 1;
+            let a = res.u_cos[k] as f64;
+            let b = res.v_sin[k] as f64;
+            assert!(res.u_cos[k].is_finite());
+            assert!(res.v_sin[k].is_finite());
+            if a != 0.0 {
+                nz_cos += 1;
+            }
+            if b != 0.0 {
+                nz_sin += 1;
+            }
+            if a.abs() > max_cos {
+                max_cos = a.abs();
+            }
+        }
+        assert!(fluid > 0);
+        assert!(nz_cos > 0, "ucos all zero on fluid");
+        assert!(nz_sin > 0, "vsin all zero on fluid");
+        assert!(max_cos > 1e-6, "max ucos = {max_cos}");
     }
 }

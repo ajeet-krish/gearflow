@@ -215,7 +215,7 @@ export function SimulationSectionView(props: SimulationSectionViewProps): JSX.El
             <div className="field">
                 <span className="settingsLabel" id="simPathLabel">Solver path</span>
                 <p className="mono" role="status" id="simPathCurrent">
-                    Current path {solverPath === "neural-v2" ? "neural-v2 predicted, not validated" : "analytic potential flow, not validated"}
+                    Current path {solverPath === "neural-v3" ? "neural-v3 phase averaged, modeled" : solverPath === "neural-v2" ? "neural-v2 predicted, not validated" : "analytic potential flow, not validated"}
                 </p>
                 <p className="hint mono" id="simNeuralLine">
                     Neural {neuralStatus}{neuralNote !== null && neuralNote.length > 0 ? `, ${neuralNote}` : ""}

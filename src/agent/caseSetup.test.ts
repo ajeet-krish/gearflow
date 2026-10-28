@@ -33,7 +33,7 @@ function makeCtx(over: Partial<AgentContext> = {}): AgentContext {
         honesty: [],
         neural: {
             available: false,
-            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block, duct, orifice], alpha [-4, 12], Re [20, 2000], no weights yet",
+            envelope: "provisional neural envelope [naca0012, naca2412, naca4412, cylinder, block], alpha [-4, 8], Re [20, 1200], no weights yet",
             path: "analytic",
         },
         ...over,
@@ -84,7 +84,7 @@ describe("validator envelope awareness", () => {
         expect(out.ok).toBe(false);
         const reason = out.reason ?? "";
         expect(reason).toContain("45");
-        expect(reason).toContain("12");
+        expect(reason).toContain("8");
         expect(reason).toContain("naca4412");
     });
 
@@ -125,10 +125,11 @@ describe("local phenomenological triggers", () => {
         expect(karman.actions).toEqual([{ kind: "setup_shedding" }]);
     });
 
-    it("maps stagnation talk to the high pressure preset", () => {
+    it("maps stagnation talk to the retired high pressure preset with the honest reason", () => {
         const out = localReply("show the stagnation high pressure zone", makeCtx());
-        expect(out.actions).toContainEqual({ kind: "setup_high_pressure" });
-        expect(out.reply).toContain("high pressure case");
+        expect(out.actions).toEqual([{ kind: "set_field", field: "cp" }]);
+        expect(out.rejections.join(" ")).toContain("diverges at every tested gap and Re");
+        expect(out.reply).toContain("high pressure case is outside the serving envelope");
     });
 
     it("maps airfoil plus optional alpha to the airfoil preset", () => {
@@ -223,7 +224,8 @@ describe("context neural honesty", () => {
         expect(inDomain.honesty.join(" ")).not.toContain("provisional neural envelope");
         const out = buildAgentContext(snapshot({ reynolds: 500000 }));
         expect(out.honesty.join(" ")).toContain("Outside the provisional neural envelope");
-        expect(out.honesty.join(" ")).toContain("Analytic path serves this case");
+        const alphaOut = buildAgentContext(snapshot({ spec: { ...snapshot().spec, alphaDeg: 45 } }));
+        expect(alphaOut.honesty.join(" ")).toContain("Analytic path serves this case");
     });
 
     it("reports neural availability plus the displayed path from the snapshot", () => {

@@ -4,16 +4,19 @@
 // JSONL row per case. Zero new crates, std only plus the lib itself.
 //
 // C-2 extension: optional `cases` spec file (CaseSpecV1 JSON lines) plus
-// `manifest_out` fragment arg for the Modal sweep. Spec rows use sha v2
-// over eight bins in order umean, vmean, pmean, omegamean, tke, recirc,
-// obstacle, sdf. Pilot rows keep sha v1 over the first seven bins. Every
-// row carries sha_version, ref_length, and substitutes_for. The eighth bin
-// sdf.f32 comes from the same SDF grid that builds the solid mask.
+// `manifest_out` fragment arg for the Modal sweep. Spec rows use sha v3
+// over twelve bins in order umean, vmean, pmean, omegamean, tke, recirc,
+// obstacle, sdf, ucos, usin, vcos, vsin. Pilot rows keep sha v1 over the
+// first seven bins. Every row carries sha_version, ref_length, and
+// substitutes_for. The eighth bin sdf.f32 comes from the same SDF grid
+// that builds the solid mask. The four harmonic bins carry the phase
+// averaged first harmonic of u and v in lattice velocity units.
 
 use gearflow_wasm::boundaries::{InletProfile, OutletKind};
 use gearflow_wasm::geometry::build_polygons;
 use gearflow_wasm::lbm::{LbmConfig, LbmState};
 use gearflow_wasm::sdf::build_sdf_grid;
+use gearflow_wasm::stats::HarmonicResult;
 use gearflow_wasm::types::{CircleDef, Domain, GeometrySpec, GridSpec, NacaParams, Xy};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -74,7 +77,8 @@ fn pilot_substitutes_for(id: &str) -> Option<String> {
 }
 
 /// Unified run case for pilot and spec paths. sha_version 1 means the
-/// legacy seven bin hash, sha_version 2 covers eight bins with sdf last.
+/// legacy seven bin hash, sha_version 2 covers eight bins with sdf last,
+/// sha_version 3 covers twelve bins with the four harmonic bins last.
 #[derive(Clone, Debug)]
 struct ResolvedCase {
     id: String,
@@ -246,7 +250,7 @@ fn parse_spec_line(line: &str) -> Result<ResolvedCase, String> {
         window,
         substitutes_for,
         note,
-        sha_version: 2,
+        sha_version: 3,
     })
 }
 
@@ -484,7 +488,7 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
         Err(e) => {
             let wall_s = 0.0;
             let row = format!(
-                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{}}}",
+                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\"}}",
                 esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
                 case.alpha_deg, case.les, case.transient, case.window, esc(&e), wall_s,
                 case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for)
@@ -506,6 +510,7 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
         sample_every: 10,
         seed: 42,
         max_steps_per_call: 2048,
+        harmonic: case.sha_version >= 3,
     };
     let total = transient + window;
     let t0 = Instant::now();
@@ -514,7 +519,7 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
         Err(e) => {
             let wall_s = t0.elapsed().as_secs_f64();
             let row = format!(
-                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{}}}",
+                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":0,\"status\":\"setup_error\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\"}}",
                 esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
                 case.alpha_deg, case.les, transient, window, esc(&e), wall_s,
                 case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for)
@@ -546,7 +551,7 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
     let wall_s = t0.elapsed().as_secs_f64();
     if let Some(e) = diverged {
         let row = format!(
-            "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"status\":\"diverged\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"note\":\"{}\"}}",
+            "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"status\":\"diverged\",\"error\":\"{}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\",\"note\":\"{}\"}}",
             esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
             case.alpha_deg, case.les, fmt_f(tau), fmt_f(ma), fmt_f(d_lat), fmt_f(blockage),
             transient, window, st.step, st.stats.samples, esc(&e), wall_s,
@@ -555,6 +560,15 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
         return CaseResult { row_json: row, console_line: format!("{} DIVERGED at step {} ({}), wall {:.1}s", case.id, st.step, e, wall_s), ok: false };
     }
     let full = st.force_summary(transient);
+    if std::env::var("GEARFLOW_DUMP_CL").is_ok() {
+        let mut txt = String::new();
+        let hs = st.force.history_steps();
+        let hc = st.force.cl_history();
+        for (s, c) in hs.iter().zip(hc.iter()) {
+            txt.push_str(&format!("{s} {c:.6}\n"));
+        }
+        let _ = fs::write(format!("/tmp/harmfix/cl_{}.txt", case.id), txt);
+    }
     let mut tails: Vec<(u64, f64)> = Vec::new();
     let mut tt = transient;
     while tt < total {
@@ -569,13 +583,39 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
         _ => "null".to_string(),
     };
     let samples = st.stats.samples;
-    let (mu, mv, mp, tke, wm, rm) = st.stats_dataset_fields();
+    let v3 = case.sha_version >= 3;
+    // v3 adds the four harmonic bins after the existing eight. The
+    // pilot path keeps the legacy six channel call so the eight bin
+    // prefix stays byte identical.
+    let (mu, mv, mp, tke, wm, rm, harm) = if v3 {
+        st.stats_dataset_fields_v3()
+    } else {
+        let (a, b, c, d, e, f) = st.stats_dataset_fields();
+        (a, b, c, d, e, f, HarmonicResult::zeros(case.nx * case.ny))
+    };
+    let shed_json = match st_val {
+        Some(v) if v.is_finite() => {
+            let shed = v * case.u / d_lat;
+            if shed.is_finite() {
+                format!("{shed:.6}")
+            } else {
+                "null".to_string()
+            }
+        }
+        _ => "null".to_string(),
+    };
+    let phase_json = match harm.phase_ref_step {
+        Some(s) => format!("{s}"),
+        None => "null".to_string(),
+    };
+    let harm_valid_json = if harm.valid { "true" } else { "false" };
+    let harm_reason = harm.reason.clone();
     let snap = st.snapshot();
     let sdf = match sdf_for_case(&grid, &geom) {
         Ok(s) => s,
         Err(e) => {
             let row = format!(
-                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":{},\"status\":\"setup_error\",\"error\":\"sdf: {}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{}}}",
+                "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"nx\":{},\"ny\":{},\"width\":{},\"alpha_deg\":{},\"les\":{},\"transient\":{},\"window\":{},\"samples\":{},\"status\":\"setup_error\",\"error\":\"sdf: {}\",\"wall_s\":{:.2},\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"strouhal\":null,\"shedding_freq_per_step\":null,\"explained_variance\":0,\"phase_ref_step\":null,\"harmonic_valid\":false,\"harmonic_cycles\":0,\"harmonic_samples\":0,\"harmonic_reason\":\"not_shedding\"}}",
                 esc(&case.id), esc(&case.body), case.re, case.u, case.nx, case.ny, case.width,
                 case.alpha_deg, case.les, transient, window, samples, esc(&e), wall_s,
                 case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for)
@@ -585,7 +625,7 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
     };
     let case_dir = out_root.join(&case.id);
     let _ = fs::create_dir_all(&case_dir);
-    let files: [(&str, &Vec<f32>); 8] = [
+    let base_files: [(&str, &Vec<f32>); 8] = [
         ("umean.f32", &mu),
         ("vmean.f32", &mv),
         ("pmean.f32", &mp),
@@ -595,13 +635,29 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
         ("obstacle.f32", &snap.obstacle),
         ("sdf.f32", &sdf),
     ];
-    for (name, vals) in files.iter() {
+    for (name, vals) in base_files.iter() {
         let _ = write_f32_le(&case_dir.join(name), vals);
     }
-    let hash_bins: &[&Vec<f32>] = if case.sha_version >= 2 {
-        &[&mu, &mv, &mp, &wm, &tke, &rm, &snap.obstacle, &sdf]
+    if v3 {
+        let harm_files: [(&str, &Vec<f32>); 4] = [
+            ("ucos.f32", &harm.u_cos),
+            ("usin.f32", &harm.u_sin),
+            ("vcos.f32", &harm.v_cos),
+            ("vsin.f32", &harm.v_sin),
+        ];
+        for (name, vals) in harm_files.iter() {
+            let _ = write_f32_le(&case_dir.join(name), vals);
+        }
+    }
+    let hash_bins: Vec<&Vec<f32>> = if v3 {
+        vec![
+            &mu, &mv, &mp, &wm, &tke, &rm, &snap.obstacle, &sdf,
+            &harm.u_cos, &harm.u_sin, &harm.v_cos, &harm.v_sin,
+        ]
+    } else if case.sha_version >= 2 {
+        vec![&mu, &mv, &mp, &wm, &tke, &rm, &snap.obstacle, &sdf]
     } else {
-        &[&mu, &mv, &mp, &wm, &tke, &rm, &snap.obstacle]
+        vec![&mu, &mv, &mp, &wm, &tke, &rm, &snap.obstacle]
     };
     let mut hash_input: Vec<u8> = Vec::new();
     for vals in hash_bins {
@@ -611,21 +667,24 @@ fn run_resolved_case(case: &ResolvedCase, out_root: &Path) -> CaseResult {
     }
     let sha = sha256_hex(&hash_input);
     let meta = format!(
-        "{{\n  \"case_id\": \"{}\",\n  \"body\": \"{}\",\n  \"re\": {},\n  \"u_lattice\": {},\n  \"alpha_deg\": {},\n  \"les\": {},\n  \"nx\": {},\n  \"ny\": {},\n  \"x_min\": {:.6},\n  \"x_max\": {:.6},\n  \"y_min\": {:.6},\n  \"y_max\": {:.6},\n  \"transient\": {},\n  \"window\": {},\n  \"steps\": {},\n  \"samples\": {},\n  \"tau\": {},\n  \"ma\": {},\n  \"d_lat\": {},\n  \"blockage\": {},\n  \"cd_mean\": {:.4},\n  \"cl_mean\": {:.4},\n  \"cl_amp\": {:.4},\n  \"strouhal\": {},\n  \"wall_s\": {:.2},\n  \"sha256\": \"{}\",\n  \"sha_version\": {},\n  \"ref_length\": {},\n  \"substitutes_for\": {},\n  \"note\": \"{}\"\n}}\n",
+        "{{\n  \"case_id\": \"{}\",\n  \"body\": \"{}\",\n  \"re\": {},\n  \"u_lattice\": {},\n  \"alpha_deg\": {},\n  \"les\": {},\n  \"nx\": {},\n  \"ny\": {},\n  \"x_min\": {:.6},\n  \"x_max\": {:.6},\n  \"y_min\": {:.6},\n  \"y_max\": {:.6},\n  \"transient\": {},\n  \"window\": {},\n  \"steps\": {},\n  \"samples\": {},\n  \"tau\": {},\n  \"ma\": {},\n  \"d_lat\": {},\n  \"blockage\": {},\n  \"cd_mean\": {:.4},\n  \"cl_mean\": {:.4},\n  \"cl_amp\": {:.4},\n  \"strouhal\": {},\n  \"shedding_freq_per_step\": {},\n  \"explained_variance\": {:.6},\n  \"phase_ref_step\": {},\n  \"harmonic_valid\": {},\n  \"harmonic_cycles\": {},\n  \"harmonic_samples\": {},\n  \"harmonic_reason\": \"{}\",\n  \"wall_s\": {:.2},\n  \"sha256\": \"{}\",\n  \"sha_version\": {},\n  \"ref_length\": {},\n  \"substitutes_for\": {},\n  \"note\": \"{}\"\n}}\n",
         esc(&case.id), esc(&case.body), case.re, case.u, case.alpha_deg, case.les,
         case.nx, case.ny, grid.domain.x_min, grid.domain.x_max, grid.domain.y_min, grid.domain.y_max,
         transient, window, st.step, samples,
         fmt_f(tau), fmt_f(ma), fmt_f(d_lat), fmt_f(blockage),
-        full.mean_cd, full.mean_cl, full.amplitude_cl, st_json, wall_s, sha,
+        full.mean_cd, full.mean_cl, full.amplitude_cl, st_json, shed_json, harm.explained_variance,
+        phase_json, harm_valid_json, harm.cycles, harm.samples, esc(&harm_reason), wall_s, sha,
         case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for), esc(&case.note)
     );
     let _ = fs::write(case_dir.join("meta.json"), meta.as_bytes());
     let row = format!(
-        "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"alpha_deg\":{},\"les\":{},\"nx\":{},\"ny\":{},\"width\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"cd_mean\":{:.4},\"cl_mean\":{:.4},\"cl_amp\":{:.4},\"tail_cd_blocks\":[{}],\"strouhal\":{},\"status\":\"completed\",\"wall_s\":{:.2},\"sha256\":\"{}\",\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"note\":\"{}\"}}",
+        "{{\"case_id\":\"{}\",\"body\":\"{}\",\"re\":{},\"u_lattice\":{},\"alpha_deg\":{},\"les\":{},\"nx\":{},\"ny\":{},\"width\":{},\"tau\":{},\"ma\":{},\"d_lat\":{},\"blockage\":{},\"transient\":{},\"window\":{},\"steps\":{},\"samples\":{},\"cd_mean\":{:.4},\"cl_mean\":{:.4},\"cl_amp\":{:.4},\"tail_cd_blocks\":[{}],\"strouhal\":{},\"shedding_freq_per_step\":{},\"explained_variance\":{:.6},\"phase_ref_step\":{},\"harmonic_valid\":{},\"harmonic_cycles\":{},\"harmonic_samples\":{},\"harmonic_reason\":\"{}\",\"status\":\"completed\",\"wall_s\":{:.2},\"sha256\":\"{}\",\"sha_version\":{},\"ref_length\":{},\"substitutes_for\":{},\"note\":\"{}\"}}",
         esc(&case.id), esc(&case.body), case.re, case.u, case.alpha_deg, case.les,
         case.nx, case.ny, case.width, fmt_f(tau), fmt_f(ma), fmt_f(d_lat), fmt_f(blockage),
         transient, window, st.step, samples,
-        full.mean_cd, full.mean_cl, full.amplitude_cl, tails_json, st_json, wall_s, sha,
+        full.mean_cd, full.mean_cl, full.amplitude_cl, tails_json, st_json, shed_json,
+        harm.explained_variance, phase_json, harm_valid_json, harm.cycles, harm.samples, esc(&harm_reason),
+        wall_s, sha,
         case.sha_version, case.ref_length, json_opt_str(&case.substitutes_for), esc(&case.note)
     );
     let st_txt = match st_val {
@@ -852,7 +911,7 @@ mod tests {
         assert_eq!(c.transient, 8000);
         assert_eq!(c.window, 12000);
         assert_eq!(c.substitutes_for, None);
-        assert_eq!(c.sha_version, 2);
+        assert_eq!(c.sha_version, 3);
     }
 
     #[test]
@@ -887,5 +946,100 @@ mod tests {
         assert!(sdf.iter().all(|v| v.is_finite()));
         assert!(sdf.iter().any(|v| *v < 0.0));
         assert!(sdf.iter().any(|v| *v > 0.0));
+    }
+
+    #[test]
+    fn runner_v3_contract_twelve_bins_and_meta() {
+        // Short steady cylinder case: 300 steps on a 48 by 40 grid.
+        // Harmonic stays invalid on a steady run, but the export still
+        // carries twelve bins, typed meta fields, and a sha v3 that
+        // recomputes from the bins in order.
+        let case = ResolvedCase {
+            id: "contract_small".to_string(),
+            body: "cylinder".to_string(),
+            re: 20.0,
+            u: 0.06,
+            alpha_deg: 0.0,
+            les: false,
+            nx: 48,
+            ny: 40,
+            width: 2.0,
+            radius: Some(0.2),
+            block_width: None,
+            block_height: None,
+            naca_code: None,
+            ref_length: 0.4,
+            transient: 100,
+            window: 200,
+            substitutes_for: None,
+            note: "contract probe".to_string(),
+            sha_version: 3,
+        };
+        let out_root = std::env::temp_dir()
+            .join(format!("gearflow_contract_{}", std::process::id()));
+        let _ = fs::create_dir_all(&out_root);
+        let res = run_resolved_case(&case, &out_root);
+        assert!(res.ok, "console: {}", res.console_line);
+        let dir = out_root.join(&case.id);
+        let names = [
+            "umean.f32",
+            "vmean.f32",
+            "pmean.f32",
+            "omegamean.f32",
+            "tke.f32",
+            "recirc.f32",
+            "obstacle.f32",
+            "sdf.f32",
+            "ucos.f32",
+            "usin.f32",
+            "vcos.f32",
+            "vsin.f32",
+        ];
+        let cells = case.nx * case.ny;
+        let mut hash_input: Vec<u8> = Vec::new();
+        let mut bins: Vec<Vec<f32>> = Vec::new();
+        for nm in names {
+            let bytes = fs::read(dir.join(nm)).unwrap_or_else(|_| panic!("missing bin {nm}"));
+            assert_eq!(bytes.len(), cells * 4, "size {nm}");
+            hash_input.extend_from_slice(&bytes);
+            let mut vals = Vec::with_capacity(cells);
+            for chunk in bytes.chunks_exact(4) {
+                vals.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+            }
+            bins.push(vals);
+        }
+        // Solid cells read exactly zero on the harmonic bins.
+        let obstacle = &bins[6];
+        for (k, harm) in [&bins[8], &bins[9], &bins[10], &bins[11]].iter().enumerate() {
+            for (kk, val) in harm.iter().enumerate() {
+                assert!(val.is_finite(), "harm {k} nonfinite at {kk}");
+                if obstacle[kk] > 0.5 {
+                    assert_eq!(*val, 0.0, "harm {k} nonzero on solid at {kk}");
+                }
+            }
+        }
+        let meta_text = fs::read_to_string(dir.join("meta.json")).unwrap();
+        let meta: serde_json::Value = serde_json::from_str(&meta_text).unwrap();
+        let sha_hex = sha256_hex(&hash_input);
+        assert_eq!(meta["sha_version"], serde_json::json!(3));
+        assert_eq!(meta["sha256"], serde_json::json!(sha_hex));
+        assert!(meta["strouhal"].is_null() || meta["strouhal"].is_number());
+        assert!(meta["shedding_freq_per_step"].is_null() || meta["shedding_freq_per_step"].is_number());
+        assert!(meta["explained_variance"].is_number());
+        assert!(meta["phase_ref_step"].is_null() || meta["phase_ref_step"].is_u64());
+        assert!(meta["harmonic_valid"].is_boolean());
+        assert!(meta["harmonic_cycles"].is_u64());
+        assert!(meta["harmonic_samples"].is_u64());
+        assert!(meta["harmonic_reason"].is_string());
+        let row: serde_json::Value = serde_json::from_str(&res.row_json).unwrap();
+        assert_eq!(row["sha_version"], serde_json::json!(3));
+        assert_eq!(row["sha256"], serde_json::json!(sha_hex));
+        assert_eq!(row["harmonic_valid"], serde_json::json!(false));
+        assert!(row["harmonic_cycles"].is_u64());
+        assert!(row["harmonic_samples"].is_u64());
+        assert!(row["harmonic_reason"].is_string());
+        assert!(row["explained_variance"].is_number());
+        assert!(row["phase_ref_step"].is_null() || row["phase_ref_step"].is_u64());
+        let _ = fs::remove_dir_all(&out_root);
     }
 }

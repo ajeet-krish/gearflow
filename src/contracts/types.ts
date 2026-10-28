@@ -81,6 +81,30 @@ export interface FlowField {
   recirc?: Float32Array;
   /** Turbulence statistics report, absent before the first worker snapshot. */
   lbmStats?: LbmStats;
+  /** Phase averaged harmonic cosine amplitude of u, v3 neural frames only. */
+  uCos?: Float32Array;
+  /** Phase averaged harmonic sine amplitude of u, v3 neural frames only. */
+  uSin?: Float32Array;
+  /** Phase averaged harmonic cosine amplitude of v, v3 neural frames only. */
+  vCos?: Float32Array;
+  /** Phase averaged harmonic sine amplitude of v, v3 neural frames only. */
+  vSin?: Float32Array;
+  /** Phase averaged harmonic cosine amplitude of vorticity, present only when the bundle predicts it. */
+  omegaCos?: Float32Array;
+  /** Phase averaged harmonic sine amplitude of vorticity, present only when the bundle predicts it. */
+  omegaSin?: Float32Array;
+  /** Case scalar Strouhal predicted by the v3 aux head, absent on non v3 frames. */
+  strouhalPredicted?: number;
+  /** Case scalar explained variance predicted by the v3 aux head, absent on non v3 frames. */
+  explainedPredicted?: number;
+  /** True when the v3 harmonic gates all pass, false marks a steady fallback render. */
+  harmonicValid?: boolean;
+  /** First failing v3 harmonic gate, null when harmonicValid is true. */
+  harmonicInvalidReason?: string | null;
+  /** Sigmoid of the v3 harmonic validity logit, kept for honest tooltips. */
+  validityProbability?: number;
+  /** Count of fluid cells rescaled by the v3 energy safety cap. */
+  cappedCells?: number;
 }
 
 export type ProvenanceSource = "fake-fixture" | "analytic-potential" | "lbm-binary" | "surrogate" | "meta-sam" | "meta-spark" | "meta-image";
@@ -266,6 +290,7 @@ export type AgentAction =
     | { kind: "set_spec"; spec: ParametricSpec }
     | { kind: "setup_shedding" }
     | { kind: "setup_high_pressure"; body?: BodyToken }
+    | { kind: "setup_high_re_wake" }
     | { kind: "setup_airfoil"; body?: BodyToken; alphaDeg?: number };
 
 /** Selectable field quantity rendered on the tunnel canvas. */

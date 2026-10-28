@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from merge_sweep import BIN_ORDER_V2, merge_sweep
+from merge_sweep import BIN_ORDER_V1, BIN_ORDER_V2, BIN_ORDER_V3, bin_order_for, merge_sweep
 
 NX = 4
 NY = 3
@@ -259,3 +259,163 @@ def test_merge_failure_removes_stale_outputs(tmp_path: Path) -> None:
     assert not (out_dir / "manifest.jsonl").exists()
     assert not (out_dir / "cases").exists()
     assert (out_dir / "merge_report.json").is_file()
+
+
+def _write_case_v3(case_dir: Path, seed: float) -> str:
+    case_dir.mkdir(parents=True, exist_ok=True)
+    hasher = hashlib.sha256()
+    for pos, name in enumerate(BIN_ORDER_V3):
+        blob = _blob(seed + pos)
+        (case_dir / name).write_bytes(blob)
+        hasher.update(blob)
+    (case_dir / "meta.json").write_text(json.dumps({"case_id": case_dir.name}) + "\n")
+    return hasher.hexdigest()
+
+
+def _write_case_v1(case_dir: Path, seed: float) -> str:
+    case_dir.mkdir(parents=True, exist_ok=True)
+    hasher = hashlib.sha256()
+    for pos, name in enumerate(BIN_ORDER_V1):
+        blob = _blob(seed + pos)
+        (case_dir / name).write_bytes(blob)
+        hasher.update(blob)
+    (case_dir / "meta.json").write_text(json.dumps({"case_id": case_dir.name}) + "\n")
+    return hasher.hexdigest()
+
+
+def _spec_row_v3(case_id: str, sha: str) -> dict:
+    return {
+        "case_id": case_id,
+        "body": "block",
+        "re": 40.0,
+        "u_lattice": 0.06,
+        "alpha_deg": 0.0,
+        "les": False,
+        "nx": NX,
+        "ny": NY,
+        "domain_width": 4.0,
+        "radius": None,
+        "width": 0.4,
+        "height": 0.4,
+        "naca_code": None,
+        "ref_length": 0.4,
+        "transient": 20,
+        "window": 30,
+        "substitutes_for": None,
+        "note": "fabricated v3",
+        "sha_version": 3,
+        "sha256": sha,
+        "status": "completed",
+        "strouhal": 0.15,
+        "shedding_freq_per_step": 0.01,
+        "harmonic_valid": True,
+        "explained_variance": 0.25,
+        "phase_ref_step": 25,
+        "harmonic_cycles": 5,
+        "harmonic_samples": 200,
+    }
+
+
+def test_bin_order_for_versions() -> None:
+    assert len(bin_order_for(1)) == 7
+    assert len(bin_order_for(2)) == 8
+    assert len(bin_order_for(3)) == 12
+    assert bin_order_for(3)[-4:] == ["ucos.f32", "usin.f32", "vcos.f32", "vsin.f32"]
+    with pytest.raises(ValueError):
+        bin_order_for(4)
+
+
+def test_merge_v3_round_trip_twelve_bins(tmp_path: Path) -> None:
+    workers = tmp_path / "workers"
+    out_dir = tmp_path / "out"
+    spec_path = tmp_path / "cases.jsonl"
+    row = _spec_row_v3("v3_case", "")
+    _write_spec(spec_path, [{**row, "sha256": ""}])
+    worker = workers / "v3_case"
+    sha = _write_case_v3(worker / "case", 1.0)
+    full = dict(row)
+    full["sha256"] = sha
+    (worker / "fragment.jsonl").write_text(json.dumps(full) + "\n")
+    report = merge_sweep(spec_path, workers, out_dir)
+    assert report["status"] == "ok"
+    assert report["counts"]["harmonic_valid"] == 1
+    assert report["counts"]["harmonic_invalid"] == 0
+    manifest = [json.loads(line) for line in (out_dir / "manifest.jsonl").read_text().splitlines()]
+    assert manifest[0]["sha256"] == sha
+    for name in BIN_ORDER_V3:
+        assert (out_dir / "cases" / "v3_case" / name).is_file()
+
+
+def test_merge_v3_missing_harmonic_bin_fails_closed(tmp_path: Path) -> None:
+    workers = tmp_path / "workers"
+    out_dir = tmp_path / "out"
+    spec_path = tmp_path / "cases.jsonl"
+    row = _spec_row_v3("v3_missing", "")
+    _write_spec(spec_path, [{**row, "sha256": ""}])
+    worker = workers / "v3_missing"
+    sha = _write_case_v3(worker / "case", 2.0)
+    (worker / "case" / "ucos.f32").unlink()
+    full = dict(row)
+    full["sha256"] = sha
+    (worker / "fragment.jsonl").write_text(json.dumps(full) + "\n")
+    report = merge_sweep(spec_path, workers, out_dir)
+    assert report["status"] == "failed"
+    assert not (out_dir / "manifest.jsonl").exists()
+    assert not (out_dir / "cases").exists()
+    assert any("ucos.f32" in err for err in report["errors"])
+
+
+def test_merge_v3_nonfinite_harmonic_fails_closed(tmp_path: Path) -> None:
+    workers = tmp_path / "workers"
+    out_dir = tmp_path / "out"
+    spec_path = tmp_path / "cases.jsonl"
+    row = _spec_row_v3("v3_nonfinite", "")
+    _write_spec(spec_path, [{**row, "sha256": ""}])
+    worker = workers / "v3_nonfinite"
+    sha = _write_case_v3(worker / "case", 3.0)
+    with open(worker / "case" / "usin.f32", "r+b") as handle:
+        handle.seek(0)
+        handle.write(struct.pack("<f", float("inf")))
+    full = dict(row)
+    full["sha256"] = sha
+    (worker / "fragment.jsonl").write_text(json.dumps(full) + "\n")
+    report = merge_sweep(spec_path, workers, out_dir)
+    assert report["status"] == "failed"
+    assert not (out_dir / "manifest.jsonl").exists()
+    assert any("usin.f32" in err for err in report["errors"])
+
+
+def test_merge_v3_bad_scalars_fail_closed(tmp_path: Path) -> None:
+    workers = tmp_path / "workers"
+    out_dir = tmp_path / "out"
+    spec_path = tmp_path / "cases.jsonl"
+    row = _spec_row_v3("v3_bad", "")
+    row["harmonic_valid"] = "yes"
+    _write_spec(spec_path, [{**row, "sha256": ""}])
+    worker = workers / "v3_bad"
+    sha = _write_case_v3(worker / "case", 4.0)
+    full = dict(row)
+    full["sha256"] = sha
+    (worker / "fragment.jsonl").write_text(json.dumps(full) + "\n")
+    report = merge_sweep(spec_path, workers, out_dir)
+    assert report["status"] == "failed"
+    assert not (out_dir / "manifest.jsonl").exists()
+    assert any("harmonic_valid" in err for err in report["errors"])
+
+
+def test_merge_v1_still_passes(tmp_path: Path) -> None:
+    workers = tmp_path / "workers"
+    out_dir = tmp_path / "out"
+    spec_path = tmp_path / "cases.jsonl"
+    row = _spec_row("v1_case", "")
+    row["sha_version"] = 1
+    _write_spec(spec_path, [{**row, "sha256": ""}])
+    worker = workers / "v1_case"
+    sha = _write_case_v1(worker / "case", 1.0)
+    full = dict(row)
+    full["sha_version"] = 1
+    full["sha256"] = sha
+    (worker / "fragment.jsonl").write_text(json.dumps(full) + "\n")
+    report = merge_sweep(spec_path, workers, out_dir)
+    assert report["status"] == "ok"
+    assert report["counts"]["completed"] == 1

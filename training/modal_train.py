@@ -1,4 +1,4 @@
-"""Modal training app v2: analytic pretrain plus LBM fine tune at base 8.
+"""Modal training app v3: analytic pretrain plus LBM fine tune at base 8.
 
 Run by the user only, never by agents. Modal auth lives in the user local
 Modal profile; no secret is read from the repo and no credential material
@@ -16,9 +16,9 @@ import subprocess
 from pathlib import Path
 
 RUN_LOG_SCHEMA = "gearflow-run-log/v1"
-NORM_SCHEMA = "gearflow-surrogate-norm/v2"
+NORM_SCHEMA = "gearflow-surrogate-norm/v3"
 
-app = modal.App("gearflow-surrogate-v2")
+app = modal.App("gearflow-surrogate-v3")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
@@ -26,6 +26,7 @@ image = (
     .add_local_file("training/model.py", "/root/training/model.py")
     .add_local_file("training/dataset.py", "/root/training/dataset.py")
     .add_local_file("training/dataset_v2.py", "/root/training/dataset_v2.py")
+    .add_local_file("training/dataset_v3.py", "/root/training/dataset_v3.py")
     .add_local_file("training/losses.py", "/root/training/losses.py")
     .env({"PYTHONUNBUFFERED": "1"})
 )
@@ -63,6 +64,7 @@ PRETRAIN_DEFAULTS = {"epochs": 60, "batch": 32, "lr": 3e-4, "div_weight": 0.0}
 FINETUNE_DEFAULTS = {"epochs": 200, "batch": 8, "lr": 5e-5, "div_weight": 0.01}
 ADAMW_WEIGHT_DECAY = 1e-4
 ARTIFACT_NAMES = ("best.pt", "norm.json", "run_log.json")
+HARM_MIN_VALID = 8
 
 
 def _validate_hparams(stage: str, base: int, epochs: int, batch: int, lr: float) -> None:
@@ -74,6 +76,48 @@ def _validate_hparams(stage: str, base: int, epochs: int, batch: int, lr: float)
         raise ValueError(f"{stage}: batch {batch} out of range [1, 64]")
     if not 1e-6 <= lr <= 1e-2:
         raise ValueError(f"{stage}: lr {lr} out of range [1e-6, 1e-2]")
+
+
+def _harmonic_capable(harm_train: int, epochs_done: int) -> bool:
+    """True only with enough harmonic valid train cases plus real training.
+
+    The fine tune train split needs at least HARM_MIN_VALID harmonic valid
+    cases, and the run must have completed at least one epoch, before the
+    checkpoint may advertise harmonic capability.
+    """
+    return int(harm_train) >= HARM_MIN_VALID and int(epochs_done) >= 1
+
+
+def _completed_lbm_rows(sweep_dir: Path) -> list:
+    """Completed LBM manifest rows for a sweep dir, without torch imports.
+
+    Mirrors dataset_v2.is_completed_row (absent status counts as completed,
+    only the literal completed status or absent passes) so the local entry
+    path can fail closed before any GPU work starts.
+    """
+    import json
+
+    manifest = Path(sweep_dir) / "manifest.jsonl"
+    rows = []
+    with open(manifest) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    kept = []
+    for row in rows:
+        status = row.get("status", None)
+        if status is None or str(status) == "completed":
+            kept.append(row)
+    return kept
+
+
+def _require_completed_rows(sweep_dir: Path) -> list:
+    """Fail closed when a sweep has zero completed LBM rows to train on."""
+    completed = _completed_lbm_rows(sweep_dir)
+    if not completed:
+        raise ValueError(f"finetune: zero completed LBM rows in {sweep_dir}, cannot fit v3 norm")
+    return completed
 
 
 @app.function(
@@ -118,15 +162,15 @@ def run_stage(
     import torch
     from torch.utils.data import DataLoader
 
-    from dataset_v2 import (
-        AnalyticV2Dataset,
-        LbmV2Dataset,
-        canonical_norm_json,
-        norm_hash,
-        with_refit_outputs,
+    from dataset_v3 import (
+        AnalyticV3Dataset,
+        LbmV3Dataset,
+        canonical_norm_json_v3,
+        norm_hash_v3,
+        with_refit_outputs_v3,
     )
-    from losses import compute_pos_weight, multihead_loss, per_head_rmse
-    from model import UNetV2, param_count_v2
+    from losses import multihead_loss_v3
+    from model import UNetV3, param_count_v3
 
     if not torch.cuda.is_available():
         raise RuntimeError(f"{stage}: no CUDA device, failing closed (GPU required)")
@@ -145,11 +189,13 @@ def run_stage(
 
     if stage == "pretrain":
         data_dir = Path(DATA_MOUNT) / "analytic" / "train"
-        train_set = AnalyticV2Dataset(data_dir, "train")
-        val_set = AnalyticV2Dataset(data_dir, "val", norm=train_set.norm)
+        train_set = AnalyticV3Dataset(data_dir, "train")
+        val_set = AnalyticV3Dataset(data_dir, "val", norm=train_set.norm)
         manifest_hash = sha_of(Path(DATA_MOUNT) / "analytic" / "manifest.jsonl")
-        model = UNetV2(base=base).to(device)
+        model = UNetV3(base=base).to(device)
         norm = train_set.norm
+        harm_train = 0
+        harm_val = 0
         guard_sets: dict[str, object] = {}
     else:
         sweep_dir = Path(DATA_MOUNT) / "lbm" / sweep_id
@@ -157,50 +203,59 @@ def run_stage(
         if not ckpt_path.exists():
             raise ValueError(f"finetune: pretrain checkpoint missing: {ckpt_path}")
         pre = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-        if pre.get("arch") != "unet-v2" or int(pre.get("base", -1)) != BASE_LOCKED:
-            raise ValueError("finetune: pretrain checkpoint is not a v2 base 8 checkpoint")
+        if pre.get("arch") != "unet-v3" or int(pre.get("base", -1)) != BASE_LOCKED:
+            raise ValueError("finetune: pretrain checkpoint is not a v3 base 8 checkpoint")
         frozen_inputs_json = json.dumps(pre["norm"]["inputs"], sort_keys=True)
-        _, lbm_train_raw = _lbm_raw_targets(sweep_dir, "train")
-        norm = with_refit_outputs(pre["norm"], lbm_train_raw, fitted_on=f"lbm:{sweep_id}:train")
+        completed = _completed_lbm_rows(sweep_dir)
+        if not completed:
+            raise ValueError(f"finetune: zero completed LBM rows in {sweep_dir}, cannot fit v3 norm")
+        _, lbm_raw_targets = _lbm_raw_targets_v3(sweep_dir, "train")
+        raw_inputs, raw_spatial, raw_strouhal = lbm_raw_targets
+        norm = with_refit_outputs_v3(pre["norm"], raw_inputs, raw_spatial, raw_strouhal, fitted_on=f"lbm:{sweep_id}:train")
         if json.dumps(norm["inputs"], sort_keys=True) != frozen_inputs_json:
             raise ValueError("finetune: input norm drifted, must stay frozen byte for byte")
-        train_set = LbmV2Dataset(sweep_dir, "train", norm=norm)
-        val_set = LbmV2Dataset(sweep_dir, "val", norm=norm)
+        train_set = LbmV3Dataset(sweep_dir, "train", norm=norm)
+        val_set = LbmV3Dataset(sweep_dir, "val", norm=norm)
+        if len(train_set) == 0:
+            raise ValueError(f"finetune: zero completed LBM rows in train split of {sweep_dir}")
         manifest_hash = sha_of(sweep_dir / "manifest.jsonl")
-        model = UNetV2(base=base).to(device)
+        model = UNetV3(base=base).to(device)
         model.load_state_dict(pre["model"])
         analytic_dir = Path(DATA_MOUNT) / "analytic" / "train"
         guard_sets = {
-            "analyticVal": AnalyticV2Dataset(analytic_dir, "val", norm=norm),
+            "analyticVal": AnalyticV3Dataset(analytic_dir, "val", norm=norm),
         }
+        harm_train = int(train_set.harmonic_train_count)
+        harm_val = int(train_set.harmonic_val_count)
 
-    probe_x, probe_y, probe_f = train_set[0]
-    if tuple(probe_x.shape) != (4, 128, 128) or tuple(probe_y.shape) != (6, 128, 128):
+    probe = train_set[0]
+    if len(probe) != 6:
+        raise ValueError(f"{stage}: expected a 6 tuple batch, got {len(probe)} items")
+    probe_x, probe_y, probe_f, probe_aux, probe_aux_mask, probe_w = probe
+    if tuple(probe_x.shape) != (4, 128, 128) or tuple(probe_y.shape) != (10, 128, 128):
         raise ValueError(f"{stage}: unexpected probe shapes {tuple(probe_x.shape)} {tuple(probe_y.shape)}")
-    for name, probe in (("x", probe_x), ("y", probe_y)):
-        if not bool(torch.isfinite(probe).all()):
+    if tuple(probe_f.shape) != (1, 128, 128) or tuple(probe_aux.shape) != (3,):
+        raise ValueError(f"{stage}: unexpected mask shapes {tuple(probe_f.shape)} {tuple(probe_aux.shape)}")
+    if tuple(probe_aux_mask.shape) != (3,):
+        raise ValueError(f"{stage}: unexpected aux mask shape {tuple(probe_aux_mask.shape)}")
+    for name, probe_t in (("x", probe_x), ("y", probe_y), ("aux", probe_aux)):
+        if not bool(torch.isfinite(probe_t).all()):
             raise ValueError(f"{stage}: non-finite values in first train sample {name}")
 
     train_loader = DataLoader(train_set, batch_size=batch, shuffle=True, num_workers=2)
     val_loader = DataLoader(val_set, batch_size=batch, shuffle=False, num_workers=2)
 
     params = sum(p.numel() for p in model.parameters())
-    expected = param_count_v2(base)
+    expected = param_count_v3(base)
     if params != expected:
         raise ValueError(f"{stage}: param count {params} != expected {expected}")
 
-    probe_n = min(64, len(train_set))
-    pos_weight = compute_pos_weight(
-        torch.stack([train_set[i][1][5] for i in range(probe_n)]).unsqueeze(1),
-        torch.stack([train_set[i][2] for i in range(probe_n)]),
-    )
-    if not 1.0 <= pos_weight <= 20.0:
-        raise ValueError(f"{stage}: pos_weight {pos_weight} outside [1, 20]")
+    pair_std_u = float(norm["outputs"]["uCos"]["std"])
+    pair_std_v = float(norm["outputs"]["vCos"]["std"])
 
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=ADAMW_WEIGHT_DECAY)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
-    stds = {k: float(v["std"]) for k, v in norm["outputs"].items()}
     best_composite = float("inf")
     best_epoch = -1
     history_path = out_dir / "history.jsonl"
@@ -208,11 +263,27 @@ def run_stage(
         for epoch in range(epochs):
             model.train()
             train_loss_sum = 0.0
-            for x, y, fluid in train_loader:
-                x, y, fluid = x.to(device), y.to(device), fluid.to(device)
+            for x, y, fluid, aux, aux_mask, weight in train_loader:
+                x = x.to(device)
+                y = y.to(device)
+                fluid = fluid.to(device)
+                aux = aux.to(device)
+                aux_mask = aux_mask.to(device)
+                weight = weight.to(device)
                 opt.zero_grad()
-                pred = model(x)
-                loss, _, _ = multihead_loss(pred, y, fluid, pos_weight=pos_weight, div_weight=div_weight)
+                pred_spatial, pred_aux = model(x)
+                loss, _, _ = multihead_loss_v3(
+                    pred_spatial,
+                    pred_aux,
+                    y,
+                    aux,
+                    aux_mask,
+                    fluid,
+                    weight,
+                    pair_std_u=pair_std_u,
+                    pair_std_v=pair_std_v,
+                    div_weight=div_weight,
+                )
                 loss.backward()
                 opt.step()
                 train_loss_sum += float(loss) * x.shape[0]
@@ -221,13 +292,27 @@ def run_stage(
             val_comp_sum = 0.0
             per_head_sum: dict[str, float] = {}
             with torch.no_grad():
-                for x, y, fluid in val_loader:
-                    x, y, fluid = x.to(device), y.to(device), fluid.to(device)
-                    pred = model(x)
-                    _, comp, heads = multihead_loss(pred, y, fluid, pos_weight=pos_weight)
+                for x, y, fluid, aux, aux_mask, weight in val_loader:
+                    x = x.to(device)
+                    y = y.to(device)
+                    fluid = fluid.to(device)
+                    aux = aux.to(device)
+                    aux_mask = aux_mask.to(device)
+                    weight = weight.to(device)
+                    pred_spatial, pred_aux = model(x)
+                    _, comp, heads = multihead_loss_v3(
+                        pred_spatial,
+                        pred_aux,
+                        y,
+                        aux,
+                        aux_mask,
+                        fluid,
+                        weight,
+                        pair_std_u=pair_std_u,
+                        pair_std_v=pair_std_v,
+                    )
                     val_comp_sum += float(comp) * x.shape[0]
-                    phys = per_head_rmse(pred, y, fluid, stds=stds)
-                    for k, v in {**heads, **phys}.items():
+                    for k, v in heads.items():
                         per_head_sum[k] = per_head_sum.get(k, 0.0) + float(v) * x.shape[0]
             val_comp_sum /= len(val_set)
             row = {
@@ -241,19 +326,41 @@ def run_stage(
                     for gname, gset in guard_sets.items():
                         gload = DataLoader(gset, batch_size=batch, shuffle=False, num_workers=2)
                         gsum = 0.0
-                        for gx, gy, gf in gload:
-                            gx, gy, gf = gx.to(device), gy.to(device), gf.to(device)
-                            _, gcomp, _ = multihead_loss(model(gx), gy, gf, pos_weight=pos_weight)
+                        for gx, gy, gf, gaux, gaux_mask, gw in gload:
+                            gx = gx.to(device)
+                            gy = gy.to(device)
+                            gf = gf.to(device)
+                            gaux = gaux.to(device)
+                            gaux_mask = gaux_mask.to(device)
+                            gw = gw.to(device)
+                            gpred_spatial, gpred_aux = model(gx)
+                            _, gcomp, _ = multihead_loss_v3(
+                                gpred_spatial,
+                                gpred_aux,
+                                gy,
+                                gaux,
+                                gaux_mask,
+                                gf,
+                                gw,
+                                pair_std_u=pair_std_u,
+                                pair_std_v=pair_std_v,
+                            )
                             gsum += float(gcomp) * gx.shape[0]
                         row[f"{gname}Composite"] = gsum / len(gset)
             hf.write(json.dumps(row) + "\n")
             sched.step()
+            capable_now = _harmonic_capable(harm_train, epoch + 1)
             torch.save(
                 {
-                    "arch": "unet-v2",
+                    "arch": "unet-v3",
                     "base": base,
                     "inCh": 4,
-                    "outCh": 6,
+                    "outCh": 10,
+                    "auxCh": 3,
+                    "normSchema": NORM_SCHEMA,
+                    "harmonicCapable": capable_now,
+                    "harmonicTrain": harm_train,
+                    "harmonicVal": harm_val,
                     "model": model.state_dict(),
                     "norm": norm,
                     "epoch": epoch,
@@ -267,10 +374,15 @@ def run_stage(
                 best_epoch = epoch
                 torch.save(
                     {
-                        "arch": "unet-v2",
+                        "arch": "unet-v3",
                         "base": base,
                         "inCh": 4,
-                        "outCh": 6,
+                        "outCh": 10,
+                        "auxCh": 3,
+                        "normSchema": NORM_SCHEMA,
+                        "harmonicCapable": capable_now,
+                        "harmonicTrain": harm_train,
+                        "harmonicVal": harm_val,
                         "model": model.state_dict(),
                         "norm": norm,
                         "epoch": epoch,
@@ -279,7 +391,7 @@ def run_stage(
                     },
                     out_dir / "best.pt",
                 )
-            print(f"v2 {stage}: epoch={epoch + 1}/{epochs} train={train_loss_sum:.5f} val={val_comp_sum:.5f}")
+            print(f"v3 {stage}: epoch={epoch + 1}/{epochs} train={train_loss_sum:.5f} val={val_comp_sum:.5f}")
 
     with open(history_path) as hf:
         best_row = [json.loads(line) for line in hf if json.loads(line)["epoch"] == best_epoch][0]
@@ -298,19 +410,27 @@ def run_stage(
         "versions": {"torch": torch.__version__},
         "base": base,
         "params": params,
+        "arch": "unet-v3",
+        "spatialHeads": 10,
+        "auxHeads": 3,
+        "normSchema": NORM_SCHEMA,
+        "harmonicCapable": _harmonic_capable(harm_train, best_epoch + 1),
+        "harmonicTrain": harm_train,
+        "harmonicVal": harm_val,
         "schedule": {"kind": "cosine", "epochs": epochs, "batch": batch, "lr": lr, "weightDecay": ADAMW_WEIGHT_DECAY},
         "sampleCounts": {"train": len(train_set), "val": len(val_set)},
         "manifestSha256": manifest_hash,
-        "normSha256": norm_hash(norm),
+        "normSha256": norm_hash_v3(norm),
         "bestEpoch": best_epoch,
         "bestComposite": best_composite,
-        "posWeight": pos_weight,
         "divWeight": div_weight,
+        "pairStdU": pair_std_u,
+        "pairStdV": pair_std_v,
         "perHeadErrors": per_head_errors,
         "wallSeconds": round(wall_seconds, 1),
         "remotePath": str(out_dir),
     }
-    (out_dir / "norm.json").write_text(canonical_norm_json(norm))
+    (out_dir / "norm.json").write_text(canonical_norm_json_v3(norm))
     (out_dir / "run_log.json").write_text(json.dumps(run_log, indent=2) + "\n")
 
     ckpt_volume.commit()
@@ -325,14 +445,17 @@ def run_stage(
     }
 
 
-def _lbm_raw_targets(sweep_dir: Path, split: str) -> tuple[list, list]:
-    """Load raw LBM train targets for output norm refit (remote helper)."""
+def _lbm_raw_targets_v3(sweep_dir: Path, split: str) -> tuple[list, tuple]:
+    """Load raw LBM train inputs, spatial targets, and strouhal values.
+
+    Remote helper for the output and aux norm refit on the LBM train split.
+    """
     from pathlib import Path as _Path
 
-    from dataset_v2 import LbmV2Dataset
+    from dataset_v3 import LbmV3Dataset
 
-    ds = LbmV2Dataset(_Path(sweep_dir), split)
-    return ds._load_all_raw()
+    ds = LbmV3Dataset(_Path(sweep_dir), split)
+    return split, ds._load_all_raw()
 
 
 def _pretrain_checkpoint_remote(run_id: str) -> str:
@@ -359,7 +482,7 @@ def _download_routes(action: str, run_id: str) -> list:
     finetune artifacts. Pretrain only resolves to the pretrain subdir so a
     user can inspect pretrain before paying for finetune.
     """
-    base = Path("training") / "checkpoints" / "v2" / run_id
+    base = Path("training") / "checkpoints" / "v3" / run_id
     if action == "pretrain":
         return [(f"{run_id}/pretrain/{name}", base / "pretrain" / name) for name in ARTIFACT_NAMES]
     if action in ("train", "finetune"):
@@ -386,7 +509,7 @@ def main(action: str = "train", run_id: str = "dev", sweep_id: str = "pilot") ->
         raise ValueError(f"action must be train, pretrain, finetune, or sweep, got {action!r}")
 
     git_sha = _local_git_sha()
-    print(f"v2 {action}: local git sha {git_sha}")
+    print(f"v3 {action}: local git sha {git_sha}")
 
     if action in ("train", "pretrain"):
         pre = run_stage.remote(
@@ -400,7 +523,7 @@ def main(action: str = "train", run_id: str = "dev", sweep_id: str = "pilot") ->
             PRETRAIN_DEFAULTS["div_weight"],
             git_sha,
         )
-        print(f"v2 pretrain done: {pre}")
+        print(f"v3 pretrain done: {pre}")
     if action in ("train", "finetune"):
         if action == "finetune":
             _require_pretrain_checkpoint(run_id)
@@ -415,7 +538,7 @@ def main(action: str = "train", run_id: str = "dev", sweep_id: str = "pilot") ->
             FINETUNE_DEFAULTS["div_weight"],
             git_sha,
         )
-        print(f"v2 finetune done: {ft}")
+        print(f"v3 finetune done: {ft}")
     routes = _download_routes(action, run_id)
     dest = _download_artifacts(routes)
-    print(f"v2 {action}: downloaded to {dest}")
+    print(f"v3 {action}: downloaded to {dest}")

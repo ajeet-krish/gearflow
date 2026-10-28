@@ -395,6 +395,697 @@ pub struct FinalStats {
     pub recirc_mask: Vec<f32>,
 }
 
+/// Configuration for the phase averaged first harmonic fit. d_lat and
+/// u_lattice set the physical Strouhal bounds 0.03 to 0.50 used to
+/// freeze the shedding period. skip_cycles and min_cycles are retained
+/// for API compatibility and no longer gate validity; the frozen window
+/// needs at least 6 periods worth of samples.
+#[derive(Clone, Copy, Debug)]
+pub struct HarmonicConfig {
+    pub d_lat: f64,
+    pub u_lattice: f64,
+    pub skip_cycles: u64,
+    pub min_cycles: u64,
+}
+
+impl Default for HarmonicConfig {
+    fn default() -> Self {
+        HarmonicConfig {
+            d_lat: 16.0,
+            u_lattice: 0.08,
+            skip_cycles: 2,
+            min_cycles: 3,
+        }
+    }
+}
+
+/// Phase averaged first harmonic of u and v plus quality metadata.
+/// Coefficient arrays use k = j * nx + i ordering, solid cells read
+/// exactly 0. When valid is false all four arrays are exactly 0 but
+/// explained_variance still reports the measured value (0 when no
+/// period or no samples) so a weak harmonic stays visible in data
+/// instead of being hidden as 0. reason is one of ok, no_period,
+/// too_few_periods, low_explained, low_amplitude, non_finite,
+/// not_shedding.
+#[derive(Clone, Debug)]
+pub struct HarmonicResult {
+    pub u_cos: Vec<f32>,
+    pub u_sin: Vec<f32>,
+    pub v_cos: Vec<f32>,
+    pub v_sin: Vec<f32>,
+    pub explained_variance: f64,
+    pub valid: bool,
+    pub reason: String,
+    pub cycles: u64,
+    pub samples: u64,
+    pub phase_ref_step: Option<u64>,
+    pub mean_peak_interval: Option<f64>,
+    pub interval_cv: Option<f64>,
+}
+
+impl HarmonicResult {
+    /// All zero coefficients with valid false and the given length.
+    /// reason defaults to not_shedding for the flag off path.
+    pub fn zeros(cells: usize) -> Self {
+        HarmonicResult {
+            u_cos: vec![0.0; cells],
+            u_sin: vec![0.0; cells],
+            v_cos: vec![0.0; cells],
+            v_sin: vec![0.0; cells],
+            explained_variance: 0.0,
+            valid: false,
+            reason: "not_shedding".to_string(),
+            cycles: 0,
+            samples: 0,
+            phase_ref_step: None,
+            mean_peak_interval: None,
+            interval_cv: None,
+        }
+    }
+}
+
+/// Strouhal locked least squares fit of u(t) = m + a cos(phi) + b sin(phi)
+/// per fluid cell, same for v, with phi = 2 pi (t minus anchor) divided
+/// by the frozen period. The period comes from the shared Cl Strouhal
+/// estimator in forces.rs (strouhal_from_cl), frozen once a finite
+/// Strouhal in 0.03 to 0.50 exists and two periods of steps exist after
+/// the transient. The anchor is the lattice step of the global Cl
+/// maximum since the transient at the freeze moment and never moves.
+/// Field accumulation runs in sample on the existing stats cadence from
+/// the freeze step onward. Spurious LES peaks cannot corrupt the fit
+/// because no per cycle peak gating exists. All internal sums are f64.
+#[derive(Clone, Debug)]
+pub struct HarmonicAccumulator {
+    cfg: HarmonicConfig,
+    start_step: u64,
+    sample_every: u64,
+    cells: usize,
+    cl_steps: Vec<u64>,
+    cl_vals: Vec<f64>,
+    frozen_period: Option<f64>,
+    frozen_strouhal: Option<f64>,
+    anchor_step: Option<u64>,
+    freeze_step: Option<u64>,
+    frozen_samples: u64,
+    phase_ref_step: Option<u64>,
+    sum_u_cos: Vec<f64>,
+    sum_u_sin: Vec<f64>,
+    sum_v_cos: Vec<f64>,
+    sum_v_sin: Vec<f64>,
+    sum_u: Vec<f64>,
+    sum_v: Vec<f64>,
+    sum_u2: Vec<f64>,
+    sum_v2: Vec<f64>,
+    gram_n: u64,
+    gram_sc: f64,
+    gram_ss: f64,
+    gram_cc: f64,
+    gram_cs: f64,
+    gram_ss2: f64,
+}
+
+impl HarmonicAccumulator {
+    /// Create zeroed accumulators with the same grid caps as the
+    /// stats accumulator. d_lat and u_lattice must be positive finite.
+    pub fn new(
+        nx: usize,
+        ny: usize,
+        start_step: u64,
+        sample_every: u64,
+        cfg: HarmonicConfig,
+    ) -> Result<Self, String> {
+        if nx < 4 || ny < 4 {
+            return Err(format!("harmonic: nx and ny must be >= 4, got {nx}x{ny}"));
+        }
+        if nx > 512 || ny > 512 {
+            return Err("harmonic: nx and ny must be <= 512".to_string());
+        }
+        let cells = nx.checked_mul(ny).ok_or_else(|| {
+            format!("harmonic: nx*ny overflows, got {nx}x{ny}")
+        })?;
+        if cells > 262144 {
+            return Err("harmonic: nx*ny must be <= 262144".to_string());
+        }
+        if sample_every == 0 {
+            return Err("harmonic: sample_every must be >= 1".to_string());
+        }
+        if !cfg.d_lat.is_finite() || cfg.d_lat <= 0.0 {
+            return Err(format!("harmonic: d_lat must be positive, got {}", cfg.d_lat));
+        }
+        if !cfg.u_lattice.is_finite() || cfg.u_lattice <= 0.0 {
+            return Err(format!(
+                "harmonic: u_lattice must be positive, got {}",
+                cfg.u_lattice
+            ));
+        }
+        Ok(HarmonicAccumulator {
+            cfg,
+            start_step,
+            sample_every,
+            cells,
+            cl_steps: Vec::new(),
+            cl_vals: Vec::new(),
+            frozen_period: None,
+            frozen_strouhal: None,
+            anchor_step: None,
+            freeze_step: None,
+            frozen_samples: 0,
+            phase_ref_step: None,
+            sum_u_cos: vec![0.0; cells],
+            sum_u_sin: vec![0.0; cells],
+            sum_v_cos: vec![0.0; cells],
+            sum_v_sin: vec![0.0; cells],
+            sum_u: vec![0.0; cells],
+            sum_v: vec![0.0; cells],
+            sum_u2: vec![0.0; cells],
+            sum_v2: vec![0.0; cells],
+            gram_n: 0,
+            gram_sc: 0.0,
+            gram_ss: 0.0,
+            gram_cc: 0.0,
+            gram_cs: 0.0,
+            gram_ss2: 0.0,
+        })
+    }
+
+    /// Clear every sum, Cl history, and the frozen period. Keeps
+    /// config, grid, start step, and cadence.
+    pub fn reset(&mut self) {
+        self.cl_steps.clear();
+        self.cl_vals.clear();
+        self.frozen_period = None;
+        self.frozen_strouhal = None;
+        self.anchor_step = None;
+        self.freeze_step = None;
+        self.frozen_samples = 0;
+        self.phase_ref_step = None;
+        for v in self.sum_u_cos.iter_mut() {
+            *v = 0.0;
+        }
+        for v in self.sum_u_sin.iter_mut() {
+            *v = 0.0;
+        }
+        for v in self.sum_v_cos.iter_mut() {
+            *v = 0.0;
+        }
+        for v in self.sum_v_sin.iter_mut() {
+            *v = 0.0;
+        }
+        for v in self.sum_u.iter_mut() {
+            *v = 0.0;
+        }
+        for v in self.sum_v.iter_mut() {
+            *v = 0.0;
+        }
+        for v in self.sum_u2.iter_mut() {
+            *v = 0.0;
+        }
+        for v in self.sum_v2.iter_mut() {
+            *v = 0.0;
+        }
+        self.gram_n = 0;
+        self.gram_sc = 0.0;
+        self.gram_ss = 0.0;
+        self.gram_cc = 0.0;
+        self.gram_cs = 0.0;
+        self.gram_ss2 = 0.0;
+    }
+
+    /// Whole periods in the frozen window, floor of frozen span over
+    /// period. Zero before the freeze. Kept name for caller parity.
+    pub fn committed_cycles(&self) -> u64 {
+        match self.frozen_period {
+            Some(p) if p > 0.0 && p.is_finite() => {
+                ((self.frozen_samples as f64 * self.sample_every as f64) / p).floor().max(0.0) as u64
+            }
+            _ => 0,
+        }
+    }
+
+    /// Frozen window sample count. Kept name for caller parity.
+    pub fn committed_samples(&self) -> u64 {
+        self.frozen_samples
+    }
+
+    /// Diagnostic peak intervals in steps, oldest first. Empty: the
+    /// locked phase fit no longer gates on peaks, intervals are only
+    /// recomputed as a diagnostic in finalise.
+    pub fn committed_intervals(&self) -> &[f64] {
+        &[]
+    }
+
+    /// Anchor step of phase zero, None before the freeze.
+    pub fn phase_ref(&self) -> Option<u64> {
+        self.phase_ref_step
+    }
+
+    /// Frozen shedding period in steps, None before the freeze.
+    pub fn mean_peak_interval(&self) -> Option<f64> {
+        self.frozen_period
+    }
+
+    /// Strouhal from the frozen period, None before the freeze or when
+    /// the value is non finite.
+    pub fn strouhal(&self) -> Option<f64> {
+        self.frozen_strouhal.filter(|v| v.is_finite())
+    }
+
+    /// Anchor step of phase zero, None before the freeze.
+    pub fn frozen_period(&self) -> Option<f64> {
+        self.frozen_period
+    }
+
+    /// Freeze step, None before the freeze.
+    pub fn freeze_step(&self) -> Option<u64> {
+        self.freeze_step
+    }
+
+    /// Feed one lattice step of Cl. Call every step. Stores finite
+    /// values at or after the start step for the shared Strouhal
+    /// estimator. Non finite inputs are ignored.
+    pub fn note_cl(&mut self, step: u64, cl: f64) {
+        if !cl.is_finite() {
+            return;
+        }
+        if step < self.start_step {
+            return;
+        }
+        self.cl_steps.push(step);
+        self.cl_vals.push(cl);
+    }
+
+    /// Sample one step when due on the stats cadence. Solid cells
+    /// contribute nothing. Tries the Strouhal freeze when unfrozen,
+    /// then accumulates into the frozen window from the freeze step
+    /// onward. Panics on a slice length mismatch like the stats
+    /// accumulator.
+    pub fn sample(&mut self, step: u64, u: &[f32], v: &[f32], solid: &[u8]) {
+        if step < self.start_step {
+            return;
+        }
+        if (step - self.start_step) % self.sample_every != 0 {
+            return;
+        }
+        let n = self.cells;
+        assert!(u.len() == n, "harmonic: u len {} must equal cells {n}", u.len());
+        assert!(v.len() == n, "harmonic: v len {} must equal cells {n}", v.len());
+        assert!(solid.len() == n, "harmonic: solid len {} must equal cells {n}", solid.len());
+        if self.frozen_period.is_none() {
+            self.maybe_freeze(step);
+        }
+        let (period, anchor) = match (self.frozen_period, self.anchor_step) {
+            (Some(p), Some(a)) if p.is_finite() && p > 0.0 => (p, a),
+            _ => return,
+        };
+        if step < self.freeze_step.unwrap_or(step) {
+            return;
+        }
+        let phi =
+            2.0 * std::f64::consts::PI * (step as f64 - anchor as f64) / period;
+        let c = phi.cos();
+        let s = phi.sin();
+        for k in 0..n {
+            if solid[k] != 0 {
+                continue;
+            }
+            let uu = u[k] as f64;
+            let vv = v[k] as f64;
+            self.sum_u_cos[k] += uu * c;
+            self.sum_u_sin[k] += uu * s;
+            self.sum_v_cos[k] += vv * c;
+            self.sum_v_sin[k] += vv * s;
+            self.sum_u[k] += uu;
+            self.sum_v[k] += vv;
+            self.sum_u2[k] += uu * uu;
+            self.sum_v2[k] += vv * vv;
+        }
+        self.gram_n += 1;
+        self.gram_sc += c;
+        self.gram_ss += s;
+        self.gram_cc += c * c;
+        self.gram_cs += c * s;
+        self.gram_ss2 += s * s;
+        self.frozen_samples += 1;
+    }
+
+    /// Try to freeze the shedding period from the Cl history using the
+    /// shared Strouhal estimator. Needs a finite Strouhal in 0.03 to
+    /// 0.50 and at least two periods of steps after the transient.
+    /// Robustness guards: at least 3 peaks (2 intervals) with interval
+    /// coefficient of variation at most 0.12, so a spurious LES crest
+    /// cannot freeze a biased period, and the estimate that also drops
+    /// the last min_sep steps must agree within 4 percent, so a
+    /// trailing partial crest cannot steer the freeze. Both guards
+    /// auto relax as history grows: a single outlier inflates the CV
+    /// and the window disagreement by about one over the peak count.
+    /// The anchor is the step of the global Cl maximum since the
+    /// transient over the full history and never moves afterwards.
+    fn maybe_freeze(&mut self, step: u64) {
+        if self.frozen_period.is_some() {
+            return;
+        }
+        if self.cl_vals.len() < 16 {
+            return;
+        }
+        // Same minimum peak separation as forces::strouhal_from_cl: a
+        // peak within this distance of the history end is unconfirmed
+        // and must not steer the freeze.
+        let edge = (0.5 * self.cfg.d_lat / (0.2 * self.cfg.u_lattice)).round() as u64;
+        let edge = edge.max(4);
+        let mut b0 = self.cl_vals.len();
+        let back_edge = step.saturating_sub(edge);
+        while b0 > 0 && self.cl_steps[b0 - 1] > back_edge {
+            b0 -= 1;
+        }
+        if b0 < 16 {
+            return;
+        }
+        let confirmed = &self.cl_vals[..b0];
+        let st_full = match crate::forces::strouhal_from_cl(
+            &self.cl_vals,
+            self.cfg.d_lat,
+            self.cfg.u_lattice,
+        ) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let st_trim = match crate::forces::strouhal_from_cl(
+            confirmed,
+            self.cfg.d_lat,
+            self.cfg.u_lattice,
+        ) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        if !st_full.is_finite() || st_full < 0.03 || st_full > 0.50 {
+            return;
+        }
+        let period = self.cfg.d_lat / (st_full * self.cfg.u_lattice);
+        if !period.is_finite() || period <= 0.0 {
+            return;
+        }
+        // Interval consistency on the full history: at least 3 peaks
+        // with CV at most 0.12. A spurious crest inflates the spread
+        // and blocks the freeze until dilution makes its bias harmless.
+        let (_, cv) = match self.measured_interval_stats() {
+            Some(v) => v,
+            None => return,
+        };
+        if !cv.is_finite() || cv > 0.12 {
+            return;
+        }
+        if !st_trim.is_finite() {
+            return;
+        }
+        let period_trim = self.cfg.d_lat / (st_trim * self.cfg.u_lattice);
+        if !period_trim.is_finite() || period_trim <= 0.0 {
+            return;
+        }
+        if ((period - period_trim) / period).abs() > 0.04 {
+            return;
+        }
+        let elapsed = step.saturating_sub(self.start_step) as f64;
+        if elapsed < 2.0 * period {
+            return;
+        }
+        let mut best = 0usize;
+        for i in 1..self.cl_vals.len() {
+            if self.cl_vals[i] > self.cl_vals[best] {
+                best = i;
+            }
+        }
+        let anchor = self.cl_steps[best];
+        self.frozen_period = Some(period);
+        self.frozen_strouhal = Some(st_full);
+        self.anchor_step = Some(anchor);
+        self.freeze_step = Some(step);
+        self.phase_ref_step = Some(anchor);
+    }
+
+    /// Measured peak intervals in steps from the stored Cl history,
+    /// using the same peak rule as forces::strouhal_from_cl. Returns
+    /// (mean, coefficient of variation). Gates the freeze decision and
+    /// reports the diagnostic CV, never gates validity.
+    fn measured_interval_stats(&self) -> Option<(f64, f64)> {
+        let n = self.cl_vals.len();
+        if n < 16 {
+            return None;
+        }
+        let mean: f64 = self.cl_vals.iter().sum::<f64>() / n as f64;
+        let mut detrended = Vec::with_capacity(n);
+        for v in &self.cl_vals {
+            detrended.push(v - mean);
+        }
+        let rms = (detrended.iter().map(|v| v * v).sum::<f64>() / n as f64).sqrt();
+        if !(rms > 0.0) || !rms.is_finite() {
+            return None;
+        }
+        let threshold = 0.5 * rms;
+        let min_sep = (0.5 * self.cfg.d_lat / (0.2 * self.cfg.u_lattice)).round() as usize;
+        let min_sep = min_sep.max(4);
+        let mut peaks: Vec<usize> = Vec::new();
+        let mut last_peak: Option<usize> = None;
+        for i in 1..(n - 1) {
+            let v = detrended[i];
+            if v > detrended[i - 1] && v >= detrended[i + 1] && v > threshold {
+                if let Some(last) = last_peak {
+                    if i - last < min_sep {
+                        if v > detrended[last] {
+                            peaks.pop();
+                            peaks.push(i);
+                            last_peak = Some(i);
+                        }
+                        continue;
+                    }
+                }
+                peaks.push(i);
+                last_peak = Some(i);
+            }
+        }
+        if peaks.len() < 2 {
+            return None;
+        }
+        let mut intervals: Vec<f64> = Vec::with_capacity(peaks.len() - 1);
+        for w in 1..peaks.len() {
+            let a = self.cl_steps[peaks[w - 1]] as f64;
+            let b = self.cl_steps[peaks[w]] as f64;
+            if b > a {
+                intervals.push(b - a);
+            }
+        }
+        if intervals.len() < 2 {
+            return None;
+        }
+        let m: f64 = intervals.iter().sum::<f64>() / intervals.len() as f64;
+        if !(m > 0.0) || !m.is_finite() {
+            return None;
+        }
+        let mut var = 0.0;
+        for x in &intervals {
+            let d = x - m;
+            var += d * d;
+        }
+        var /= intervals.len() as f64;
+        let cv = var.max(0.0).sqrt() / m;
+        if cv.is_finite() {
+            Some((m, cv))
+        } else {
+            None
+        }
+    }
+
+    /// Solve the shared 3x3 Gram system once and the per cell fits.
+    /// Validity needs a frozen period, at least 6 frozen periods of
+    /// samples, Strouhal in 0.03 to 0.50, explained variance at least
+    /// 0.35, RMS amplitude over fluid cells at least 0.002 u_lattice,
+    /// and finite coefficients. Any failed gate returns all zero
+    /// coefficients with valid false, but explained_variance still
+    /// reports the measured value (0 when no period or no samples) so
+    /// a weak harmonic stays visible instead of being hidden as 0.
+    /// reason is one of ok, no_period, too_few_periods, low_explained,
+    /// low_amplitude, non_finite, not_shedding.
+    pub fn finalise(&self, solid: &[u8]) -> HarmonicResult {
+        let n = self.cells;
+        assert!(
+            solid.len() == n,
+            "harmonic: solid len {} must equal cells {n}",
+            solid.len()
+        );
+        let frozen = self.frozen_period;
+        let diag_cv = self.measured_interval_stats().map(|(_, cv)| cv);
+        let mut out = HarmonicResult {
+            u_cos: vec![0.0; n],
+            u_sin: vec![0.0; n],
+            v_cos: vec![0.0; n],
+            v_sin: vec![0.0; n],
+            explained_variance: 0.0,
+            valid: false,
+            reason: "no_period".to_string(),
+            cycles: self.committed_cycles(),
+            samples: self.frozen_samples,
+            phase_ref_step: self.phase_ref_step,
+            mean_peak_interval: self.frozen_period,
+            interval_cv: diag_cv,
+        };
+        let period = match frozen {
+            Some(p) if p.is_finite() && p > 0.0 => p,
+            _ => {
+                let mut lo = f64::INFINITY;
+                let mut hi = f64::NEG_INFINITY;
+                for v in &self.cl_vals {
+                    if *v < lo {
+                        lo = *v;
+                    }
+                    if *v > hi {
+                        hi = *v;
+                    }
+                }
+                let range = if lo.is_finite() && hi.is_finite() { hi - lo } else { 0.0 };
+                out.reason = if range < 1e-9 {
+                    "not_shedding".to_string()
+                } else {
+                    "no_period".to_string()
+                };
+                return out;
+            }
+        };
+        let strouhal = match self.frozen_strouhal {
+            Some(v) => v,
+            None => {
+                out.reason = "no_period".to_string();
+                return out;
+            }
+        };
+        if !strouhal.is_finite() || strouhal < 0.03 || strouhal > 0.50 {
+            out.reason = "no_period".to_string();
+            return out;
+        }
+        let gram_n = self.gram_n as f64;
+        if self.frozen_samples == 0 || gram_n < 1.0 {
+            out.reason = "too_few_periods".to_string();
+            return out;
+        }
+        let frozen_span = self.frozen_samples as f64 * self.sample_every as f64;
+        let too_few = frozen_span < 6.0 * period - 1e-9;
+        let sc = self.gram_sc;
+        let ss = self.gram_ss;
+        let cc = self.gram_cc;
+        let cs = self.gram_cs;
+        let qq = self.gram_ss2;
+        let det = gram_n * (cc * qq - cs * cs)
+            - sc * (sc * qq - cs * ss)
+            + ss * (sc * cs - cc * ss);
+        if !det.is_finite() || !(det > 1e-6 * gram_n * gram_n * gram_n) {
+            out.reason = "non_finite".to_string();
+            return out;
+        }
+        let inv01 = (cs * ss - sc * qq) / det;
+        let inv02 = (sc * cs - cc * ss) / det;
+        let inv11 = (gram_n * qq - ss * ss) / det;
+        let inv12 = (ss * sc - gram_n * cs) / det;
+        let inv22 = (gram_n * cc - sc * sc) / det;
+        if !inv01.is_finite()
+            || !inv02.is_finite()
+            || !inv11.is_finite()
+            || !inv12.is_finite()
+            || !inv22.is_finite()
+        {
+            out.reason = "non_finite".to_string();
+            return out;
+        }
+        let mut au = vec![0.0f64; n];
+        let mut bu = vec![0.0f64; n];
+        let mut av = vec![0.0f64; n];
+        let mut bv = vec![0.0f64; n];
+        for k in 0..n {
+            if solid[k] != 0 {
+                continue;
+            }
+            let su = self.sum_u[k];
+            let suc = self.sum_u_cos[k];
+            let sus = self.sum_u_sin[k];
+            au[k] = inv01 * su + inv11 * suc + inv12 * sus;
+            bu[k] = inv02 * su + inv12 * suc + inv22 * sus;
+            let sv = self.sum_v[k];
+            let svc = self.sum_v_cos[k];
+            let svs = self.sum_v_sin[k];
+            av[k] = inv01 * sv + inv11 * svc + inv12 * svs;
+            bv[k] = inv02 * sv + inv12 * svc + inv22 * svs;
+        }
+        for k in 0..n {
+            if solid[k] != 0 {
+                continue;
+            }
+            if !au[k].is_finite() || !bu[k].is_finite() || !av[k].is_finite() || !bv[k].is_finite() {
+                out.reason = "non_finite".to_string();
+                return out;
+            }
+        }
+        let mut num = 0.0;
+        let mut den = 0.0;
+        let mut sum_sq = 0.0;
+        let mut fluid = 0u64;
+        for k in 0..n {
+            if solid[k] != 0 {
+                continue;
+            }
+            fluid += 1;
+            let mu = self.sum_u[k] / gram_n;
+            let mv = self.sum_v[k] / gram_n;
+            let var_u = (self.sum_u2[k] / gram_n - mu * mu).max(0.0);
+            let var_v = (self.sum_v2[k] / gram_n - mv * mv).max(0.0);
+            num += (au[k] * au[k] + bu[k] * bu[k] + av[k] * av[k] + bv[k] * bv[k]) / 4.0;
+            den += (var_u + var_v) / 2.0;
+            sum_sq += au[k] * au[k] + bu[k] * bu[k] + av[k] * av[k] + bv[k] * bv[k];
+        }
+        let explained = if den <= 1e-12 {
+            0.0
+        } else {
+            (num / den).clamp(0.0, 1.0)
+        };
+        let explained = if explained.is_finite() { explained } else { 0.0 };
+        out.explained_variance = explained;
+        if too_few {
+            out.reason = "too_few_periods".to_string();
+            return out;
+        }
+        if explained < 0.35 {
+            out.reason = "low_explained".to_string();
+            return out;
+        }
+        let rms_amp = if fluid == 0 {
+            0.0
+        } else {
+            (sum_sq / (2.0 * fluid as f64)).max(0.0).sqrt()
+        };
+        if !rms_amp.is_finite() {
+            out.reason = "non_finite".to_string();
+            return out;
+        }
+        if rms_amp < 0.002 * self.cfg.u_lattice {
+            out.reason = "low_amplitude".to_string();
+            return out;
+        }
+        for k in 0..n {
+            if solid[k] != 0 {
+                out.u_cos[k] = 0.0;
+                out.u_sin[k] = 0.0;
+                out.v_cos[k] = 0.0;
+                out.v_sin[k] = 0.0;
+                continue;
+            }
+            out.u_cos[k] = au[k] as f32;
+            out.u_sin[k] = bu[k] as f32;
+            out.v_cos[k] = av[k] as f32;
+            out.v_sin[k] = bv[k] as f32;
+        }
+        out.explained_variance = explained;
+        out.valid = true;
+        out.reason = "ok".to_string();
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -627,5 +1318,233 @@ mod tests {
                 assert_eq!(*val, 0.0);
             }
         }
+    }
+
+    fn harmonic_test_setup() -> (HarmonicConfig, usize, usize, f64) {
+        // Strouhal 0.2 with D 16 and u 0.08 gives period 1000 steps,
+        // inside the physical bounds 400 to 6666.
+        let cfg = HarmonicConfig {
+            d_lat: 16.0,
+            u_lattice: 0.08,
+            skip_cycles: 2,
+            min_cycles: 3,
+        };
+        (cfg, 8, 8, 1000.0)
+    }
+
+    fn feed_harmonic_sine(
+        acc: &mut HarmonicAccumulator,
+        period: f64,
+        steps: u64,
+        amp_u: f64,
+        amp_v: f64,
+        phase_u: f64,
+        phase_v: f64,
+        amp_scale: impl Fn(u64) -> f64,
+    ) {
+        let nx = 8usize;
+        let cells = nx * 8;
+        let solid = vec![0u8; cells];
+        let mean_u = 0.06;
+        let mean_v = 0.005;
+        for t in 0..=steps {
+            let cl = 0.5 * (2.0 * std::f64::consts::PI * t as f64 / period).cos();
+            acc.note_cl(t, cl);
+            if t % 10 != 0 {
+                continue;
+            }
+            let scale = amp_scale(t);
+            // Phase uses absolute lattice steps so the anchored fit
+            // with anchor at the global Cl maximum recovers it.
+            let phi = 2.0 * std::f64::consts::PI * t as f64 / period;
+            let uval = (mean_u + scale * amp_u * (phi + phase_u).cos()) as f32;
+            let vval = (mean_v + scale * amp_v * (phi + phase_v).cos()) as f32;
+            let u = vec![uval; cells];
+            let v = vec![vval; cells];
+            acc.sample(t, &u, &v, &solid);
+        }
+    }
+
+    fn feed_harmonic_noisy_cl(
+        acc: &mut HarmonicAccumulator,
+        period: f64,
+        steps: u64,
+        amp_u: f64,
+        amp_v: f64,
+        phase_u: f64,
+        phase_v: f64,
+    ) {
+        // Deterministic uniform jitter at 20 percent of the 0.5 Cl
+        // amplitude, modelling LES broadband noise. Spurious local
+        // maxima abound, but they average out of the shared Strouhal
+        // estimate instead of corrupting per cycle peak gating.
+        let nx = 8usize;
+        let cells = nx * 8;
+        let solid = vec![0u8; cells];
+        let mean_u = 0.06;
+        let mean_v = 0.005;
+        let mut rng: u64 = 0x12345678;
+        for t in 0..=steps {
+            rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let noise = ((rng >> 33) as f64 / (u32::MAX as f64) - 0.5) * 0.2;
+            let cl = 0.5 * (2.0 * std::f64::consts::PI * t as f64 / period).cos() + noise;
+            acc.note_cl(t, cl);
+            if t % 10 != 0 {
+                continue;
+            }
+            let phi = 2.0 * std::f64::consts::PI * t as f64 / period;
+            let uval = (mean_u + amp_u * (phi + phase_u).cos()) as f32;
+            let vval = (mean_v + amp_v * (phi + phase_v).cos()) as f32;
+            let u = vec![uval; cells];
+            let v = vec![vval; cells];
+            acc.sample(t, &u, &v, &solid);
+        }
+    }
+
+    #[test]
+    fn harmonic_recovers_synthetic_first_mode() {
+        let (cfg, nx, ny, period) = harmonic_test_setup();
+        let mut acc = HarmonicAccumulator::new(nx, ny, 0, 10, cfg).unwrap();
+        let amp_u = 0.03;
+        let amp_v = 0.02;
+        let phase_u = 0.3;
+        let phase_v = -0.5;
+        feed_harmonic_sine(&mut acc, period, 9100, amp_u, amp_v, phase_u, phase_v, |_| 1.0);
+        let solid = vec![0u8; nx * ny];
+        let res = acc.finalise(&solid);
+        assert!(res.valid, "expected valid fit, reason {}", res.reason);
+        assert_eq!(res.reason, "ok");
+        assert_eq!(res.samples, 610, "samples = {}", res.samples);
+        assert_eq!(res.cycles, 6);
+        assert_eq!(res.phase_ref_step, Some(0));
+        assert_eq!(res.mean_peak_interval, Some(1000.0));
+        assert!(res.explained_variance > 0.99, "explained = {}", res.explained_variance);
+        let exp_au = amp_u * phase_u.cos();
+        let exp_bu = -amp_u * phase_u.sin();
+        let exp_av = amp_v * phase_v.cos();
+        let exp_bv = -amp_v * phase_v.sin();
+        for k in [0, 7, 32, 63] {
+            assert!((res.u_cos[k] as f64 - exp_au).abs() < 0.001, "u_cos {k} = {}", res.u_cos[k]);
+            assert!((res.u_sin[k] as f64 - exp_bu).abs() < 0.001, "u_sin {k} = {}", res.u_sin[k]);
+            assert!((res.v_cos[k] as f64 - exp_av).abs() < 0.001, "v_cos {k} = {}", res.v_cos[k]);
+            assert!((res.v_sin[k] as f64 - exp_bv).abs() < 0.001, "v_sin {k} = {}", res.v_sin[k]);
+        }
+    }
+
+    #[test]
+    fn harmonic_noisy_cl_still_recovers_period() {
+        // 20 percent additive noise on Cl: spurious peaks no longer
+        // matter because the period comes from the shared Strouhal
+        // estimator, not per cycle peak gating.
+        let (cfg, nx, ny, period) = harmonic_test_setup();
+        let mut acc = HarmonicAccumulator::new(nx, ny, 0, 10, cfg).unwrap();
+        feed_harmonic_noisy_cl(&mut acc, period, 9100, 0.03, 0.02, 0.3, -0.5);
+        let solid = vec![0u8; nx * ny];
+        let res = acc.finalise(&solid);
+        assert!(res.valid, "noisy Cl must stay valid, reason {}", res.reason);
+        assert_eq!(res.reason, "ok");
+        assert!(res.explained_variance > 0.9, "explained = {}", res.explained_variance);
+    }
+
+    #[test]
+    fn harmonic_steady_signal_is_invalid_zeros() {
+        let (cfg, nx, ny, _period) = harmonic_test_setup();
+        let mut acc = HarmonicAccumulator::new(nx, ny, 0, 10, cfg).unwrap();
+        let cells = nx * ny;
+        let solid = vec![0u8; cells];
+        let u = vec![0.06f32; cells];
+        let v = vec![0.0f32; cells];
+        for t in 0..=4000u64 {
+            acc.note_cl(t, 0.5);
+            acc.sample(t, &u, &v, &solid);
+        }
+        let res = acc.finalise(&solid);
+        assert!(!res.valid);
+        assert!(res.reason == "no_period" || res.reason == "not_shedding", "reason = {}", res.reason);
+        assert_eq!(res.explained_variance, 0.0);
+        for arr in [&res.u_cos, &res.u_sin, &res.v_cos, &res.v_sin] {
+            assert_eq!(arr.len(), cells);
+            for val in arr {
+                assert_eq!(*val, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn harmonic_too_few_periods_reports_reason() {
+        // Freeze happens near step 2000, 4600 steps hold about 2.6
+        // frozen periods, below the 6 period floor.
+        let (cfg, nx, ny, period) = harmonic_test_setup();
+        let mut acc = HarmonicAccumulator::new(nx, ny, 0, 10, cfg).unwrap();
+        feed_harmonic_sine(&mut acc, period, 4600, 0.03, 0.02, 0.3, -0.5, |_| 1.0);
+        let solid = vec![0u8; nx * ny];
+        let res = acc.finalise(&solid);
+        assert!(!res.valid, "short run must be invalid");
+        assert_eq!(res.reason, "too_few_periods");
+        for arr in [&res.u_cos, &res.u_sin, &res.v_cos, &res.v_sin] {
+            for val in arr {
+                assert_eq!(*val, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn harmonic_low_explained_keeps_variance_visible() {
+        // Strong Cl at period 1000 but the field oscillates at period
+        // 640, so the locked fit explains little variance. Bins stay
+        // exact zero but explained_variance reports the weak harmonic.
+        let (cfg, nx, ny, period) = harmonic_test_setup();
+        let mut acc = HarmonicAccumulator::new(nx, ny, 0, 10, cfg).unwrap();
+        let cells = nx * ny;
+        let solid = vec![0u8; cells];
+        let wrong = 640.0;
+        for t in 0..=9100u64 {
+            let cl = 0.5 * (2.0 * std::f64::consts::PI * t as f64 / period).cos();
+            acc.note_cl(t, cl);
+            if t % 10 != 0 {
+                continue;
+            }
+            let phi = 2.0 * std::f64::consts::PI * t as f64 / wrong;
+            let uval = (0.06 + 0.03 * phi.cos()) as f32;
+            let vval = (0.005 + 0.02 * phi.cos()) as f32;
+            acc.sample(t, &vec![uval; cells], &vec![vval; cells], &solid);
+        }
+        let res = acc.finalise(&solid);
+        assert!(!res.valid, "wrong frequency must be invalid");
+        assert_eq!(res.reason, "low_explained");
+        assert!(res.explained_variance > 0.0, "explained = {}", res.explained_variance);
+        assert!(res.explained_variance < 0.35, "explained = {}", res.explained_variance);
+        for arr in [&res.u_cos, &res.u_sin, &res.v_cos, &res.v_sin] {
+            for val in arr {
+                assert_eq!(*val, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn harmonic_prefreeze_amplitude_ignored() {
+        // Double amplitude only before the freeze (first two periods)
+        // is discarded with the pre freeze samples, so the fit still
+        // recovers unit amplitude.
+        let (cfg, nx, ny, period) = harmonic_test_setup();
+        let mut acc = HarmonicAccumulator::new(nx, ny, 0, 10, cfg).unwrap();
+        let amp_u = 0.03;
+        let amp_v = 0.02;
+        feed_harmonic_sine(&mut acc, period, 9100, amp_u, amp_v, 0.3, -0.5, |t| {
+            if t < 2000 {
+                2.0
+            } else {
+                1.0
+            }
+        });
+        let solid = vec![0u8; nx * ny];
+        let res = acc.finalise(&solid);
+        assert!(res.valid, "reason = {}", res.reason);
+        let exp_au = amp_u * 0.3f64.cos();
+        let exp_bu = -amp_u * 0.3f64.sin();
+        assert!((res.u_cos[0] as f64 - exp_au).abs() < 0.001, "u_cos = {}", res.u_cos[0]);
+        assert!((res.u_sin[0] as f64 - exp_bu).abs() < 0.001, "u_sin = {}", res.u_sin[0]);
     }
 }

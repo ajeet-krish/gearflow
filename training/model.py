@@ -215,3 +215,105 @@ def param_count_v2(base: int = V2_BASE) -> int:
 # helper to map aten group_norm; InstanceNorm was chosen instead because
 # onnxruntime-web 1.30.0 executes InstanceNormalization-18 (probe in
 # src/flow/surrogateV2.test.ts) while it cannot execute GroupNormalization-18.
+
+
+# UNet v3 (Phase C2): identical trunk to v2 (base 8 locked, InstanceNorm,
+# nearest upsample, max pool). Spatial head widens 8 to 10 channels; a scalar
+# head pools the 64 channel bottleneck (global average) through one linear
+# layer to 3 aux outputs (strouhalNorm, explained logit, validity logit).
+
+V3_ARCH = "unet-v3"
+V3_IN_CH = 4
+V3_OUT_CH = 10
+V3_AUX_CH = 3
+V3_BASE = 8
+
+V3_IN_HEADS = ("sdf", "mask", "alpha", "logRe")
+V3_OUT_HEADS = ("meanU", "meanV", "cp", "vorticity", "tke", "recirc", "uCos", "uSin", "vCos", "vSin")
+V3_AUX_HEADS = ("strouhal", "explained", "harmonicValid")
+
+
+def v3_layer_order(base: int) -> list[tuple[str, int, int, int]]:
+    if not isinstance(base, int) or base != V3_BASE:
+        raise ValueError(f"v3 base is locked to {V3_BASE}, got {base}")
+    b = base
+    return [
+        ("enc1_1", V3_IN_CH, b, 3),
+        ("enc1_2", b, b, 3),
+        ("enc2_1", b, 2 * b, 3),
+        ("enc2_2", 2 * b, 2 * b, 3),
+        ("enc3_1", 2 * b, 4 * b, 3),
+        ("enc3_2", 4 * b, 4 * b, 3),
+        ("bot_1", 4 * b, 8 * b, 3),
+        ("bot_2", 8 * b, 8 * b, 3),
+        ("dec3_1", 12 * b, 4 * b, 3),
+        ("dec3_2", 4 * b, 4 * b, 3),
+        ("dec2_1", 6 * b, 2 * b, 3),
+        ("dec2_2", 2 * b, 2 * b, 3),
+        ("dec1_1", 3 * b, b, 3),
+        ("dec1_2", b, b, 3),
+        ("head", b, V3_OUT_CH, 1),
+    ]
+
+
+class UNetV3(nn.Module):
+    """Base 8 U-Net with InstanceNorm trunk, 10 spatial plus 3 aux outputs."""
+
+    def __init__(self, base: int = V3_BASE):
+        super().__init__()
+        if not isinstance(base, int) or base != V3_BASE:
+            raise ValueError(f"v3 base is locked to {V3_BASE}, got {base}")
+        self.arch = V3_ARCH
+        self.base = base
+        self.in_ch = V3_IN_CH
+        self.out_ch = V3_OUT_CH
+        self.aux_ch = V3_AUX_CH
+        self.levels = LEVELS
+        self.convs = nn.ModuleList()
+        self.norms = nn.ModuleList()
+        self.names: list[str] = []
+        for name, ci, co, k in v3_layer_order(base):
+            conv = nn.Conv2d(ci, co, kernel_size=k, padding=k // 2, bias=True)
+            nn.init.kaiming_normal_(conv.weight, nonlinearity="relu" if name != "head" else "linear")
+            nn.init.zeros_(conv.bias)
+            self.convs.append(conv)
+            self.names.append(name)
+            if name == "head":
+                self.norms.append(nn.Identity())
+            else:
+                self.norms.append(nn.InstanceNorm2d(co, eps=V2_NORM_EPS, affine=True))
+        self.scalar = nn.Linear(8 * base, V3_AUX_CH)
+        nn.init.kaiming_normal_(self.scalar.weight, nonlinearity="linear")
+        nn.init.zeros_(self.scalar.bias)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        skips = []
+        h = x
+        for level in range(LEVELS):
+            h = torch.relu(self.norms[level * 2](self.convs[level * 2](h)))
+            h = torch.relu(self.norms[level * 2 + 1](self.convs[level * 2 + 1](h)))
+            skips.append(h)
+            h = nn.functional.max_pool2d(h, 2)
+        h = torch.relu(self.norms[6](self.convs[6](h)))
+        h = torch.relu(self.norms[7](self.convs[7](h)))
+        bottleneck = h
+        for level in range(LEVELS):
+            h = nn.functional.interpolate(h, scale_factor=2, mode="nearest")
+            skip = skips[LEVELS - 1 - level]
+            h = torch.cat([h, skip], dim=1)
+            h = torch.relu(self.norms[8 + level * 2](self.convs[8 + level * 2](h)))
+            h = torch.relu(self.norms[8 + level * 2 + 1](self.convs[8 + level * 2 + 1](h)))
+        spatial = self.convs[14](h)
+        pooled = bottleneck.mean(dim=(2, 3))
+        aux = self.scalar(pooled)
+        return spatial, aux
+
+
+def param_count_v3(base: int = V3_BASE) -> int:
+    total = 0
+    for name, ci, co, k in v3_layer_order(base):
+        total += co * ci * k * k + co
+        if name != "head":
+            total += 2 * co
+    total += V3_AUX_CH * (8 * base) + V3_AUX_CH
+    return total

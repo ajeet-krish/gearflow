@@ -1,5 +1,5 @@
-// casePresets tests: atomic expansion of the three presets plus honest
-// rejection reasons and the provisional domain precheck. No network,
+// casePresets tests: atomic expansion of the presets plus honest
+// rejection reasons and the backend domain note. No network,
 // no DOM, pure logic only.
 
 import { describe, expect, it } from "vitest";
@@ -18,51 +18,72 @@ describe("expandCasePreset shedding", () => {
         ]);
     });
 
-    it("carries a null domain note because Re 100 sits inside the envelope", () => {
+    it("carries a backend note naming LBM and solved", () => {
         const result = expandCasePreset({ preset: "shedding" });
-        expect(result.domainNote).toBeNull();
+        expect(result.domainNote).not.toBeNull();
+        expect(result.domainNote ?? "").toContain("LBM");
+        expect(result.domainNote ?? "").toContain("solved");
     });
 });
 
 describe("expandCasePreset high_pressure", () => {
-    it("defaults to orifice at alpha 0 Re 1000 cp field", () => {
+    it("returns ok false with an honest divergence reason and no actions", () => {
         const result = expandCasePreset({ preset: "high_pressure" });
-        expect(result.ok).toBe(true);
-        expect(result.actions).toEqual([
-            { kind: "set_body", body: "orifice" },
-            { kind: "set_alpha", alphaDeg: 0 },
-            { kind: "set_reynolds", reynolds: 1000 },
-            { kind: "set_field", field: "cp" },
-        ]);
+        expect(result.ok).toBe(false);
+        expect(result.actions).toEqual([]);
+        expect(result.reason ?? "").toContain("diverges at every tested gap and Re");
+        expect(result.reason ?? "").toContain("Re 700");
         expect(result.domainNote).toBeNull();
     });
 
-    it("accepts block when requested", () => {
-        const result = expandCasePreset({ preset: "high_pressure", body: "block" });
-        expect(result.ok).toBe(true);
-        expect(result.actions[0]).toEqual({ kind: "set_body", body: "block" });
+    it("offers the high Re cylinder wake as the nearest alternative", () => {
+        const result = expandCasePreset({ preset: "high_pressure" });
+        expect(result.ok).toBe(false);
+        expect(result.reason ?? "").toContain("setup_high_re_wake");
+        expect(result.reason ?? "").toContain("cylinder");
     });
 
-    it("rejects other bodies atomically with the allowed list", () => {
-        const result = expandCasePreset({ preset: "high_pressure", body: "cylinder" });
+    it("fails for block too, never returning partial actions", () => {
+        const result = expandCasePreset({ preset: "high_pressure", body: "block" });
         expect(result.ok).toBe(false);
         expect(result.actions).toEqual([]);
-        expect(result.reason).toContain("orifice");
-        expect(result.reason).toContain("block");
+        expect(result.reason ?? "").toContain("diverges");
+    });
+});
+
+describe("expandCasePreset high_re_wake", () => {
+    it("expands to a validated cylinder Re 700 speed field", () => {
+        const result = expandCasePreset({ preset: "high_re_wake" });
+        expect(result.ok).toBe(true);
+        expect(result.reason).toBeNull();
+        expect(result.actions).toEqual([
+            { kind: "set_body", body: "cylinder" },
+            { kind: "set_alpha", alphaDeg: 0 },
+            { kind: "set_reynolds", reynolds: 700 },
+            { kind: "set_field", field: "speed" },
+        ]);
+    });
+
+    it("carries a backend note naming LBM and modeled coarse LES", () => {
+        const result = expandCasePreset({ preset: "high_re_wake" });
+        expect(result.domainNote ?? "").toContain("LBM");
+        expect(result.domainNote ?? "").toContain("modeled");
+        expect(result.domainNote ?? "").toContain("700");
     });
 });
 
 describe("expandCasePreset airfoil", () => {
-    it("defaults to 2412 at alpha 6 Re 2000 speed field", () => {
+    it("defaults to 2412 at alpha 6 Re 1200 speed field", () => {
         const result = expandCasePreset({ preset: "airfoil" });
         expect(result.ok).toBe(true);
         expect(result.actions).toEqual([
             { kind: "set_body", body: "naca2412" },
             { kind: "set_alpha", alphaDeg: 6 },
-            { kind: "set_reynolds", reynolds: 2000 },
+            { kind: "set_reynolds", reynolds: 1200 },
             { kind: "set_field", field: "speed" },
         ]);
-        expect(result.domainNote).toBeNull();
+        expect(result.domainNote ?? "").toContain("LBM");
+        expect(result.domainNote ?? "").toContain("modeled");
     });
 
     it("honors a named NACA body and a given alpha", () => {

@@ -156,8 +156,8 @@ describe("trusted preset setup actions", () => {
         expect(badBody.reason ?? "").toContain("high_pressure");
         const badAlpha = validateAgentAction({ kind: "setup_airfoil", body: "naca4412", alphaDeg: 200 }, ANALYTIC);
         expect(badAlpha.ok).toBe(false);
-        const good = validateAgentAction({ kind: "setup_high_pressure", body: "block" }, ANALYTIC);
-        expect(good.ok).toBe(true);
-        expect(good.action).toEqual({ kind: "setup_high_pressure", body: "block" });
+        const retired = validateAgentAction({ kind: "setup_high_pressure", body: "block" }, ANALYTIC);
+        expect(retired.ok).toBe(false);
+        expect(retired.reason ?? "").toContain("diverges at every tested gap and Re");
     });
 });

@@ -164,6 +164,109 @@ def _report(out: Path) -> dict:
     return json.loads((out / "verify_report.json").read_text())
 
 
+def _write_v3_bins(
+    sweep: Path,
+    case_id: str,
+    amp: float = 0.01,
+    tke_val: float = 1e-4,
+    zero_bins: bool = False,
+    solid_break: bool = False,
+    nonfinite: bool = False,
+) -> str:
+    case_dir = sweep / "cases" / case_id
+    case_dir.mkdir(parents=True, exist_ok=True)
+    yy, xx = np.mgrid[0:NY, 0:NX]
+    dist = np.sqrt((xx - NX // 2) ** 2 + (yy - NY // 2) ** 2)
+    obstacle = (dist**2 < 9).astype(np.float32)
+    fluid = (1.0 - (obstacle > 0.5).astype(np.float32)).astype(np.float32)
+    umean = (np.full((NY, NX), U_LATTICE, np.float32) * fluid).astype(np.float32)
+    zeros = np.zeros((NY, NX), np.float32)
+    pmean = (np.full((NY, NX), 1e-4, np.float32) * fluid).astype(np.float32)
+    tke = (np.full((NY, NX), tke_val, np.float32) * fluid).astype(np.float32)
+    sdf = (dist - 3.0).astype(np.float32)
+    if zero_bins:
+        ucos = zeros.copy()
+        usin = zeros.copy()
+        vcos = zeros.copy()
+        vsin = zeros.copy()
+    else:
+        ucos = (np.full((NY, NX), amp, np.float32) * fluid).astype(np.float32)
+        usin = zeros.copy()
+        vcos = zeros.copy()
+        vsin = zeros.copy()
+    if solid_break:
+        ucos[obstacle > 0.5] = np.float32(amp if amp != 0.0 else 0.01)
+    if nonfinite:
+        ucos[0, 0] = np.float32("inf")
+    bins = {
+        "umean": umean,
+        "vmean": zeros,
+        "pmean": pmean,
+        "omegamean": zeros.copy(),
+        "tke": tke,
+        "recirc": zeros.copy(),
+        "obstacle": obstacle,
+        "sdf": sdf,
+        "ucos": ucos,
+        "usin": usin,
+        "vcos": vcos,
+        "vsin": vsin,
+    }
+    for name, arr in bins.items():
+        arr.astype(np.float32).tofile(case_dir / f"{name}.f32")
+    return recompute_sha(case_dir, 3)
+
+
+def _v3_row(
+    case_id: str,
+    sha: str,
+    body: str = "cylinder",
+    re: float = 40.0,
+    cd_mean: float = 2.0618,
+    valid: bool = True,
+    explained: float = 0.25,
+    strouhal: float | None = 0.15,
+    shedding: float | None = 0.01,
+    phase: int | None = 25,
+    cycles: int = 5,
+    samples: int = 200,
+) -> dict:
+    return {
+        "case_id": case_id,
+        "body": body,
+        "re": re,
+        "u_lattice": U_LATTICE,
+        "alpha_deg": 0.0,
+        "les": False,
+        "nx": NX,
+        "ny": NY,
+        "domain_width": 4.0,
+        "radius": None,
+        "width": None,
+        "height": None,
+        "naca_code": None,
+        "ref_length": 0.4,
+        "transient": 20,
+        "window": 30,
+        "substitutes_for": None,
+        "note": "fabricated v3",
+        "sha_version": 3,
+        "sha256": sha,
+        "status": "completed",
+        "cd_mean": cd_mean,
+        "cl_mean": 0.0,
+        "cl_amp": 0.0,
+        "strouhal": strouhal,
+        "shedding_freq_per_step": shedding,
+        "harmonic_valid": valid,
+        "explained_variance": explained,
+        "phase_ref_step": phase,
+        "harmonic_cycles": cycles,
+        "harmonic_samples": samples,
+        "tail_cd_blocks": [],
+    }
+
+
 def test_gate_pass_reports_approved(tmp_path: Path) -> None:
     sweep = _pass_sweep(tmp_path / "data")
     out = tmp_path / "out"
@@ -563,4 +666,310 @@ def test_gate_v2_missing_substitutes_for_warns(tmp_path: Path) -> None:
     warnings = report["gate"]["warnings"]
     assert any(
         "compat default substitutes_for" in w and "cyl_r040" in w for w in warnings
+    )
+
+
+def test_gate_v3_valid_passes_with_recomputed(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_v3", amp=0.01, tke_val=1e-4)
+    builder.rows.append(_v3_row("cyl_r040_v3", sha, re=40.0, cd_mean=2.0618))
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    report = _report(out)
+    assert report["status"] == "TRAIN_APPROVED"
+    assert report["v8_harmonic"]["n_valid"] == 1
+    entry = report["v8_harmonic"]["cases"]["cyl_r040_v3"]
+    assert abs(entry["recomputed_explained_variance"] - 0.25) < 1e-6
+    assert entry["clip_saturation"] == 0.0
+
+
+def test_gate_v3_zero_amplitude_valid_true_is_data_failure(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_zero", zero_bins=True)
+    builder.rows.append(
+        _v3_row("cyl_r040_zero", sha, re=40.0, cd_mean=2.0618, explained=0.0)
+    )
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
+    report = _report(out)
+    assert report["status"] == "DATA_FAILURE"
+    assert any(
+        "zero amplitude" in f and "valid" in f for f in report["gate"]["data_failures"]
+    )
+
+
+def test_gate_v3_tampered_explained_is_adapter_failure(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_tamper", amp=0.01, tke_val=1e-4)
+    builder.rows.append(
+        _v3_row("cyl_r040_tamper", sha, re=40.0, cd_mean=2.0618, explained=0.9)
+    )
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_ADAPTER
+    report = _report(out)
+    assert any(
+        "explained_variance" in f for f in report["gate"]["adapter_failures"]
+    )
+
+
+def test_gate_v3_below_floor_is_data_failure(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_small", amp=1e-5, tke_val=1e-4)
+    builder.rows.append(
+        _v3_row("cyl_r040_small", sha, re=40.0, cd_mean=2.0618, explained=2.5e-07)
+    )
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
+    report = _report(out)
+    assert any(
+        "zero amplitude" in f for f in report["gate"]["data_failures"]
+    )
+
+
+def test_gate_v3_invalid_nonzero_is_data_failure(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_inv", amp=0.01, tke_val=1e-4)
+    builder.rows.append(
+        _v3_row(
+            "cyl_r040_inv",
+            sha,
+            re=40.0,
+            cd_mean=2.0618,
+            valid=False,
+            explained=0.0,
+            strouhal=None,
+            shedding=None,
+            phase=None,
+            cycles=0,
+            samples=0,
+        )
+    )
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
+    report = _report(out)
+    assert any(
+        "nonzero" in f and "invalid" in f for f in report["gate"]["data_failures"]
+    )
+
+
+def test_gate_v3_harmonic_solid_break_is_data_failure(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_solid", amp=0.01, solid_break=True)
+    builder.rows.append(_v3_row("cyl_r040_solid", sha, re=40.0, cd_mean=2.0618))
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_DATA
+    report = _report(out)
+    assert any(
+        "solid" in f and "harmonic contract" in f
+        for f in report["gate"]["data_failures"]
+    )
+
+
+def test_gate_v3_diverged_and_setup_error_with_defaults_pass(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    builder.add_case("cyl_r040", "cylinder", 40.0, 0.0, 2.0618)
+    builder.rows.append(
+        {
+            "case_id": "cyl_r060_gone",
+            "body": "cylinder",
+            "re": 60.0,
+            "u_lattice": U_LATTICE,
+            "alpha_deg": 0.0,
+            "status": "diverged",
+            "error": "lbm: diverged",
+            "sha_version": 3,
+            "harmonic_valid": False,
+            "explained_variance": 0,
+            "phase_ref_step": None,
+            "harmonic_cycles": 0,
+            "harmonic_samples": 0,
+        }
+    )
+    builder.rows.append(
+        {
+            "case_id": "cyl_r080_setup",
+            "body": "cylinder",
+            "re": 80.0,
+            "u_lattice": U_LATTICE,
+            "alpha_deg": 0.0,
+            "status": "setup_error",
+            "error": "lbm: setup",
+            "sha_version": 3,
+            "harmonic_valid": False,
+            "explained_variance": 0,
+            "phase_ref_step": None,
+            "harmonic_cycles": 0,
+            "harmonic_samples": 0,
+        }
+    )
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    report = _report(out)
+    assert report["status"] == "TRAIN_APPROVED"
+
+
+def test_gate_v3_invalid_zero_bins_pass(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    sweep = builder.sweep
+    sha = _write_v3_bins(sweep, "cyl_r040_off", zero_bins=True)
+    builder.rows.append(
+        _v3_row(
+            "cyl_r040_off",
+            sha,
+            re=40.0,
+            cd_mean=2.0618,
+            valid=False,
+            explained=0.0,
+            strouhal=None,
+            shedding=None,
+            phase=None,
+            cycles=0,
+            samples=0,
+        )
+    )
+    sweep = builder.finalize()
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    report = _report(out)
+    assert report["status"] == "TRAIN_APPROVED"
+
+
+def test_gate_zero_harmonic_valid_is_warning_only(tmp_path: Path) -> None:
+    sweep = _pass_sweep(tmp_path / "data")
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_OK
+    report = _report(out)
+    assert report["status"] == "TRAIN_APPROVED"
+    assert any(
+        "zero harmonic_valid" in w for w in report["gate"]["warnings"]
+    )
+
+def _smooth_divfree_fields(n: int = 32):
+    import numpy as np
+    dx = 4.0 / (n - 1)
+    yy, xx = np.mgrid[0:n, 0:n]
+    y = yy.astype(np.float64) * dx
+    length = 4.0
+    amp = 0.2
+    u = (1.0 + amp * np.sin(2.0 * np.pi * y / length)).astype(np.float32)
+    v = np.zeros((n, n), np.float32)
+    fluid = np.ones((n, n), dtype=bool)
+    return u, v, fluid, dx
+
+
+def test_native_div_rms_smooth_divfree_passes() -> None:
+    from verify_lbm_dataset import DIV_RMS_MAX, _native_div_rms
+
+    u, v, fluid, dx = _smooth_divfree_fields(32)
+    rms, count, _ = _native_div_rms(u, v, fluid, dx)
+    assert count > 0
+    assert rms < DIV_RMS_MAX
+    assert DIV_RMS_MAX == 0.05
+
+
+def test_native_div_rms_transposed_fails() -> None:
+    from verify_lbm_dataset import DIV_RMS_MAX, _native_div_rms
+
+    u, v, fluid, dx = _smooth_divfree_fields(32)
+    rms, _, _ = _native_div_rms(v, u, fluid, dx)
+    assert rms >= DIV_RMS_MAX
+
+
+def test_native_div_rms_noise_passes_after_denoise() -> None:
+    from verify_lbm_dataset import DIV_RMS_MAX, _erode, _native_div_rms, _native_erode_iters
+
+    n = 64
+    dx = 0.025
+    rng = np.random.default_rng(0)
+    sigma = 0.002
+    u = (1.0 + rng.normal(0.0, sigma, size=(n, n))).astype(np.float32)
+    v = rng.normal(0.0, sigma, size=(n, n)).astype(np.float32)
+    fluid = np.ones((n, n), dtype=bool)
+    dudx = np.empty((n, n), dtype=np.float64)
+    dvdy = np.empty((n, n), dtype=np.float64)
+    a = u.astype(np.float64)
+    b = v.astype(np.float64)
+    dudx[:, 1:-1] = (a[:, 2:] - a[:, :-2]) / (2.0 * dx)
+    dudx[:, 0] = (a[:, 1] - a[:, 0]) / dx
+    dudx[:, -1] = (a[:, -1] - a[:, -2]) / dx
+    dvdy[1:-1, :] = (b[2:, :] - b[:-2, :]) / (2.0 * dx)
+    dvdy[0, :] = (b[1, :] - b[0, :]) / dx
+    dvdy[-1, :] = (b[-1, :] - b[-2, :]) / dx
+    interior = _erode(fluid, _native_erode_iters(dx))
+    raw = float(np.sqrt(np.mean(((dudx + dvdy)[interior]) ** 2)))
+    denoised, _, _ = _native_div_rms(u, v, fluid, dx)
+    assert raw >= DIV_RMS_MAX
+    assert denoised < DIV_RMS_MAX
+    assert raw > 0.05
+    assert denoised < 0.05
+
+
+def test_native_div_rms_uniform_source_fails() -> None:
+    from verify_lbm_dataset import DIV_RMS_MAX, _native_div_rms
+
+    n = 32
+    dx = 4.0 / (n - 1)
+    yy, xx = np.mgrid[0:n, 0:n]
+    x = (xx.astype(np.float64) * dx).astype(np.float32)
+    y = (yy.astype(np.float64) * dx).astype(np.float32)
+    u = (0.1 * x).astype(np.float32)
+    v = (0.1 * y).astype(np.float32)
+    fluid = np.ones((n, n), dtype=bool)
+    rms, _, _ = _native_div_rms(u, v, fluid, dx)
+    assert abs(rms - 0.2) < 1e-6
+    assert rms >= DIV_RMS_MAX
+
+
+def test_gate_transposed_field_fails_with_mapping_error(tmp_path: Path) -> None:
+    builder = SweepBuilder(tmp_path / "data")
+    builder.add_case("cyl_r020", "cylinder", 20.0, 0.0, 2.7720)
+    builder.add_case("cyl_r040", "cylinder", 40.0, 0.0, 2.0618)
+    sweep = builder.finalize()
+    case_dir = sweep / "cases" / "cyl_r040"
+    obstacle = np.fromfile(case_dir / "obstacle.f32", dtype=np.float32).reshape(NY, NX)
+    fluid = obstacle < 0.5
+    yy, xx = np.mgrid[0:NY, 0:NX]
+    dx_nat = 4.0 / (NX - 1)
+    y = yy.astype(np.float32) * np.float32(dx_nat)
+    u_norm = np.zeros((NY, NX), np.float32)
+    v_norm = (1.0 + 0.2 * np.sin(2.0 * np.pi * y / 4.0)).astype(np.float32)
+    u_norm = (u_norm * fluid).astype(np.float32)
+    v_norm = (v_norm * fluid).astype(np.float32)
+    (u_norm * np.float32(U_LATTICE)).astype(np.float32).tofile(case_dir / "umean.f32")
+    (v_norm * np.float32(U_LATTICE)).astype(np.float32).tofile(case_dir / "vmean.f32")
+    sha = recompute_sha(case_dir, 2)
+    rows = [json.loads(line) for line in (sweep / "manifest.jsonl").read_text().splitlines()]
+    for row in rows:
+        if row["case_id"] == "cyl_r040":
+            row["sha256"] = sha
+    with open(sweep / "manifest.jsonl", "w") as handle:
+        for row in rows:
+            handle.write(json.dumps(row) + "\n")
+    out = tmp_path / "out"
+    assert verify_main([str(sweep), "--out", str(out)]) == EXIT_ADAPTER
+    report = _report(out)
+    assert any(
+        "native RMS divergence" in f and "field mapping error" in f
+        for f in report["gate"]["adapter_failures"]
     )

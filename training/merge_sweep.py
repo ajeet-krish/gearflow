@@ -36,12 +36,18 @@ BIN_ORDER_V1 = [
     "obstacle.f32",
 ]
 BIN_ORDER_V2 = BIN_ORDER_V1 + ["sdf.f32"]
+BIN_ORDER_V3 = BIN_ORDER_V2 + ["ucos.f32", "usin.f32", "vcos.f32", "vsin.f32"]
 
 
 def bin_order_for(version: int) -> list[str]:
-    if int(version) >= 2:
+    v = int(version)
+    if v == 1:
+        return list(BIN_ORDER_V1)
+    if v == 2:
         return list(BIN_ORDER_V2)
-    return list(BIN_ORDER_V1)
+    if v == 3:
+        return list(BIN_ORDER_V3)
+    raise ValueError(f"unsupported sha_version {version!r}")
 
 
 def recompute_sha(case_dir: Path, version: int) -> str:
@@ -91,6 +97,50 @@ def check_bins_finite(blob: bytes) -> bool:
     return True
 
 
+def _is_finite_number(value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    if not isinstance(value, (int, float)):
+        return False
+    f = float(value)
+    return f == f and f not in (float("inf"), float("-inf"))
+
+
+def _check_v3_scalars(row: dict) -> str | None:
+    valid = row.get("harmonic_valid")
+    if not isinstance(valid, bool):
+        return "malformed harmonic_valid: expected boolean"
+    exp = row.get("explained_variance")
+    if not _is_finite_number(exp) or not (0.0 <= float(exp) <= 1.0):
+        return "malformed explained_variance: expected finite in [0, 1]"
+    for key in ("harmonic_cycles", "harmonic_samples"):
+        val = row.get(key)
+        if isinstance(val, bool) or not isinstance(val, int):
+            return f"malformed {key}: expected nonnegative integer"
+        if val < 0:
+            return f"malformed {key}: expected nonnegative integer"
+    try:
+        transient = int(row["transient"])
+        window = int(row["window"])
+    except (KeyError, ValueError, TypeError):
+        return "malformed transient or window for phase_ref_step check"
+    phase = row.get("phase_ref_step")
+    if phase is not None:
+        if isinstance(phase, bool) or not isinstance(phase, int):
+            return "malformed phase_ref_step: expected null or integer"
+        if phase < transient or phase > transient + window:
+            return "malformed phase_ref_step: outside [transient, transient + window]"
+    strouhal = row.get("strouhal")
+    shedding = row.get("shedding_freq_per_step")
+    if (strouhal is None) != (shedding is None):
+        return "malformed shedding_freq_per_step: null exactly when strouhal is null"
+    if shedding is not None and not _is_finite_number(shedding):
+        return "malformed shedding_freq_per_step: expected finite positive"
+    if shedding is not None and float(shedding) <= 0.0:
+        return "malformed shedding_freq_per_step: expected finite positive"
+    return None
+
+
 def verify_completed(case_dir: Path, row: dict) -> str | None:
     try:
         nx = int(row["nx"])
@@ -98,8 +148,16 @@ def verify_completed(case_dir: Path, row: dict) -> str | None:
         version = int(row.get("sha_version", 1))
     except (KeyError, ValueError, TypeError):
         return "row missing nx, ny, or sha_version"
+    try:
+        order = bin_order_for(version)
+    except ValueError:
+        return f"unsupported sha_version {version}"
+    if version == 3:
+        scalar_problem = _check_v3_scalars(row)
+        if scalar_problem is not None:
+            return scalar_problem
     expect = nx * ny * 4
-    for name in bin_order_for(version):
+    for name in order:
         blob_path = case_dir / name
         if not blob_path.is_file():
             return f"missing bin {name}"
@@ -149,7 +207,15 @@ def merge_sweep(spec_path: Path, workers_root: Path, out_dir: Path) -> dict:
     seen_rows: dict[str, str] = {}
     merged: list[dict] = []
     errors: list[str] = []
-    counts = {"total": len(order), "completed": 0, "diverged": 0, "setup_error": 0, "substituted": 0}
+    counts = {
+        "total": len(order),
+        "completed": 0,
+        "diverged": 0,
+        "setup_error": 0,
+        "substituted": 0,
+        "harmonic_valid": 0,
+        "harmonic_invalid": 0,
+    }
 
     staged: list[tuple[str, Path, dict]] = []
     for case_id in order:
@@ -195,6 +261,11 @@ def merge_sweep(spec_path: Path, workers_root: Path, out_dir: Path) -> dict:
             merged.append(out_row)
             staged.append((case_id, case_dir, out_row))
             counts["completed"] += 1
+            if int(out_row.get("sha_version", 1)) == 3:
+                if out_row.get("harmonic_valid") is True:
+                    counts["harmonic_valid"] += 1
+                else:
+                    counts["harmonic_invalid"] += 1
         elif status == "diverged":
             merged.append(dict(row))
             counts["diverged"] += 1

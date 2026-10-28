@@ -8,6 +8,12 @@ import type { BodyToken } from "@/contracts/types";
 /** Body kinds the provisional envelope can list. Custom shapes are excludable via customAllowed. */
 export type NeuralKind = BodyToken | "custom";
 
+/** Per body Reynolds range from measured LBM probe runs. */
+export interface NeuralReRange {
+    min: number;
+    max: number;
+}
+
 /** Provisional domain the neural surrogate is intended to cover. */
 export interface NeuralEnvelope {
     kinds: ReadonlyArray<NeuralKind>;
@@ -15,6 +21,8 @@ export interface NeuralEnvelope {
     alphaMax: number;
     reMin: number;
     reMax: number;
+    /** Per body Reynolds limits from measured solver reality. The flat reMin and reMax above stay as the union for backward compatibility. */
+    reByKind: Partial<Record<NeuralKind, NeuralReRange>>;
     customAllowed: boolean;
     runId: string | null;
     /** Always true until a training run lands and the envelope is confirmed. */
@@ -24,22 +32,32 @@ export interface NeuralEnvelope {
 }
 
 /**
- * Provisional neural envelope. NACA 0012, 2412, and 4412 plus cylinder,
- * block, and orifice; alpha in [-4, 12] deg; Re in [20, 2000].
- * Custom shapes are not covered and runId is null until weights land.
- * Provisional planned coverage: coarse LES above Re 500. Treat any neural
- * prediction inside this envelope as unvalidated, not validated physics.
+ * Provisional neural envelope. NACA 0012, 2412, and 4412 plus cylinder and
+ * block; alpha in [-4, 8] deg. Per body Re from measured probe runs:
+ * cylinder 20 to 700 (BGK below 200, LES at 200 and above), block 20 to
+ * 400, airfoils 100 to 1200 at alpha -4, 0, 4, 8. Orifice has no LBM path
+ * and stays out, custom shapes are not covered, duct is retired, and runId
+ * is null until weights land. Provisional planned coverage: above Re 500
+ * output is modeled coarse LES, not solved. Treat any neural prediction
+ * inside this envelope as unvalidated, not validated physics.
  */
 export const PROVISIONAL_NEURAL_ENVELOPE: NeuralEnvelope = {
-    kinds: ["naca0012", "naca2412", "naca4412", "cylinder", "block", "orifice"],
+    kinds: ["naca0012", "naca2412", "naca4412", "cylinder", "block"],
     alphaMin: -4,
-    alphaMax: 12,
+    alphaMax: 8,
     reMin: 20,
-    reMax: 2000,
+    reMax: 1200,
+    reByKind: {
+        cylinder: { min: 20, max: 700 },
+        block: { min: 20, max: 400 },
+        naca0012: { min: 100, max: 1200 },
+        naca2412: { min: 100, max: 1200 },
+        naca4412: { min: 100, max: 1200 },
+    },
     customAllowed: false,
     runId: null,
     provisional: true,
-    note: "Provisional planned coverage, no weights landed yet. Coarse LES above Re 500. Predictions inside are unvalidated, not validated physics.",
+    note: "Provisional planned coverage, no weights landed yet. Above Re 500 output is modeled coarse LES, not solved. Predictions inside are unvalidated, not validated physics.",
 };
 
 /** Domain verdict for one case against the envelope. */
@@ -57,7 +75,9 @@ export interface DomainVerdict {
  * out of domain via the kinds allowlist. Custom is rejected in two ways:
  * when it is absent from kinds, and (enforced) when kinds lists it while
  * customAllowed is false, so kinds alone is never the sole authority for
- * custom shapes.
+ * custom shapes. Reynolds uses the per body range when the kind lists one,
+ * otherwise the flat union, and the Re reason names the violated bound plus
+ * the nearest valid Re for that kind.
  */
 export function classifyNeuralDomain(
     kind: string,
@@ -76,10 +96,17 @@ export function classifyNeuralDomain(
     } else if (alphaDeg < envelope.alphaMin || alphaDeg > envelope.alphaMax) {
         problems.push(`alpha ${alphaDeg} deg is outside the provisional envelope [${envelope.alphaMin}, ${envelope.alphaMax}] deg`);
     }
+    const range = (envelope.reByKind as Record<string, NeuralReRange | undefined>)[kind] ?? {
+        min: envelope.reMin,
+        max: envelope.reMax,
+    };
     if (typeof reynolds !== "number" || !Number.isFinite(reynolds)) {
         problems.push("reynolds is not finite, no domain claim is possible");
-    } else if (reynolds < envelope.reMin || reynolds > envelope.reMax) {
-        problems.push(`Re ${reynolds} is outside the provisional envelope [${envelope.reMin}, ${envelope.reMax}]`);
+    } else if (reynolds < range.min || reynolds > range.max) {
+        const nearest = Math.round(Math.min(Math.max(reynolds, range.min), range.max));
+        problems.push(
+            `Re ${reynolds} is outside the provisional envelope [${range.min}, ${range.max}] for ${kind}, nearest ${kind} Re ${nearest}`,
+        );
     }
     if (problems.length === 0) {
         return { inDomain: true, reason: null, provisional: envelope.provisional };
