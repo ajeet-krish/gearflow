@@ -42,8 +42,8 @@ image = (
         f"sh -s -- -y --profile minimal --default-toolchain {RUST_TOOLCHAIN}",
         f"$HOME/.cargo/bin/rustup toolchain install {RUST_TOOLCHAIN} --profile minimal",
     )
-    .add_local_dir("rust/gearflow-wasm", "/root/gearflow-wasm")
-    .add_local_file("training/merge_sweep.py", "/root/training/merge_sweep.py")
+    .add_local_dir("rust/gearflow-wasm", "/root/gearflow-wasm", copy=True)
+    .add_local_file("training/merge_sweep.py", "/root/training/merge_sweep.py", copy=True)
     .run_commands(
         "$HOME/.cargo/bin/cargo build --locked --release "
         "--manifest-path /root/gearflow-wasm/Cargo.toml --bin dataset_pilot",
