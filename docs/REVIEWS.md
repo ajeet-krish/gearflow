@@ -1116,3 +1116,35 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Tests were inspected, not executed, in this review session (no shell tool available to the reviewer). Accepted ground truth: pytest 56 passed 1 skipped (the ORT parity probe naming C-5), cargo release 93 plus 4 passed, zero Modal spend. Recurring pattern: closed for C-1/C-2. Deferred ownership is now explicit in the skip reason (C-5) rather than a silent pass, and merge failure semantics are pinned by rerun tests rather than asserted in prose only.
+
+## 2026-10-28 - Dataset Gate Review (training/verify_lbm_dataset.py)
+
+Date: 2026-10-28
+Reviewer: code-reviewer
+Scope: Uncommitted training/verify_lbm_dataset.py and training/tests/test_verify_gate.py on HEAD dff685a. Ground truth accepted from orchestrator, not rerun: 8 new tests pass, full suite 64 passed 1 skipped (pre-existing skip), read only verified, no Modal jobs.
+Verdict: PASS
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| 1 Read only guarantee | PASS | training/verify_lbm_dataset.py:738-739 and 600-626 write only the report and previews under out_dir; main resolves paths and refuses an out dir equal to or inside the sweep dir at 752-760; the default out dir is under the system temp dir at 757; the default norm sidecar at 569 is only read when present |
+| 2 Exit contract | PASS | Exit constants at 69-71; V0, V2, V3 findings are routed to data failures and V1, V4, V5 findings to adapter failures at 663-696 and 691-696; training/tests/test_verify_gate.py:184-206 and 209-262 pin sha and missing id and trend cases to exit 2 and SDF flip and nonbinary mask cases to exit 3; the unflagged substitute case is pinned to exit 2 at 222-240 |
+| 3 Approved thresholds | PASS | SHA must match for a row to count as good at 309-324; recirc agreement floor 0.99 at 78 and 397-398; Cp and vorticity clips are imported from dataset_v2 at 55-66 (10 and 20 in training/dataset_v2.py:42-43); divergence RMS max 0.01 at 79 and 401-402 with the documented 10 cell wall band at 20-21, 86 and 172-187; trend and pin tolerances at 82-85 and pilot pins at 90-101 match the Phase 10 pilot table; splits at 503-518 require zero shared ids; TKE std floor is imported from dataset_v2 and applied at 558-562; frozen inputs compare through canonical_norm_json at 585-596 |
+| 4 Reuse of dataset_v2 and merge_sweep | PASS | Bin order comes from merge_sweep.bin_order_for at 67, 289 and 314; LBM bin order, clips, DX, DY, NORM_SCHEMA, TKE_STD_FLOOR, canonical_norm_json, fit_norm and split_case_ids come from dataset_v2 at 55-67; physics and norm checks run through the LbmV2Dataset raw sample adapter at 152-156, 383-384 and 533-542 |
+| 5 Re coverage extrapolation warning | PASS | v6_coverage at 642-660 reports extrapolation_risk and a plain language note, verify_sweep at 690-696 never routes V6 into either failure list, and the passing gate test at training/tests/test_verify_gate.py:181 asserts extrapolation_risk is True while the run still approves |
+| 6 Behavioral tests | PASS | Fabricated sweep dirs at training/tests/test_verify_gate.py:25-151 drive verify_main end to end for the pass, sha mismatch, SDF flip, missing id, unflagged substitute, trend, nonbinary mask and out inside sweep cases at 162-268, asserting exit codes and report contents rather than source strings |
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Minor | training/verify_lbm_dataset.py:565, 312-319 | The gate reimplements the sha256 update loop instead of calling merge_sweep.recompute_sha, and reimports hashlib locally at 565; semantics match because both use bin_order_for, so this is duplication, not drift | backend-dev: call recompute_sha from merge_sweep in v0_check_manifest and drop the local hashlib import |
+| Minor | training/verify_lbm_dataset.py:691-696 | When data and adapter failures co-occur, the exit code reports ADAPTER_FAILURE only; both lists survive in the report gate section at 732-736, but the mixed precedence is unpinned by any test | tester: add a mixed failure fabricated case pinning the intended precedence, or backend-dev: document the precedence in the V7 docstring at 33-34 |
+| Minor | training/verify_lbm_dataset.py:585-596 | A frozen norm with the right schema but no inputs key raises KeyError, which main at 782-784 does not catch (it catches OSError and ValueError only), so a malformed frozen sidecar escapes the exit 3 contract | backend-dev: validate the frozen inputs key before comparing and route the failure into V4 adapter failures |
+| Minor | training/tests/test_verify_gate.py:154-167 | The read only snapshot compares file names only, so an in place rewrite of an existing sweep bin would not be caught by the snapshot itself | tester: snapshot file bytes (or hashes) alongside names in _snapshot |
+
+### Verification Checklist
+- [x] All checks passed (6 of 6, four Minor findings, none blocking)
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Note recurring pattern: none new for the dataset gate. The gate reuses the dataset_v2 and merge_sweep contracts instead of restating them, and the fabricated tests exercise exit classes end to end; the remaining Minors are a duplicated hash loop, one unpinned mixed failure precedence, one malformed frozen sidecar edge, and a name only read only snapshot.
