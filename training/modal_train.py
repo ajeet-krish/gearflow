@@ -509,7 +509,7 @@ def _download_routes(action: str, run_id: str) -> list:
         return [(f"{run_id}/pretrain/{name}", base / "pretrain" / name) for name in ARTIFACT_NAMES]
     if action in ("train", "finetune"):
         return [(f"{run_id}/finetune/{name}", base / name) for name in ARTIFACT_NAMES]
-    raise ValueError(f"action must be train, pretrain, finetune, or sweep, got {action!r}")
+    raise ValueError(f"action must be train, pretrain, finetune, download, or sweep, got {action!r}")
 
 
 def _download_artifacts(routes: list) -> Path | None:
@@ -523,14 +523,22 @@ def _download_artifacts(routes: list) -> Path | None:
 
 
 @app.local_entrypoint()
-def main(action: str = "train", run_id: str = "dev", sweep_id: str = "pilot") -> None:
+def main(action: str = "train", run_id: str = "dev", sweep_id: str = "pilot", stage: str = "pretrain") -> None:
     if action == "sweep":
         raise NotImplementedError("sweep runs in training/modal_sweep.py, run that module with a sweep id")
-    if action not in ("train", "pretrain", "finetune"):
-        raise ValueError(f"action must be train, pretrain, finetune, or sweep, got {action!r}")
+    if action not in ("train", "pretrain", "finetune", "download"):
+        raise ValueError(f"action must be train, pretrain, finetune, download, or sweep, got {action!r}")
 
     git_sha = _local_git_sha()
     print(f"v3 {action}: local git sha {git_sha}")
+
+    if action == "download":
+        if stage not in ("pretrain", "finetune"):
+            raise ValueError(f"stage must be pretrain or finetune, got {stage!r}")
+        routes = _download_routes(stage, run_id)
+        dest = _download_artifacts(routes)
+        print(f"v3 {action}: downloaded to {dest}")
+        return
 
     if action in ("train", "pretrain"):
         pre = run_stage.remote(
