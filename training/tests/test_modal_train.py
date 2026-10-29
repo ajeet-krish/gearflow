@@ -118,7 +118,7 @@ def test_finetune_defaults_support_long_schedule() -> None:
     modal_train = _import_modal_train()
     assert modal_train.FINETUNE_DEFAULTS["epochs"] == 200
     assert modal_train.FINETUNE_DEFAULTS["batch"] == 8
-    assert modal_train.FINETUNE_DEFAULTS["lr"] == 5e-5
+    assert modal_train.FINETUNE_DEFAULTS["lr"] == 3e-4
     assert modal_train.FINETUNE_DEFAULTS["div_weight"] == 0.01
     assert modal_train.PRETRAIN_DEFAULTS == {"epochs": 60, "batch": 32, "lr": 3e-4, "div_weight": 0.0}
 

@@ -61,7 +61,7 @@ def _local_git_sha() -> str:
 
 BASE_LOCKED = 8
 PRETRAIN_DEFAULTS = {"epochs": 60, "batch": 32, "lr": 3e-4, "div_weight": 0.0}
-FINETUNE_DEFAULTS = {"epochs": 200, "batch": 8, "lr": 5e-5, "div_weight": 0.01}
+FINETUNE_DEFAULTS = {"epochs": 200, "batch": 8, "lr": 3e-4, "div_weight": 0.01}
 ADAMW_WEIGHT_DECAY = 1e-4
 ARTIFACT_NAMES = ("best.pt", "norm.json", "run_log.json")
 HARM_MIN_VALID = 8
