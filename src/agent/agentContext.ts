@@ -85,6 +85,12 @@ export interface AppSnapshot {
     neuralEnvelopeSummary?: string;
     /** Solver path actually displayed this frame, optional for older callers. */
     displayedPath?: string;
+    /** Stable case key for before vs after tutor diffs, optional for older callers. */
+    caseKey?: string;
+    /** True once the displayed frame has settled, optional for older callers. */
+    frameSettled?: boolean;
+    /** Surrogate evidence for neural or comparison frames, optional for older callers. */
+    surrogate?: AppSurrogateEvidence;
 }
 
 export interface AgentLbmStats {
@@ -105,6 +111,54 @@ export interface AgentNacaSnapshot {
     m: number;
     p: number;
     t: number;
+}
+
+/** Surrogate evidence the App passes when a neural or comparison frame is
+ *  live. Every field is optional on the way in and cleaned on the way
+ *  out, so older callers that omit the block keep working. */
+export interface AppSurrogateEvidence {
+    path?: unknown;
+    honestyState?: unknown;
+    weightsVersion?: unknown;
+    runId?: unknown;
+    latencyMs?: unknown;
+    inDomain?: unknown;
+    domainReason?: unknown;
+    strouhal?: unknown;
+    explained?: unknown;
+    harmonicValid?: unknown;
+    harmonicInvalidReason?: unknown;
+    recircFraction?: unknown;
+    tkePeak?: unknown;
+    vorticityPeak?: unknown;
+    analyticCl?: unknown;
+    analyticCpMin?: unknown;
+    deltaClVsAnalytic?: unknown;
+    deltaCpMinVsAnalytic?: unknown;
+}
+
+/** Cleaned surrogate evidence carried in the agent context. Null when the
+ *  App omitted the block. Numbers are null unless finite, labels are
+ *  truncated, booleans are null unless an explicit boolean arrived. */
+export interface AgentSurrogateEvidence {
+    path: string;
+    honestyState: string;
+    weightsVersion: string;
+    runId: string | null;
+    latencyMs: number | null;
+    inDomain: boolean | null;
+    domainReason: string | null;
+    strouhal: number | null;
+    explained: number | null;
+    harmonicValid: boolean | null;
+    harmonicInvalidReason: string | null;
+    recircFraction: number | null;
+    tkePeak: number | null;
+    vorticityPeak: number | null;
+    analyticCl: number | null;
+    analyticCpMin: number | null;
+    deltaClVsAnalytic: number | null;
+    deltaCpMinVsAnalytic: number | null;
 }
 
 export interface AgentContext {
@@ -140,6 +194,12 @@ export interface AgentContext {
         envelope: string;
         path: string;
     };
+    /** Stable case key for before vs after tutor diffs, null when unset. */
+    caseKey?: string | null;
+    /** True once the displayed frame has settled, false while loading. */
+    frameSettled?: boolean;
+    /** Cleaned surrogate evidence, null when the App omitted the block. */
+    surrogate?: AgentSurrogateEvidence | null;
 }
 
 /**
@@ -231,6 +291,52 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
         const displayedPath = typeof snap.displayedPath === "string" && snap.displayedPath.trim().length > 0
             ? snap.displayedPath.trim().slice(0, LABEL_MAX)
             : cleanLabel(snap.engine, LABEL_MAX, "analytic");
+        const caseKey = typeof snap.caseKey === "string" && snap.caseKey.trim().length > 0
+            ? snap.caseKey.trim().slice(0, LABEL_MAX)
+            : null;
+        const frameSettled = snap.frameSettled === true;
+        let surrogate: AgentSurrogateEvidence | null = null;
+        try {
+            const raw = (snap as { surrogate?: unknown }).surrogate;
+            if (typeof raw === "object" && raw !== null) {
+                const ev = raw as Record<string, unknown>;
+                const textOr = (v: unknown, fallback: string, max: number): string => {
+                    if (typeof v !== "string") return fallback;
+                    const t = v.trim().replace(/\s+/g, " ");
+                    if (t.length === 0) return fallback;
+                    return t.length > max ? `${t.slice(0, max - 3)}...` : t;
+                };
+                const boolOrNull = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+                const textOrNull = (v: unknown, max: number): string | null => {
+                    if (typeof v !== "string") return null;
+                    const t = v.trim().replace(/\s+/g, " ");
+                    if (t.length === 0) return null;
+                    return t.length > max ? `${t.slice(0, max - 3)}...` : t;
+                };
+                surrogate = {
+                    path: textOr(ev.path, displayedPath, 40),
+                    honestyState: textOr(ev.honestyState, "pending", 32),
+                    weightsVersion: textOr(ev.weightsVersion, "weights pending", 40),
+                    runId: textOrNull(ev.runId, 40),
+                    latencyMs: finiteOrNull(ev.latencyMs),
+                    inDomain: boolOrNull(ev.inDomain),
+                    domainReason: textOrNull(ev.domainReason, 140),
+                    strouhal: finiteOrNull(ev.strouhal),
+                    explained: finiteOrNull(ev.explained),
+                    harmonicValid: boolOrNull(ev.harmonicValid),
+                    harmonicInvalidReason: textOrNull(ev.harmonicInvalidReason, 140),
+                    recircFraction: finiteOrNull(ev.recircFraction),
+                    tkePeak: finiteOrNull(ev.tkePeak),
+                    vorticityPeak: finiteOrNull(ev.vorticityPeak),
+                    analyticCl: finiteOrNull(ev.analyticCl),
+                    analyticCpMin: finiteOrNull(ev.analyticCpMin),
+                    deltaClVsAnalytic: finiteOrNull(ev.deltaClVsAnalytic),
+                    deltaCpMinVsAnalytic: finiteOrNull(ev.deltaCpMinVsAnalytic),
+                };
+            }
+        } catch {
+            surrogate = null;
+        }
         if (alphaRaw !== null && reRaw !== null) {
             const nacaCode = (specRaw as { naca?: { code?: unknown } }).naca?.code;
             const token = neuralBodyToken(kind, nacaCode);
@@ -285,12 +391,23 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
                 envelope: envelopeSummary,
                 path: displayedPath,
             },
+            caseKey,
+            frameSettled,
+            surrogate,
         };
         try {
             let size = JSON.stringify(ctx).length;
             while (size > CONTEXT_CHAR_BUDGET && ctx.honesty.length > 0) {
                 ctx.honesty.pop();
                 size = JSON.stringify(ctx).length;
+            }
+            if (size > CONTEXT_CHAR_BUDGET && ctx.surrogate !== null && ctx.surrogate !== undefined) {
+                ctx.surrogate.domainReason = null;
+                ctx.surrogate.harmonicInvalidReason = null;
+                size = JSON.stringify(ctx).length;
+            }
+            if (size > CONTEXT_CHAR_BUDGET) {
+                ctx.surrogate = null;
             }
         } catch {
             ctx.honesty = [];
@@ -315,6 +432,9 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
             offline: false,
             honesty: ["Agent context unavailable, showing defaults."],
             neural: { available: false, envelope: defaultEnvelopeSummary(), path: "analytic" },
+            caseKey: null,
+            frameSettled: false,
+            surrogate: null,
         };
     }
 }

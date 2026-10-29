@@ -139,3 +139,108 @@ describe("buildAgentContext naca snapshot (R3)", () => {
         expect(buildAgentContext(null).spec.naca).toBeNull();
     });
 });
+
+describe("buildAgentContext T1 surrogate evidence, caseKey, frameSettled", () => {
+    function maximalSurrogate(): Record<string, unknown> {
+        return {
+            path: "n".repeat(200),
+            honestyState: "s".repeat(200),
+            weightsVersion: "v".repeat(200),
+            runId: "r".repeat(200),
+            latencyMs: 12.5,
+            inDomain: true,
+            domainReason: "d".repeat(500),
+            strouhal: 0.21,
+            explained: 0.9,
+            harmonicValid: false,
+            harmonicInvalidReason: "h".repeat(500),
+            recircFraction: 0.3,
+            tkePeak: 0.05,
+            vorticityPeak: 12.5,
+            analyticCl: 0.65,
+            analyticCpMin: -1.2,
+            deltaClVsAnalytic: 0.01,
+            deltaCpMinVsAnalytic: -0.02,
+        };
+    }
+
+    it("nulls non-finite surrogate numbers instead of quoting them", () => {
+        const ctx = buildAgentContext(
+            snapshot({
+                surrogate: {
+                    ...maximalSurrogate(),
+                    latencyMs: Number.NaN,
+                    strouhal: Number.POSITIVE_INFINITY,
+                    tkePeak: "hot" as unknown as number,
+                    analyticCl: Number.NaN,
+                    deltaClVsAnalytic: Number.POSITIVE_INFINITY,
+                },
+            })
+        );
+        expect(ctx.surrogate).not.toBeNull();
+        expect(ctx.surrogate?.latencyMs).toBeNull();
+        expect(ctx.surrogate?.strouhal).toBeNull();
+        expect(ctx.surrogate?.tkePeak).toBeNull();
+        expect(ctx.surrogate?.analyticCl).toBeNull();
+        expect(ctx.surrogate?.deltaClVsAnalytic).toBeNull();
+        expect(ctx.surrogate?.recircFraction).toBeCloseTo(0.3, 5);
+    });
+
+    it("nulls non-boolean surrogate booleans instead of coercing them", () => {
+        const ctx = buildAgentContext(
+            snapshot({
+                surrogate: {
+                    ...maximalSurrogate(),
+                    inDomain: "yes" as unknown as boolean,
+                    harmonicValid: 1 as unknown as boolean,
+                },
+            })
+        );
+        expect(ctx.surrogate?.inDomain).toBeNull();
+        expect(ctx.surrogate?.harmonicValid).toBeNull();
+        const strict = buildAgentContext(
+            snapshot({
+                surrogate: { ...maximalSurrogate(), inDomain: false, harmonicValid: true },
+            })
+        );
+        expect(strict.surrogate?.inDomain).toBe(false);
+        expect(strict.surrogate?.harmonicValid).toBe(true);
+    });
+
+    it("truncates long surrogate labels and keeps JSON under budget with a maximal block", () => {
+        const ctx = buildAgentContext(snapshot({ surrogate: maximalSurrogate() }));
+        expect(ctx.surrogate).not.toBeNull();
+        expect(ctx.surrogate!.path.length).toBeLessThanOrEqual(40);
+        expect(ctx.surrogate!.honestyState.length).toBeLessThanOrEqual(32);
+        expect(ctx.surrogate!.weightsVersion.length).toBeLessThanOrEqual(40);
+        expect(ctx.surrogate!.runId).not.toBeNull();
+        expect(ctx.surrogate!.runId!.length).toBeLessThanOrEqual(40);
+        expect(ctx.surrogate!.domainReason).not.toBeNull();
+        expect(ctx.surrogate!.domainReason!.length).toBeLessThanOrEqual(140);
+        expect(ctx.surrogate!.harmonicInvalidReason!.length).toBeLessThanOrEqual(140);
+        const json = JSON.stringify(ctx);
+        expect(json.length).toBeLessThanOrEqual(3500);
+        expect(json).not.toContain("Float32Array");
+    });
+
+    it("trims and caps the caseKey at 80 chars, null when blank", () => {
+        const long = `  ${"k".repeat(200)}  `;
+        const capped = buildAgentContext(snapshot({ caseKey: long }));
+        expect(capped.caseKey).not.toBeNull();
+        expect(capped.caseKey!.length).toBeLessThanOrEqual(80);
+        expect(capped.caseKey).toBe("k".repeat(80));
+        expect(buildAgentContext(snapshot({ caseKey: "   " })).caseKey).toBeNull();
+        expect(buildAgentContext(snapshot()).caseKey).toBeNull();
+    });
+
+    it("treats frameSettled as strict true only", () => {
+        expect(buildAgentContext(snapshot({ frameSettled: true })).frameSettled).toBe(true);
+        expect(buildAgentContext(snapshot()).frameSettled).toBe(false);
+        expect(
+            buildAgentContext(snapshot({ frameSettled: 1 as unknown as boolean })).frameSettled
+        ).toBe(false);
+        expect(
+            buildAgentContext(snapshot({ frameSettled: "true" as unknown as boolean })).frameSettled
+        ).toBe(false);
+    });
+});
