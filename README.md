@@ -1,43 +1,157 @@
 # GearFlow
 
-GearFlow is a browser airfoil wind tunnel: shape a constrained body, watch the flow field update live, and read honest numbers. Solo Indie Push the Frontier entry for the Meta Global AI Developer Hackathon, Oct 26 to Nov 4 2026.
+The browser wind tunnel where chat sets up CFD and runs sims.
 
-## Vision
+Live Demo URL: TODO | Video URL: TODO | Offline ready | Solo Indie Push the Frontier
 
-CFD tooling is heavyweight, slow to set up, and gated behind desktop solvers, so students and makers never get instant visual intuition for lift and pressure. GearFlow puts a small honest wind tunnel in the browser: pick a body, set angle and Reynolds number, and see speed, pressure, and vorticity respond immediately with validated numbers beside the field. It stays constrained on purpose, so the physics it shows stays trustworthy.
+## Demo first
 
-## What It Does
+<video src="docs/media/demo-2min.mp4" controls>Demo video placeholder, 2 to 3 minutes, file lands before submission.</video>
 
-The core loop is one screen and one presenter. Shape a body, watch the field, read the numbers, export the run.
+Watch: YouTube link TODO. One sentence hook: type a case in chat, watch the tunnel solve it, export the proof.
 
-* Constrained geometry: NACA 0012, 2412, 4412 presets plus cylinder, duct, block, and a guided custom sketch path. Bodies are validated polygons with SDF masks.
-* Live potential flow field: speed, pressure (Cp), and vorticity views with particles, contours, and colormap control.
-* Telemetry on every run: lift coefficient (Cl), minimum Cp, flow regime, solve time, grid, and provenance.
-* Validation panel: 9 rows with PASS, WARN, and INFO tiers. Rows compare Cl at 4, 6, and 8 degrees against XFOIL polars at Re 100k and 500k for NACA 0012 and 2412, check 2412 alpha zero against thin airfoil theory, and show INFO-only cylinder bands for Strouhal, Cd, and Cl amplitude. McCroskey, Ladson, Gregory, and Selig datasets are also vendored under `fixtures/validation` and covered by parsing tests.
-* Export: PNG snapshots plus PDF reports carrying the same numbers as the live UI.
+Script beats (2 to 3 minutes): hook with a live tunnel shot, agent setup from one prompt, a run with telemetry updating, an explain turn quoting live Cl and CpMin, export of PNG plus PDF. Full script lives in `docs/DESIGN.md`.
 
-## How It Uses Meta AI
+## What it does in 30 seconds
 
-Three Meta models work beside the core loop, never inside it. The solver never blocks on a network call, every Meta call has a cached or template fallback, and keys stay server side behind the `/api/meta` proxy.
+One core loop: describe a case in chat, the tunnel solves it, you read honest numbers beside the field.
 
-* Muse Spark turns natural language into a geometry spec and gives a coach explanation of the current run, citing live Cl, Cp min, and alpha zero from the validation metrics.
-* SAM 3.1 segments a sketch or photo into a polygon that is clamped against the SDF mask, so the physics wall stays authoritative and SAM acts as the visual label layer.
-* Muse Image generates poster and hero visuals for export, prefetched at build time and regenerated live only on explicit user action.
-* HashCache plus EvalLog sit under all calls: tiered TTLs (Spark text 24h, SAM masks 7d, Image assets 7d), serve stale on failure, visible status badges, and a per call ledger of latency, tokens, cost, and cache hits.
+* Chat builds real cases: bodies, alpha, Re, engine, and field switch from one prompt (`src/agent/casePresets.ts`).
+* LBM runs are viscous and live in a worker with confirm chips and a preflight honesty gate (`src/flow/lbmRunConfig.ts`).
+* Every number carries provenance: analytic, WASM parity, LBM solved snapshot, or surrogate predicted (`src/flow/solverRouter.ts`).
 
-## The Solver, Honestly
+## Meet the agent
 
-The default backend is Hess Smith potential flow (constant source plus vortex panels, 100 to 160 panels, matrix factored once per geometry) with an analytic doublet plus vortex oracle for the cylinder. An optional Rust plus WASM backend behind `?wasm=1` matches the TypeScript solver within 1e-6, with automatic fallback to analytic on any fault and honest provenance labels. A compact learned surrogate (U Net behind the same frame interface) is available as an opt in comparison, with a sync budget gate that falls back to analytic for production shapes.
+The canonical chat path is live Baseten Muse Spark (`src/agent/*`, `src/ui/AgentConsole.tsx`, model `meta-models/muse-spark-open-1026` via `/api/baseten/chat/completions`). Legacy `src/meta/*` (client, sparkChat, sparkSpec, cache, offlinePack) is fallback only.
 
-Limits are stated plainly because that is a feature. The core is inviscid potential flow with no turbulence model. The wake overlay is cosmetic and never feeds back into Cp or Cl. Only the Re shading of the wake deficit is modeled, so Re changes the wake look, not the inviscid core. Cd is displayed as not validated. No end to end latency promises are made; the telemetry bar shows the measured solve time of each run.
+What it does: creates cases from plain language, runs sims through guarded actions, and explains the live run with real Cl, CpMin, and regime context. Setup presets auto apply through the App executor, run and cancel render as confirm chips only, rejections arrive as honest reason text.
 
-## UI: Zenith Instrument Room
+Try these verbatim prompts:
 
-The shell is a calm instrument room: a full bleed tunnel at center, dense data type, purple plus cyan accents on near black. Three bars stay pinned above the canvas: SOLVER (backend, body, alpha, Re, grid, live state), FIELD (quantity, layers, particles, colormap), and TELEMETRY (engine, grid, cells, solve time, Cl, CpMin, regime, provenance, validation counts). A left agent rail holds the conversational console with a pinned composer, and a right rail stacks five collapsible analysis windows (GEOMETRY, DISPLAY, VALIDATION, EVAL LEDGER, EXPORT). The tunnel carries a bottom left RUN summary card and a bottom right vertical colorbar. See `src/ui` for TopNav, SolverBar, FieldBar, TelemetryBar, and the analysis panels.
+```text
+Set up NACA 2412 alpha 6 Re 1200
+```
 
-## Run It
+```text
+Explain this run with stall context
+```
 
-Requires Node plus npm, and Rust with wasm-pack only for the optional WASM path. Copy the sample env file and add the Meta API key; the key is read server side by the proxy and never ships in the browser bundle.
+Action envelope: the model replies with fenced `action-json`, at most 5 validated actions per envelope (`src/agent/agentActions.ts`). `set_engine` accepts analytic or lbm only.
+
+Phase 20 presets (`src/agent/casePresets.ts`, expansion is atomic, all or nothing; presets only set case fields and never arm LBM, so analytic serves until LBM is armed through the run confirm chip):
+
+| Preset | Case | Backend note |
+|--------|------|--------------|
+| `setup_shedding` | cylinder, alpha 0, Re 100 | LBM served, solved |
+| `setup_high_re_wake` | cylinder, alpha 0, Re 700 (preset library only, not chat reachable) | LBM served, modeled coarse LES above Re 500 |
+| `setup_airfoil` | NACA body (default 2412), given alpha (default 6), Re 1200 | LBM served, modeled coarse LES above Re 500 (provisional neural planned coverage, weights not landed) |
+| `high_pressure` | retired | Honest rejection always: the orifice plate diverges at every tested gap and Re in LBM, so it has no LBM path and stays analytic preview only |
+
+Note: `setup_high_re_wake` lives in the preset library (`expandCasePreset` plus the App executor) but is absent from `SETUP_KINDS`, the envelope validator (`src/agent/agentActions.ts`), and the AgentConsole prompt kinds, so chat through AgentConsole cannot trigger it.
+
+Guardrails: per action bounds on alpha and Re (presets carry their own validated Re), confirm chips for `run_lbm` and `cancel_lbm` that never auto run, 15s stream budget with Stop (`BASETEN_TIMEOUT_MS` in `src/ui/AgentConsole.tsx`), offline `localAssistant` fallback with badge, and `preflightLbm` hard blocks Run when predicted tau is at or below the 0.505 floor (`src/flow/lbmRunConfig.ts`).
+
+## See it
+
+![Live tunnel with field, particles, and telemetry](docs/media/shot-tunnel.png)
+
+*Caption TODO, owner TODO.*
+
+![Agent console setting up a case](docs/media/shot-agent.png)
+
+*Caption TODO, owner TODO.*
+
+![Validation panel with 9 rows](docs/media/shot-validation.png)
+
+*Caption TODO, owner TODO.*
+
+![Exported PDF report](docs/media/shot-export.png)
+
+*Caption TODO, owner TODO.*
+
+![Agent setup loop recording](docs/media/agent-setup-loop.gif)
+
+*Caption TODO, owner TODO.*
+
+Media note: docs/media files land before submission, gated by the submission checklist below. The paths above are placeholders until then.
+
+## Features at a glance
+
+| Feature | Demo value |
+|---------|------------|
+| Agent chat | One prompt sets up a full case, explains the run quoting live Cl and regime |
+| Live tunnel | Speed, pressure, vorticity with particles and colormap control |
+| Rust WASM LBM plus analytic | Viscous worker solves beside instant Hess Smith preview |
+| Validation, 9 rows | PASS, WARN, INFO tiers against XFOIL and literature, judged live |
+| Surrogate v3 comparison | Predicted frames next to analytic, labeled never validated |
+| Export plus Offline pack | PNG and PDF carry the same numbers, booth survives no network |
+
+## Solvers honestly
+
+* Analytic Hess Smith potential: instant preview, inviscid core, no turbulence model.
+* Rust WASM parity: matches the TypeScript solver, automatic fallback on any fault.
+* Rust D2Q9 LBM: viscous solves in a worker, instantaneous snapshots, time averaged values are modeled not measured.
+* Surrogate v3: dev weights only, predicted not validated, steady only, `harmonicCapable` false, provisional envelope, never use the word solved for its frames.
+* Surrogate v2: contract complete but bundle absent. App pins v2 unavailable and never fetches it (`src/App.tsx:861-869`), while the router legacy branch would label v2 predicted if it were ready (the router has no retired concept).
+
+Limits box: the inviscid core has no turbulence model, Cd is not validated on the inviscid path, Re shades the wake look only, neural output is predicted never validated, LBM frames are instantaneous snapshots never time averaged, and Phase A native verification diverged (Re 200 at step 576, Re 100 at step 10304, `src/flow/lbmRunConfig.ts:44`).
+
+## How it flows
+
+```mermaid
+flowchart LR
+    GEN["GEN analytic sweeps"] --> PILOT["Rust dataset_pilot v2 schema 8 bins"]
+    PILOT --> MERGE["merge_sweep fail closed"]
+    MERGE --> PRE["TRAIN pretrain Modal A10G plus L4 60ep batch32 lr3e-4"]
+    PRE --> FINE["FINETUNE 300ep batch8 lr3e-4 shared A10G plus L4 request"]
+    FINE --> EXP["EXPORT ONNX opset18 InstanceNorm batch1 128x128"]
+    EXP --> BROW["BROWSER v3 async only, v2 pinned unavailable never fetched"]
+    BROW --> DEC["decode sigmoid recirc plus expm1 TKE"]
+    DEC --> ROUTE["ROUTER decideFastPath"]
+```
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Console as AgentConsole
+    participant Guard as Guardrails
+    participant Spark as Spark Baseten proxy
+    participant Local as Local assistant
+    participant App as App executor
+    participant Pre as Preflight plus engine
+    User->>Console: prompt with live run context
+    Console->>Spark: streamChat with 15s budget
+    alt offline toggle or timeout or spend cap
+        Console->>Local: localReply with offline badge
+    end
+    Spark->>Console: reply plus action-json envelope
+    Console->>Guard: parse envelope max 5 plus validate
+    Guard->>App: expand presets atomically
+    App->>Pre: run_lbm confirm chip then tau check
+    Pre->>App: block at floor 0.505 or run D2Q9 solved
+```
+
+```mermaid
+flowchart TD
+    C["classifyNeuralDomain provisional alpha -4 to 8"] --> D{"decideFastPath"}
+    D -->|"v3 ready in domain"| V3["v3 phase averaged modeled steady predicted"]
+    D -->|"v2 legacy branch if ready, App pins unavailable"| V2["v2 predicted if ready, never served"]
+    D -->|"out of domain or weights absent"| AN["analytic fallback potential preview"]
+    C --> P{"preflightLbm tau check"}
+    P -->|"tau at or below 0.505"| BL["block Run with honest reason"]
+    P -->|"tau ok"| LBM["LBM D2Q9 solved instantaneous"]
+```
+
+## Validation you can trust
+
+9 rows in `src/ui/ValidationPanel.tsx`: 3 PASS (0012 Cl at 4, 6, 8 deg vs XFOIL 500k; 2412 Cl at 4, 6, 8 deg vs XFOIL 500k; 2412 alpha zero vs thin airfoil theory), 2 WARN (100k rows are display only, bubble kink never PASS), 4 INFO (XFOIL fit reference, cylinder Strouhal band, cylinder Cd band, cylinder Cl amplitude). Only a fail on a PASS tier row blocks the demo. McCroskey, Ladson, Gregory, and Selig datasets are vendored under `fixtures/validation` with parsing tests. Detail: `docs/TESTS.md`.
+
+## Meta orchestration
+
+* Live: Muse Spark reasoning over the live run via Baseten (case setup plus coach explanations), plus the EvalLog ledger and agentCache.
+* Legacy fallback (`src/meta/*`, unmounted `MetaPanel`, not wired by App): SAM 3.1 stays cached and offline only (the AgentConsole SAM control only toggles an explanatory note and never routes through Baseten), the Muse Image poster renders only on explicit action, and HashCache TTLs serve stale on fault.
+
+## Run it in 5 minutes
 
 ```sh
 cp .env.example .env
@@ -45,76 +159,57 @@ npm install
 npm run dev
 ```
 
-Other commands, all from `package.json`:
-
 ```sh
 npm test
 npm run build
-npm run preview
 ```
 
-The test suite runs via `npm test` (vitest). Optional Rust path:
+Optional paths from `package.json`:
 
 ```sh
 npm run wasm:build
-```
-
-Then open the app with `?wasm=1`. For Rust unit tests:
-
-```sh
 npm run wasm:test
 ```
 
-## Demo and Offline
-The judged demo survives network loss. The app ships an offline pack with baked cases, cached Spark answers for presets, SAM rasters for fixtures, prefetched images, and vendored validation JSON. Toggle offline in the agent console to run the full script with zero network. To build with the offline default on:
+Then open with `?wasm=1` or `?engine=wasm`. For the judged booth copy with no network:
 
 ```sh
 VITE_DEMO_OFFLINE=true npm run build
-```
-
-Build then pack the judged demo booth copy:
-
-```sh
 npm run build
 npm run pack:offline
+npx serve
 ```
 
-Serve from the unzip directory root with `npx serve` or any static server. The `file` protocol will not load assets because of absolute URLs. For serving from a subpath, rebuild with a relative base before packing.
+## Judging alignment
 
-## Ranges and Defaults
+| Criterion | Weight | GearFlow answer |
+|-----------|--------|-----------------|
+| Impact | 30 | CFD is gated and slow, students get instant visual intuition with validated numbers |
+| Tooling | 25 | Spark reasons, SAM segments cached, Image renders on request, all visible with cost |
+| Demo | 25 | One presenter, one loop, under 3 minutes, cached fallback plus offline pack |
+| Depth | 20 | Hess Smith plus Rust parity plus D2Q9 worker plus tiers plus provenance on every run |
 
-* Bodies: NACA 0012, 2412, 4412, cylinder, duct, block, custom sketch polygon.
-* Angle of attack: minus 4 to 12 deg, default 6 deg on NACA 2412.
-* Reynolds number: 100 to 1,000,000, default 50,000. Re shades the wake deficit only.
-* Grids: 128 or 256 with AUTO fallback to 128 after repeated slow solves. Surrogate and fixture paths stay at 128.
-* Fields: speed, pressure (Cp), vorticity, with particle advection, contour overlay, and colormap choice.
+Solo Indie Push the Frontier: one owner, one core loop, one wow moment, accelerators for physical intuition.
 
-## Project Layout
+## Docs map
 
-* `src/geometry`: parametric bodies, polygon plus SDF masks, presets.
-* `src/flow`: Hess Smith potential solver, frame source, surrogate provider, WASM loader.
-* `src/render`: canvas field texture, particles, colormaps.
-* `src/ui`: TopNav, SolverBar, FieldBar, TelemetryBar, analysis panels, validation, export.
-* `src/meta`: MetaClient, cache, eval log, Spark, SAM, poster, offline pack.
-* `rust/gearflow-wasm`: Rust solver built with wasm-pack, checked in under `src/wasm/pkg`.
-* `fixtures/validation`: vendored validation JSON, read locally at runtime.
-* `docs`: rules, design, architecture, decisions, research, reviews, tests.
+* `docs/HACKATHON_RULES.md`: constraints, rubric source, submission requirements.
+* `docs/DESIGN.md`: product story, demo script, wow moment.
+* `docs/ARCHITECTURE.md`: solver, agent, and surrogate tech plan.
+* `docs/DECISIONS.md`: decision log, what was chosen and why.
+* `docs/RESEARCH.md`: background notes and measured findings.
+* `docs/REVIEWS.md`: review history and quality gates.
+* `docs/TESTS.md`: validation detail and test inventory.
 
-## Judging Alignment
+## Submission checklist
 
-* Impact 30: a real pain (CFD is gated and slow) with a real outcome (instant visual intuition plus validated numbers for students and makers).
-* Meta Tooling 25: three models with explicit handoffs, Spark reasoning to SAM perception to Image rendering, all visible in the UI with status, cost, and cache state.
-* Demo 25: single presenter, one core loop, under three minutes, one click cached fallback plus a full offline pack, ending on an exported visual.
-* Technical Depth 20: Hess Smith plus Rust WASM parity, frame interface with surrogate comparison, vendored validation with tiers, measured provenance on every run.
+* [ ] Live demo URL (TODO, add before Nov 4).
+* [ ] Demo video 2 to 3 min (TODO, `docs/media/demo-2min.mp4` plus YouTube link).
+* [ ] Public repo with this README (setup, keys, run steps).
+* [ ] Short writeup (problem, users, Meta tooling, architecture, next steps).
+* [ ] Licenses declared for third party assets and data.
+* [ ] Submitted before Nov 4 9PM ET.
 
-See `docs/HACKATHON_RULES.md` for the rubric source and `docs/DESIGN.md` for the design alignment.
+## Team status license
 
-## Team, Status, License
-
-Solo participant (Indie, Push the Frontier). Name and contact: [add your name, email, and profile link here].
-
-Status: phases 0 through 8 complete, including the Rust plus WASM solver and the Zenith instrument shell.
-
-Demo video and live URL go here before submission: [add video link and live link].
-
-License: TBD, add before publishing. No LICENSE file is present in the repo yet.
+Solo Indie entry. Name and contact: [TODO, add name, email, profile link]. Status: shipped behavior described above with file anchors, no phase counts. License: [TODO, add license and LICENSE file before publishing].
