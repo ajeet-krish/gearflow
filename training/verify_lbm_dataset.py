@@ -730,6 +730,38 @@ def _is_airfoil(body: str) -> bool:
     return lowered.startswith("naca") or "airfoil" in lowered
 
 
+def _geom_size_key(row: dict) -> tuple:
+    """Geometry identity for trend pairing (size only, no flow state).
+
+    A Re trend must hold body, size, and alpha fixed and vary only Re, so
+    different sizes (cyl_r015 vs cyl_r020, block_030 vs block_040) must never
+    be compared even when they share a Re. The old key grouped on body plus
+    alpha alone, which mixed sizes and flagged geometry drag differences as
+    Re trend violations. This key covers the manifest size fields plus
+    ref_length, which is the size discriminator present in real sweeps where
+    radius/height/naca_code may be null (cyl_r015 ref 0.3 vs cyl_r020 ref
+    0.4). Solver branch (les/BGK) is not part of this key; branch
+    eligibility is handled by the caller, which keeps LES rows out of the
+    bluff Re trend (see v2_check_trends).
+    """
+
+    def _norm(value: object) -> object:
+        if value is None:
+            return "null"
+        try:
+            return round(float(value), 6)
+        except (TypeError, ValueError):
+            return str(value).lower()
+
+    return (
+        _norm(row.get("radius")),
+        _norm(row.get("width")),
+        _norm(row.get("height")),
+        _norm(row.get("naca_code")),
+        _norm(row.get("ref_length")),
+    )
+
+
 def v2_check_trends(rows: list[dict]) -> dict:
     failures: list[str] = []
     warnings: list[str] = []
@@ -742,21 +774,40 @@ def v2_check_trends(rows: list[dict]) -> dict:
     if not with_cd:
         return {"failures": [], "warnings": ["trends skipped: no cd_mean in manifest rows"], "orderings": []}
     orderings: list[dict] = []
-    bluff_groups: dict[tuple[str, float], list[dict]] = {}
-    foil_groups: dict[tuple[str, float], list[dict]] = {}
+    bluff_groups: dict[tuple, list[dict]] = {}
+    foil_groups: dict[tuple, list[dict]] = {}
+    les_skipped = 0
     for row in with_cd:
         body = str(row.get("body", ""))
         re = float(_re_of(row))
         alpha = float(row.get("alpha_deg", 0.0))
-        key = (body.lower(), round(alpha, 6)) if not _is_airfoil(body) else (body.lower(), round(re, 6))
-        target = foil_groups if _is_airfoil(body) else bluff_groups
-        target.setdefault(key, []).append(row)
-    for (body, alpha), group in sorted(bluff_groups.items()):
+        size = _geom_size_key(row)
+        if _is_airfoil(body):
+            key: tuple = (body.lower(),) + size + (round(re, 6),)
+            foil_groups.setdefault(key, []).append(row)
+        else:
+            if row.get("les") is True:
+                les_skipped += 1
+                continue
+            key = (body.lower(),) + size + (round(alpha, 6),)
+            bluff_groups.setdefault(key, []).append(row)
+    if les_skipped:
+        warnings.append(
+            f"bluff Re trend skips {les_skipped} LES rows "
+            f"(resolved branch only; LES Cd is not compared against BGK Cd)"
+        )
+    for key, group in sorted(bluff_groups.items()):
+        body = key[0]
+        alpha = key[-1]
         ordered = sorted(group, key=lambda r: float(_re_of(r)))
         if len({float(_re_of(r)) for r in ordered}) < 2:
             continue
         ok = True
         for prev, nxt in zip(ordered, ordered[1:]):
+            prev_re = float(_re_of(prev))
+            nxt_re = float(_re_of(nxt))
+            if nxt_re <= prev_re:
+                continue
             prev_cd = float(prev["cd_mean"])
             nxt_cd = float(nxt["cd_mean"])
             tol = max(TREND_ABS_TOL, TREND_REL_TOL * abs(prev_cd))
@@ -769,12 +820,18 @@ def v2_check_trends(rows: list[dict]) -> dict:
         orderings.append(
             {"kind": "bluff_cd_vs_re", "body": body, "alpha_deg": alpha, "holds": ok, "n": len(ordered)}
         )
-    for (body, re), group in sorted(foil_groups.items()):
+    for key, group in sorted(foil_groups.items()):
+        body = key[0]
+        re = key[-1]
         ordered = sorted(group, key=lambda r: float(r.get("alpha_deg", 0.0)))
         if len({float(r.get("alpha_deg", 0.0)) for r in ordered}) < 2:
             continue
         ok = True
         for prev, nxt in zip(ordered, ordered[1:]):
+            prev_alpha = float(prev.get("alpha_deg", 0.0))
+            nxt_alpha = float(nxt.get("alpha_deg", 0.0))
+            if nxt_alpha <= prev_alpha:
+                continue
             prev_cd = float(prev["cd_mean"])
             nxt_cd = float(nxt["cd_mean"])
             tol = max(TREND_ABS_TOL, TREND_REL_TOL * abs(prev_cd))

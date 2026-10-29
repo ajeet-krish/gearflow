@@ -16,6 +16,7 @@ from verify_lbm_dataset import (
     EXIT_DATA,
     EXIT_OK,
     main as verify_main,
+    v2_check_trends,
 )
 
 NX = 16
@@ -40,6 +41,11 @@ class SweepBuilder:
         nonbinary_mask: bool = False,
         substitutes_for: str | None = None,
         substitute: bool | None = None,
+        radius: float | None = None,
+        width: float | None = None,
+        height: float | None = None,
+        naca_code: str | None = None,
+        ref_length: float = 0.4,
     ) -> None:
         case_dir = self.sweep / "cases" / case_id
         case_dir.mkdir(parents=True, exist_ok=True)
@@ -82,11 +88,11 @@ class SweepBuilder:
             "nx": NX,
             "ny": NY,
             "domain_width": 4.0,
-            "radius": None,
-            "width": None,
-            "height": None,
-            "naca_code": None,
-            "ref_length": 0.4,
+            "radius": radius,
+            "width": width,
+            "height": height,
+            "naca_code": naca_code,
+            "ref_length": ref_length,
             "transient": 20,
             "window": 30,
             "substitutes_for": substitutes_for,
@@ -1155,3 +1161,71 @@ def test_gate_transposed_field_fails_with_mapping_error(tmp_path: Path) -> None:
         "native RMS divergence" in f and "field mapping error" in f
         for f in report["gate"]["adapter_failures"]
     )
+
+
+def _v2_row(
+    case_id: str,
+    body: str,
+    re: float,
+    alpha: float,
+    cd_mean: float,
+    radius: float | None = None,
+    width: float | None = None,
+    height: float | None = None,
+    naca_code: str | None = None,
+    ref_length: float = 0.4,
+) -> dict:
+    return {
+        "case_id": case_id,
+        "body": body,
+        "re": re,
+        "alpha_deg": alpha,
+        "cd_mean": cd_mean,
+        "radius": radius,
+        "width": width,
+        "height": height,
+        "naca_code": naca_code,
+        "ref_length": ref_length,
+    }
+
+
+def test_v2_different_sizes_same_re_never_compared() -> None:
+    rows = [
+        _v2_row("cyl_r015_re020", "cylinder", 20.0, 0.0, 2.5693, radius=0.15, ref_length=0.3),
+        _v2_row("cyl_r020_re020", "cylinder", 20.0, 0.0, 2.7720, radius=0.20, ref_length=0.4),
+        _v2_row("block_030_re020", "block", 20.0, 0.0, 2.8308, width=0.3, ref_length=0.3),
+        _v2_row("block_040_re020", "block", 20.0, 0.0, 3.1596, width=0.4, ref_length=0.4),
+        _v2_row("small_re025", "cylinder", 25.0, 0.0, 2.0, radius=0.15, ref_length=0.3),
+        _v2_row("large_re045", "cylinder", 45.0, 0.0, 2.5, radius=0.20, ref_length=0.4),
+    ]
+    result = v2_check_trends(rows)
+    assert result["failures"] == []
+
+
+def test_v2_same_size_falling_cd_passes() -> None:
+    rows = [
+        _v2_row("cyl_r020_re020", "cylinder", 20.0, 0.0, 2.7720, radius=0.20, ref_length=0.4),
+        _v2_row("cyl_r020_re040", "cylinder", 40.0, 0.0, 2.0618, radius=0.20, ref_length=0.4),
+    ]
+    result = v2_check_trends(rows)
+    assert result["failures"] == []
+
+
+def test_v2_same_size_rising_cd_fails() -> None:
+    rows = [
+        _v2_row("cyl_r020_re020", "cylinder", 20.0, 0.0, 1.0, radius=0.20, ref_length=0.4),
+        _v2_row("cyl_r020_re040", "cylinder", 40.0, 0.0, 5.0, radius=0.20, ref_length=0.4),
+    ]
+    result = v2_check_trends(rows)
+    assert any("rises with Re" in f for f in result["failures"])
+
+
+def test_v2_les_rows_excluded_from_bluff_trend() -> None:
+    rows = [
+        _v2_row("block_030_re200", "block", 200.0, 0.0, 1.8325, width=0.3, ref_length=0.3),
+        _v2_row("block_030_re400", "block", 400.0, 0.0, 1.9822, width=0.3, ref_length=0.3),
+    ]
+    for row in rows:
+        row["les"] = True
+    result = v2_check_trends(rows)
+    assert result["failures"] == []
