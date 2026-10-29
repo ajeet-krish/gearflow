@@ -415,9 +415,22 @@ async function defaultCreateSession(modelBytes: ArrayBuffer): Promise<V2Session>
     // Without an explicit prefix ORT infers the binary URL from the Vite
     // rewritten module URL and 404s on the app shell, so session creation
     // fails in the browser even though the model bundle validates cleanly.
+    //
+    // Threaded wasm needs SharedArrayBuffer, which needs cross-origin
+    // isolation (COOP plus COEP). Plain vite dev and GitHub Pages send no
+    // such headers, so the threaded binary cannot instantiate there while
+    // Node (which always has SharedArrayBuffer) passes. onnxruntime-web
+    // 1.18 is the newest release that still ships single-threaded SIMD
+    // wasm, and its loader picks ort-wasm-simd.wasm when numThreads is 1.
+    // Pin to one thread unless the page is isolated, so isolated deploys
+    // keep the threaded build and every other page loads.
     try {
         const prefix = ortWasmPrefix();
         if (prefix !== null) ort.env.wasm.wasmPaths = prefix;
+        const scope = globalThis as unknown as { self?: { crossOriginIsolated?: boolean } };
+        if (!(typeof scope.self !== "undefined" && scope.self.crossOriginIsolated === true)) {
+            ort.env.wasm.numThreads = 1;
+        }
     } catch {
         // Keep the ORT default path inference when the prefix cannot be set.
     }
