@@ -1638,13 +1638,18 @@ export default function App() {
                             : isNeuralActive
                                 ? "NEURAL-V2"
                                 : "ANALYTIC";
-    const bodyRowLabel = bodySelectValue === "naca0012"
-        ? "NACA 0012"
-        : bodySelectValue === "naca2412"
-            ? "NACA 2412"
-            : bodySelectValue === "naca4412"
-                ? "NACA 4412"
-                : bodySelectValue.toUpperCase();
+    const nacaCode = spec.kind === "naca4" && typeof spec.naca?.code === "string" && /^\d{4}$/.test(spec.naca.code)
+        ? spec.naca.code
+        : null;
+    const bodyRowLabel = nacaCode !== null
+        ? `NACA ${nacaCode}`
+        : bodySelectValue === "naca0012"
+            ? "NACA 0012"
+            : bodySelectValue === "naca2412"
+                ? "NACA 2412"
+                : bodySelectValue === "naca4412"
+                    ? "NACA 4412"
+                    : bodySelectValue.toUpperCase();
 
     // Phase B2 agent snapshot. Built from solved state only, no new data
     // plumbing. Passed as props toward AgentConsole, no styling here.

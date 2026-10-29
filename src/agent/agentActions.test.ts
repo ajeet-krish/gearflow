@@ -160,4 +160,20 @@ describe("trusted preset setup actions", () => {
         expect(retired.ok).toBe(false);
         expect(retired.reason ?? "").toContain("diverges at every tested gap and Re");
     });
+
+    it("rejects a set_spec whose code does not match its m/p/t fractions", () => {
+        const mismatched = validateAgentAction(
+            {
+                kind: "set_spec",
+                spec: {
+                    geometry: { kind: "naca4", naca: { code: "2412", m: 0.06, p: 0.4, t: 0.15 }, chord: 1, alphaDeg: 6, nPoints: 120 },
+                    reynolds: 50000,
+                    rationale: "Mismatched code test.",
+                },
+            },
+            ANALYTIC
+        );
+        expect(mismatched.ok).toBe(false);
+        expect(mismatched.reason ?? "").toContain("does not match");
+    });
 });

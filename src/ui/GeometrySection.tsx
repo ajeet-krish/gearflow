@@ -21,7 +21,7 @@ import {
     alphaOutOfBandNote,
 } from "@/contracts/schema";
 import { migrateDuctToOrifice } from "@/geometry/parametric";
-import { applyBodyPreset, bodySelectValue } from "@/geometry/bodyPresets";
+import { applyBodyPreset, bodySelectValue, CANONICAL_BODY_VALUES } from "@/geometry/bodyPresets";
 
 function nacaCodeFromParams(m: number, p: number, t: number): string {
     const d1 = Math.max(0, Math.min(9, Math.round(m * 100)));
@@ -97,6 +97,7 @@ export function GeometrySectionView(props: GeometrySectionViewProps): JSX.Elemen
     const isAlphaWakeOnly = spec.kind === "cylinder" || spec.kind === "orifice";
     const alphaNote = alphaOutOfBandNote(spec.alphaDeg);
     const bodyValue = bodySelectValue(spec);
+    const isCustomNaca = isNaca && !CANONICAL_BODY_VALUES.has(bodyValue);
 
     const commitAlpha = () => {
         const decision = commitAlphaValue(alphaText, spec.alphaDeg);
@@ -123,6 +124,11 @@ export function GeometrySectionView(props: GeometrySectionViewProps): JSX.Elemen
                     <option value="naca0012">NACA 0012</option>
                     <option value="naca2412">NACA 2412</option>
                     <option value="naca4412">NACA 4412</option>
+                    {isCustomNaca && (
+                        <option value={bodyValue}>
+                            {`NACA ${bodyValue.slice(4).toUpperCase()} (custom)`}
+                        </option>
+                    )}
                     <option value="cylinder">Cylinder</option>
                     <option value="block">Block</option>
                     <option value="orifice">Orifice plate</option>

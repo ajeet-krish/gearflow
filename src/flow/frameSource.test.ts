@@ -118,8 +118,12 @@ describe("AnalyticFlowProvider", () => {
 describe("AnalyticFlowProvider envelope (no bypass)", () => {
     it("constructor rejects out-of-hard-envelope geometry fail-fast", () => {
         expect(() => new AnalyticFlowProvider(SMALL, { ...NACA, alphaDeg: 200 })).toThrow(/alphaDeg/);
+        // Thickness envelope widened to 40% chord: 19% constructs, past 40% fails.
         expect(
             () => new AnalyticFlowProvider(SMALL, { ...NACA, naca: { code: "2419", m: 0.02, p: 0.4, t: 0.19 } })
+        ).not.toThrow();
+        expect(
+            () => new AnalyticFlowProvider(SMALL, { ...NACA, naca: { code: "2441", m: 0.02, p: 0.4, t: 0.41 } })
         ).toThrow(/naca\.t/);
     });
 

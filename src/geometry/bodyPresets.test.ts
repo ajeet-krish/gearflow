@@ -19,8 +19,9 @@ describe("bodySelectValue", () => {
         expect(bodySelectValue({ ...BASE, naca: { code: "4412", m: 0.04, p: 0.4, t: 0.12 } })).toBe("naca4412");
     });
 
-    it("falls back to the 2412 slot for tuned NACA shapes", () => {
-        expect(bodySelectValue({ ...BASE, naca: { code: "2418", m: 0.02, p: 0.4, t: 0.18 } })).toBe("naca2412");
+    it("returns the real code token for non-canonical NACA shapes", () => {
+        expect(bodySelectValue({ ...BASE, naca: { code: "2418", m: 0.02, p: 0.4, t: 0.18 } })).toBe("naca2418");
+        expect(bodySelectValue({ ...BASE, naca: { code: "6415", m: 0.06, p: 0.4, t: 0.15 } })).toBe("naca6415");
     });
 
     it("returns the kind for non-NACA bodies", () => {

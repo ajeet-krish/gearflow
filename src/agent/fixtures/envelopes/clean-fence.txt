@@ -1,0 +1,4 @@
+Setting up the requested case.
+```action-json
+{"reply": "Applying NACA 2412.", "actions": [{"kind": "set_body", "body": "naca2412"}, {"kind": "set_alpha", "alphaDeg": 6}]}
+```

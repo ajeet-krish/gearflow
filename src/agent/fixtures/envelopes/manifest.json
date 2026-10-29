@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "notes": "R4 zero credit envelope replay. Each row replays a recorded or synthetic Spark raw reply through parseAgentEnvelope plus validateAgentAction with zero network. ctx live allows gated fields and run, ctx analytic gates them.",
+  "contexts": {
+    "live": { "lbmEffective": true, "statsReady": true, "hasTke": true, "hasRecirc": true },
+    "analytic": { "lbmEffective": false, "statsReady": false, "hasTke": false, "hasRecirc": false }
+  },
+  "rows": [
+    {
+      "id": "clean-fence",
+      "file": "clean-fence.txt",
+      "ctx": "live",
+      "expect": {
+        "actions": [
+          { "kind": "set_body", "body": "naca2412" },
+          { "kind": "set_alpha", "alphaDeg": 6 }
+        ],
+        "rejections": [],
+        "replyContains": "Setting up the requested case."
+      }
+    },
+    {
+      "id": "reasoning-plus-fence",
+      "file": "reasoning-plus-fence.txt",
+      "ctx": "live",
+      "expect": {
+        "actions": [
+          { "kind": "set_body", "body": "naca2412" },
+          { "kind": "set_alpha", "alphaDeg": 6 }
+        ],
+        "rejections": [],
+        "replyContains": "Let me reason"
+      }
+    },
+    {
+      "id": "malformed-fence",
+      "file": "malformed-fence.txt",
+      "ctx": "live",
+      "expect": {
+        "actions": [],
+        "rejections": ["action envelope malformed, ignored"],
+        "replyContains": "Here is the case."
+      }
+    },
+    {
+      "id": "plain-json",
+      "file": "plain-json.txt",
+      "ctx": "live",
+      "expect": {
+        "actions": [{ "kind": "set_field", "field": "speed" }],
+        "rejections": [],
+        "replyContains": "Switching field."
+      }
+    },
+    {
+      "id": "prose-only",
+      "file": "prose-only.txt",
+      "ctx": "live",
+      "expect": {
+        "actions": [],
+        "rejections": [],
+        "replyContains": "no changes needed"
+      }
+    },
+    {
+      "id": "setup-high-re-wake-valid",
+      "file": "setup-high-re-wake.txt",
+      "ctx": "analytic",
+      "expect": {
+        "actions": [{ "kind": "setup_high_re_wake" }],
+        "rejections": [],
+        "replyContains": "Applying the high Re wake case."
+      }
+    },
+    {
+      "id": "retired-high-pressure-rejects",
+      "file": "retired-high-pressure.txt",
+      "ctx": "analytic",
+      "expect": {
+        "actions": [],
+        "rejectionsContain": ["diverges at every tested gap and Re"],
+        "replyContains": "Retired case probe."
+      }
+    },
+    {
+      "id": "noncanonical-set-body-rejects",
+      "file": "noncanonical-set-body.txt",
+      "ctx": "live",
+      "expect": {
+        "actions": [],
+        "rejectionsContain": ["set_body needs body in"],
+        "replyContains": "Non console body probe."
+      }
+    },
+    {
+      "id": "noncanonical-set-spec-applies",
+      "file": "noncanonical-set-spec.txt",
+      "ctx": "live",
+      "expect": {
+        "actions": [
+          {
+            "kind": "set_spec",
+            "spec": {
+              "geometry": {
+                "kind": "naca4",
+                "naca": { "code": "6415", "m": 0.06, "p": 0.4, "t": 0.15 },
+                "chord": 1,
+                "alphaDeg": 6,
+                "nPoints": 120
+              },
+              "reynolds": 200000,
+              "rationale": "Recorded Spark reply for the non console NACA 6415 section."
+            }
+          }
+        ],
+        "rejections": [],
+        "replyContains": "Custom section probe."
+      }
+    }
+  ]
+}

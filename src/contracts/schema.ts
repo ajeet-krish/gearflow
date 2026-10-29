@@ -56,7 +56,15 @@ export const ALPHA_HARD_MAX = 180;
 export const NACA_M_MIN = 0;
 export const NACA_M_MAX_ENV = 0.09;
 export const NACA_T_MIN = 0.06;
-export const NACA_T_MAX_ENV = 0.18;
+/** Validation envelope for NACA thickness: widened to 40% chord per the
+ *  trainer decision so thick sections mesh. The realistic trainer band stays
+ *  6 to 18% (see NACA_T_REALISTIC_MAX), thicker sections validate but the
+ *  tutor explains they fly poorly. */
+export const NACA_T_MAX_ENV = 0.4;
+/** Realistic trainer thickness cap for tutor notes. Valid but unrealistic
+ *  sections (above this, up to NACA_T_MAX_ENV) keep the draggy coefficient
+ *  explainer instead of failing validation. */
+export const NACA_T_REALISTIC_MAX = 0.18;
 export const NACA_P_MIN = 0.2;
 export const NACA_P_MAX = 0.8;
 
@@ -131,6 +139,28 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
             throw new Error(`GeometrySpec.naca.p must be in [${NACA_P_MIN}, ${NACA_P_MAX}] when m > 0, got ${p}`);
         }
         if (!(t >= NACA_T_MIN && t <= NACA_T_MAX_ENV)) throw new Error(`GeometrySpec.naca.t must be in [${NACA_T_MIN}, ${NACA_T_MAX_ENV}], got ${t}`);
+        // Code must equal the digits derived from m, p, t so the rail label
+        // (bodySelectValue, App label) names the geometry that actually
+        // meshes. Symmetric convention: when m is 0 the solver ignores p, so
+        // 0012 with a stored p of 0.4 stays valid and the second digit is not
+        // checked (0012 and 0412 describe the same symmetric shape).
+        const code = naca.code as string;
+        const expectedM = Math.round(m * 100);
+        const expectedP = Math.round(p * 10);
+        const expectedT = Math.round(t * 100);
+        const codeM = parseInt(code[0], 10);
+        const codeP = parseInt(code[1], 10);
+        const codeT = parseInt(code.slice(2), 10);
+        const symmetric = m <= 1e-10;
+        const matches = symmetric
+            ? codeM === expectedM && codeT === expectedT
+            : codeM === expectedM && codeP === expectedP && codeT === expectedT;
+        if (!matches) {
+            const expected = symmetric
+                ? `${expectedM}X${String(expectedT).padStart(2, "0")} (p ignored for symmetric m = 0)`
+                : `${expectedM}${expectedP}${String(expectedT).padStart(2, "0")}`;
+            throw new Error(`GeometrySpec.naca.code ${code} does not match m/p/t fractions (expected ${expected})`);
+        }
     }
     if (spec.kind === "cylinder") {
         if (!isFiniteNumber(spec.radius) || (spec.radius as number) <= 0) {

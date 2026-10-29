@@ -1,7 +1,9 @@
 // Phase B3 local assistant. Pure deterministic replies with zero network.
 // localReply mirrors the Baseten envelope shape (reply plus actions plus
 // rejections) so the console settles local and remote envelopes through one
-// path. Covers explainers that cite Cl, CpMin, Re, and regime with one
+// path. NACA plus alpha plus Re resolve through the shared R1 airfoil intent
+// parser (parseAirfoilIntent), so offline setup agrees with the tested
+// corpus; only non NACA body tokens resolve locally. Covers explainers that cite Cl, CpMin, Re, and regime with one
 // suggested change plus a caveat, tool help naming the SOLVER, FIELD, and
 // TELEMETRY bars plus the GEOMETRY and DISPLAY windows, setup parsing for
 // NACA codes plus alpha plus Re plus body tokens with schema clamps, and
@@ -19,16 +21,18 @@ import {
     type AgentEnvelope,
     type AgentValidationContext,
 } from "./agentActions";
+import { parseAirfoilIntent, parseAlphaDeg, parseReynolds } from "./airfoilIntent";
+import { parseNacaLoose } from "./nacaParse";
 import type { AgentAction, BodyToken } from "@/contracts/types";
 
-const NACA_RE = /naca[\s_]*(\d{4})/i;
-const ALPHA_KEY_RE = /alpha[^-\d]{0,8}(-?\d+(?:\.\d+)?)/i;
-const ALPHA_DEG_RE = /(-?\d+(?:\.\d+)?)\s*(?:deg|°)/i;
-const RE_RE = /\bre(?:ynolds)?\s*(?:number|value|of|at|to|=|:)?\s*(\d[\d,]*(?:\.\d+)?(?:e[+-]?\d+)?)/i;
+/** Canonical console bodies. Anything else valid goes through set_spec. */
+const CANONICAL_NACA: ReadonlySet<string> = new Set(["naca0012", "naca2412", "naca4412"]);
 const ENGINE_RE = /\b(analytic|wasm|lbm|surrogate)\b/;
 const ENGINE_VERB_RE = /(switch|change|use|set|engine|mode)/;
 const FIELD_TRIGGER_RE = /(field|quantity|show|display|switch|view|overlay|channel|plot)\b/;
 const FIELD_NAMES: ReadonlyArray<string> = ["speed", "cp", "omega", "u", "v", "k", "recirc"];
+/** Bare mentions only stage with an action verb, mirroring R1 verb gating. */
+const VERB_GATE_RE = /\b(set|setup|show|use|try|generate|run|switch|apply|make|test|simulate|change|display|put)\b/i;
 const EXPLAIN_RE = /(explain|why\b|what happened|interpret|read the run|engineer|walk me through)/;
 const HELP_RE = /(how do i|how to|how do you|where is|where do|help|what can you|which bar|which window|solver bar|field bar|telemetry|geometry window|display window|change re\b)/;
 const SETUP_WORD_RE = /(set\s*up|setup|redesign|reconfig|propos|thicker|thinner|camber|design point|high lift|suggest a change)/;
@@ -86,7 +90,8 @@ function describeAction(a: AgentAction): string {
     if (a.kind === "run_lbm") return "Run LBM";
     if (a.kind === "cancel_lbm") return "Cancel LBM";
     if (a.kind === "setup_shedding") return "vortex shedding case (cylinder, alpha 0, Re 100, speed field)";
-    if (a.kind === "setup_high_pressure") return "high pressure case (orifice, alpha 0, Re 1000, cp field)";
+    if (a.kind === "setup_high_re_wake") return "high Re wake case (cylinder, alpha 0, Re 700, speed field)";
+    if (a.kind === "setup_high_pressure") return "retired high pressure case (use setup_high_re_wake instead)";
     if (a.kind === "setup_airfoil") return "airfoil case (NACA, speed field)";
     return "custom spec";
 }
@@ -103,31 +108,12 @@ function findBodyToken(lower: string): string | null {
     return null;
 }
 
-/** True when the text names a NACA code the console does not carry. */
-function unknownNacaHere(lower: string, bodyTok: string | null): boolean {
-    const m = lower.match(NACA_RE);
-    return m !== null && bodyTok === null;
-}
-
-function findAlpha(lower: string): number | null {
-    const keyed = lower.match(ALPHA_KEY_RE);
-    if (keyed !== null) {
-        const v = Number(keyed[1]);
-        return Number.isFinite(v) ? v : null;
-    }
-    const deg = lower.match(ALPHA_DEG_RE);
-    if (deg !== null) {
-        const v = Number(deg[1]);
-        return Number.isFinite(v) ? v : null;
-    }
-    return null;
-}
-
-function findRe(lower: string): number | null {
-    const m = lower.match(RE_RE);
-    if (m === null) return null;
-    const v = Number(m[1].replace(/,/g, ""));
-    return Number.isFinite(v) ? v : null;
+/** Non-canonical code the console cannot carry as a body token. Null when
+ *  the shared parser resolved no code or a canonical console body matched. */
+function unknownNacaHere(code: string | null, bodyTok: string | null): string | null {
+    if (code === null) return null;
+    if (bodyTok !== null && CANONICAL_NACA.has(bodyTok)) return null;
+    return code;
 }
 
 function findField(lower: string): string | null {
@@ -263,46 +249,100 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         } else if (HIGH_PRESSURE_PHENOM_RE.test(lower)) {
             presetHandled = true;
             const wantsBlock = /\bblock\b/.test(lower);
-            const resolvedBody = wantsBlock ? "block" : "orifice";
             const staged = accept(wantsBlock ? { kind: "setup_high_pressure", body: "block" } : { kind: "setup_high_pressure" });
             sections.push(
                 staged
-                    ? `Local setup note, no network. Applying the high pressure case (${resolvedBody}, alpha 0, Re 1000, cp field). Canvas updates on apply.`
+                    ? `Local setup note, no network. Applying the high Re wake case (cylinder, alpha 0, Re 700, speed field). Canvas updates on apply.`
                     : `Local setup note, no network. Staying on ${bodyLabel}; the high pressure case is outside the serving envelope. Canvas unchanged.`
             );
         } else if (AIRFOIL_WORD_RE.test(lower)) {
             presetHandled = true;
-            const nacaTok = findBodyToken(lower);
-            const nacaBody = nacaTok !== null && nacaTok.startsWith("naca") ? nacaTok : undefined;
-            const alphaHere = findAlpha(lower);
-            if (unknownNacaHere(lower, nacaTok)) {
-                const digits = (lower.match(NACA_RE) ?? [])[1] ?? "unknown";
-                rejections.push(
-                    `naca ${digits} is not a console body, staying on ${bodyLabel}; bodies are [${BODY_TOKENS.join(", ")}]`
-                );
+            const parsed = parseNacaLoose(raw);
+            const alphaHere = parseAlphaDeg(raw);
+            if (parsed.status === "ambiguous") {
+                sections.push(`Local setup note, no network. ${parsed.question} Canvas unchanged.`);
+            } else if (parsed.status === "invalid") {
+                const label = parsed.code === null ? "That code" : `NACA ${parsed.code}`;
                 sections.push(
-                    `Local setup note, no network. Staying on ${bodyLabel}; which airfoil should I set up (NACA 0012, 2412, or 4412), and at which alpha? Canvas unchanged.`
+                    `Local setup note, no network. ${label} is not a valid 4-digit section (${parsed.reason}). ` +
+                    `Reply with a valid 4-digit code (try 0012, 2412, or 4412). Canvas unchanged.`
                 );
             } else {
-                const candidate: AgentAction = { kind: "setup_airfoil" };
-                if (nacaBody !== undefined) (candidate as { body?: BodyToken }).body = nacaBody as BodyToken;
-                if (alphaHere !== null) (candidate as { alphaDeg?: number }).alphaDeg = alphaHere;
-                const staged = accept(candidate);
-                if (staged) {
-                    sections.push("Local setup note, no network. Applying the airfoil case (NACA, speed field). Canvas updates on apply.");
-                } else {
-                    sections.push(
-                        `Local setup note, no network. Staying on ${bodyLabel}; the airfoil case is outside the serving envelope. Canvas unchanged.`
+                const code = parsed.status === "ok" ? parsed.code : null;
+                const tok = code !== null ? `naca${code}` : null;
+                const nacaBody = tok !== null && CANONICAL_NACA.has(tok) ? tok : undefined;
+                if (code !== null && nacaBody === undefined) {
+                    rejections.push(
+                        `naca ${code} is not a console body, staying on ${bodyLabel}; bodies are [${BODY_TOKENS.join(", ")}]`
                     );
+                    sections.push(
+                        `Local setup note, no network. Staying on ${bodyLabel}; which airfoil should I set up (NACA 0012, 2412, or 4412), and at which alpha? Canvas unchanged.`
+                    );
+                } else {
+                    const candidate: AgentAction = { kind: "setup_airfoil" };
+                    if (nacaBody !== undefined) (candidate as { body?: BodyToken }).body = nacaBody as BodyToken;
+                    if (alphaHere !== null) (candidate as { alphaDeg?: number }).alphaDeg = alphaHere;
+                    const staged = accept(candidate);
+                    if (staged) {
+                        sections.push("Local setup note, no network. Applying the airfoil case (NACA, speed field). Canvas updates on apply.");
+                    } else {
+                        sections.push(
+                            `Local setup note, no network. Staying on ${bodyLabel}; the airfoil case is outside the serving envelope. Canvas unchanged.`
+                        );
+                    }
                 }
             }
         }
-        const bodyTok = presetHandled ? null : findBodyToken(lower);
-        const nacaMatch = presetHandled ? null : lower.match(NACA_RE);
-        const unknownNaca = nacaMatch !== null && bodyTok === null ? nacaMatch[1] : null;
-        const alphaVal = presetHandled ? null : findAlpha(lower);
-        const reVal = presetHandled ? null : findRe(lower);
-        const hasSetupValues = bodyTok !== null || unknownNaca !== null || alphaVal !== null || reVal !== null;
+        // NACA plus alpha plus Re come from the shared airfoil intent parser
+        // so offline setup agrees with the tested corpus. The live section
+        // code in the context snapshot grounds relative edits, the body
+        // label is the fallback for older snapshots. Non NACA bodies
+        // (cylinder, block, orifice) still resolve from the body tokens.
+        const sectionCode = (() => {
+            try {
+                const snap = safe?.spec?.naca?.code;
+                if (typeof snap === "string" && /\d{4}/.test(snap)) return snap;
+            } catch {
+                // Fall through to the body label below.
+            }
+            return safe === null ? null : cleanText(safe.bodyLabel, "current body");
+        })();
+        const intent = presetHandled ? null : parseAirfoilIntent(raw, { code: sectionCode });
+        const clarified = intent !== null && intent.kind === "clarify";
+        if (clarified) {
+            sections.push(`Local note, no network. ${intent.question} Canvas unchanged.`);
+            if (intent.corrections.length > 0) sections.push(`Note: ${intent.corrections.join("; ")}.`);
+        }
+        const applyIntent = intent !== null && intent.kind === "apply" ? intent : null;
+        const intentCode = applyIntent?.code ?? null;
+        let bodyTok = presetHandled ? null : findBodyToken(lower);
+        // Multi-code ambiguity bypasses parseAirfoilIntent (it returns null
+        // for "A and B"), but findBodyToken would still stage the first body
+        // under the verb gate. Suppress the token whenever the loose parser
+        // reports ambiguous so ambiguous text never auto applies.
+        if (bodyTok !== null && !presetHandled) {
+            try {
+                if (parseNacaLoose(raw).status === "ambiguous") bodyTok = null;
+            } catch {
+                bodyTok = null;
+            }
+        }
+        if (bodyTok === null && intentCode !== null && CANONICAL_NACA.has(`naca${intentCode}`)) {
+            bodyTok = `naca${intentCode}`;
+        }
+        // R1 verb gating for pure mentions: a named body with no parsed
+        // action (no code, alpha, Re, or reshape) only stages when the text
+        // carries an action verb, so questions and mentions ("what is NACA
+        // 2412") leave the canvas alone. Parsed intents bypass the gate.
+        if (bodyTok !== null && applyIntent === null && intentCode === null && !VERB_GATE_RE.test(lower)) {
+            bodyTok = null;
+        }
+        const unknownNaca = presetHandled ? null : unknownNacaHere(intentCode, bodyTok);
+        const alphaVal = presetHandled ? null : (applyIntent?.alphaDeg ?? null);
+        const reVal = presetHandled ? null : (applyIntent?.reynolds ?? null);
+        const tutorNote = applyIntent !== null && applyIntent.notes.length > 0 ? applyIntent.notes.join(" ") : null;
+        const typoNotes = applyIntent !== null && applyIntent.corrections.length > 0 ? applyIntent.corrections.join("; ") : null;
+        const hasSetupValues = !clarified && (bodyTok !== null || unknownNaca !== null || alphaVal !== null || reVal !== null);
         if (hasSetupValues) {
             const applied: string[] = [];
             const notices: string[] = [];
@@ -343,20 +383,22 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 );
             }
             if (notices.length > 0) sections.push(notices.join(" "));
+            if (tutorNote !== null) sections.push(tutorNote);
+            if (typoNotes !== null) sections.push(`Note: ${typoNotes}.`);
             if (bodyTok === null && applied.length > 0) {
                 sections.push(
                     `Staying on ${bodyLabel}; name a body (NACA 0012, 2412, 4412, cylinder, block, orifice) to switch.`
                 );
             }
         } else if (HELP_RE.test(lower)) {
-            if (presetHandled) {
-                // Phenomenon preset already staged above, help copy would
-                // contradict it, so keep the preset line only.
+            if (presetHandled || clarified) {
+                // Phenomenon preset or clarify question already staged above,
+                // help copy would contradict it, so keep the staged line only.
             } else {
                 return { reply: buildHelp(), actions: [], rejections: [] };
             }
         } else if (SETUP_WORD_RE.test(lower)) {
-            if (!presetHandled) {
+            if (!presetHandled && !clarified) {
                 sections.push(
                     `Local setup note, no network. Staying on ${bodyLabel}; tell me which body ` +
                     `(NACA 0012, 2412, 4412, cylinder, block, orifice), alpha, and Re to use.`

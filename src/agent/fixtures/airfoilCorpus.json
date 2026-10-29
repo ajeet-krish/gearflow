@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "notes": "R1 airfoil corpus. Each row pins parseNacaLoose plus parseAirfoilIntent. intent null means no apply (mention, question, or bare code without a verb). clarify never carries an appliable code.",
+  "rows": [
+    {
+      "id": "explicit-alpha",
+      "text": "NACA 2412 alpha 6",
+      "current": null,
+      "parse": { "status": "ok", "code": "2412", "realistic": true, "explicit": true },
+      "intent": { "kind": "apply", "code": "2412", "alphaDeg": 6, "reynolds": null, "minConfidence": 0.7 }
+    },
+    {
+      "id": "alias-naka",
+      "text": "naka2412",
+      "current": null,
+      "parse": { "status": "ok", "code": "2412", "explicit": true, "correctionsInclude": ["naka"] },
+      "intent": { "kind": "apply", "code": "2412", "correctionsInclude": ["naka"] }
+    },
+    {
+      "id": "five-digit-dup",
+      "text": "naka 24112",
+      "current": null,
+      "parse": { "status": "ambiguous", "candidatesInclude": ["2412"], "correctionsInclude": ["naka"] },
+      "intent": { "kind": "clarify", "candidatesInclude": ["2412"], "questionInclude": ["5 digits"] }
+    },
+    {
+      "id": "alias-airfoul",
+      "text": "airfoul 4412",
+      "current": null,
+      "parse": { "status": "ok", "code": "4412", "explicit": true, "correctionsInclude": ["airfoul"] },
+      "intent": { "kind": "apply", "code": "4412", "correctionsInclude": ["airfoul"] }
+    },
+    {
+      "id": "verb-bare",
+      "text": "show me 6415",
+      "current": null,
+      "parse": { "status": "ok", "code": "6415", "explicit": false },
+      "intent": { "kind": "apply", "code": "6415", "minConfidence": 0.5 }
+    },
+    {
+      "id": "bare-noop",
+      "text": "0012",
+      "current": null,
+      "parse": { "status": "ok", "code": "0012", "explicit": false },
+      "intent": null
+    },
+    {
+      "id": "spaced-digits",
+      "text": "2 4 1 2",
+      "current": null,
+      "parse": { "status": "ok", "code": "2412", "explicit": false },
+      "intent": null
+    },
+    {
+      "id": "separator-dash",
+      "text": "NACA 24-12",
+      "current": null,
+      "parse": { "status": "ok", "code": "2412", "explicit": true },
+      "intent": { "kind": "apply", "code": "2412" }
+    },
+    {
+      "id": "bare-params-verb",
+      "text": "use 6415 at 8deg Re200k",
+      "current": null,
+      "parse": { "status": "ok", "code": "6415", "explicit": false },
+      "intent": { "kind": "apply", "code": "6415", "alphaDeg": 8, "reynolds": 200000 }
+    },
+    {
+      "id": "relative-thicker",
+      "text": "make 2412 thicker",
+      "current": "NACA 2412",
+      "parse": { "status": "ok", "code": "2412", "explicit": false },
+      "intent": { "kind": "apply", "code": "2414" }
+    },
+    {
+      "id": "absolute-symmetric",
+      "text": "15 percent thick symmetric",
+      "current": "naca2412",
+      "parse": { "status": "none" },
+      "intent": { "kind": "apply", "code": "0015" }
+    },
+    {
+      "id": "relative-camber",
+      "text": "more camber",
+      "current": "NACA 2412",
+      "parse": { "status": "none" },
+      "intent": { "kind": "apply", "code": "3412" }
+    },
+    {
+      "id": "relative-camber-symmetric",
+      "text": "more camber",
+      "current": "NACA 0012",
+      "parse": { "status": "none" },
+      "intent": { "kind": "apply", "code": "1412" }
+    },
+    {
+      "id": "relative-no-current",
+      "text": "more camber",
+      "current": null,
+      "parse": { "status": "none" },
+      "intent": { "kind": "clarify", "questionInclude": ["Which airfoil"] }
+    },
+    {
+      "id": "question-what",
+      "text": "what is NACA 2412",
+      "current": null,
+      "parse": { "status": "ok", "code": "2412", "explicit": true },
+      "intent": null
+    },
+    {
+      "id": "question-compare",
+      "text": "compare 2412 and 4412",
+      "current": null,
+      "parse": { "status": "ambiguous", "candidatesInclude": ["2412", "4412"] },
+      "intent": null
+    },
+    {
+      "id": "invalid-thickness",
+      "text": "NACA 2400",
+      "current": null,
+      "parse": { "status": "invalid", "nearest": "2410" },
+      "intent": { "kind": "clarify", "candidatesInclude": ["2410"] }
+    },
+    {
+      "id": "five-digit-bare",
+      "text": "23012",
+      "current": null,
+      "parse": { "status": "ambiguous", "candidatesInclude": ["2312"] },
+      "intent": { "kind": "clarify", "candidatesInclude": ["2312"] }
+    },
+    {
+      "id": "unrealistic-thick",
+      "text": "NACA 2440",
+      "current": null,
+      "parse": { "status": "ok", "code": "2440", "realistic": false },
+      "intent": { "kind": "apply", "code": "2440", "notesInclude": ["6 to 18%"] }
+    },
+    {
+      "id": "alias-ncca",
+      "text": "ncca 4412",
+      "current": null,
+      "parse": { "status": "ok", "code": "4412", "explicit": true, "correctionsInclude": ["ncca"] },
+      "intent": { "kind": "apply", "code": "4412", "correctionsInclude": ["ncca"] }
+    }
+  ]
+}

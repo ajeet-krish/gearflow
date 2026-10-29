@@ -1,0 +1,4 @@
+Non console body probe.
+```action-json
+{"reply": "Trying NACA 6415 as a body.", "actions": [{"kind": "set_body", "body": "naca6415"}]}
+```

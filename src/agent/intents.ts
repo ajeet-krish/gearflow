@@ -1,6 +1,8 @@
 // Intent router for the agent console. Keyword rules map plain words to one
 // of five intents; anything else is plain chat. Offline templates give every
-// intent a zero network reply.
+// intent a zero network reply. SPEC_WORDS also folds the R1 NACA typos
+// (naka, ncca, airfoyle, airfoul, airfol) so the legacy router follows the
+// shared parser, never its own regex.
 
 import type { GeometrySpec } from "@/contracts/types";
 
@@ -35,7 +37,7 @@ function matchesAny(text: string, words: string[]): boolean {
 }
 
 const EXPLAIN_WORDS = ["explain", "why", "what happened", "interpret", "read the run", "engineer"];
-const SPEC_WORDS = ["thicken", "thicker", "thin", "camber", "alpha", "angle", "reynolds", "naca", "propose", "spec", "design point", "redesign", "suggest a change", "high lift"];
+const SPEC_WORDS = ["thicken", "thicker", "thin", "camber", "alpha", "angle", "reynolds", "naca", "propose", "spec", "design point", "redesign", "suggest a change", "high lift", "naka", "ncca", "airfoyle", "airfoul", "airfol"];
 const SAM_WORDS = ["segment", "sketch", "draw", "outline", "trace", "polygon from"];
 const POSTER_WORDS = ["poster", "image", "render", "illustration", "figure for"];
 

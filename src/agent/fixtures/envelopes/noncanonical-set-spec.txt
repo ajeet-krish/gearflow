@@ -1,0 +1,4 @@
+Custom section probe.
+```action-json
+{"reply": "Applying NACA 6415.", "actions": [{"kind": "set_spec", "spec": {"geometry": {"kind": "naca4", "naca": {"code": "6415", "m": 0.06, "p": 0.4, "t": 0.15}, "chord": 1, "alphaDeg": 6, "nPoints": 120}, "reynolds": 200000, "rationale": "Recorded Spark reply for the non console NACA 6415 section."}}]}
+```

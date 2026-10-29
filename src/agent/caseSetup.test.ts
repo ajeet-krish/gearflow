@@ -15,7 +15,7 @@ const NEURAL: AgentValidationContext = { lbmEffective: false, statsReady: false,
 
 function makeCtx(over: Partial<AgentContext> = {}): AgentContext {
     return {
-        spec: { kind: "naca4", alphaDeg: 6, reynolds: 50000 },
+        spec: { kind: "naca4", alphaDeg: 6, reynolds: 50000, naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 } },
         reynolds: 50000,
         regime: "attached laminar",
         bodyLabel: "NACA 2412",

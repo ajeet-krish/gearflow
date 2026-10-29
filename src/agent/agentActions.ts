@@ -12,6 +12,110 @@ export const BODY_TOKENS: ReadonlyArray<string> = ["naca0012", "naca2412", "naca
 export const ENGINE_TOKENS: ReadonlyArray<string> = ["analytic", "wasm", "lbm", "surrogate"];
 export const FIELD_TOKENS: ReadonlyArray<string> = ["speed", "cp", "omega", "u", "v", "k", "recirc"];
 export const REPLY_MAX = 2000;
+/** Live primitive actions the envelope accepts. set_body stays on the
+ *  three console bodies (arbitrary NACA codes go through set_spec only). */
+export const PRIMITIVE_ACTION_KINDS: ReadonlyArray<string> = [
+    "set_body",
+    "set_alpha",
+    "set_reynolds",
+    "set_engine",
+    "set_field",
+    "set_spec",
+];
+/** Live trusted setup presets. Retired setup_high_pressure is excluded:
+ *  the validator still names it in rejections but never accepts it. */
+export const PRESET_ACTION_KINDS: ReadonlyArray<string> = ["setup_shedding", "setup_high_re_wake", "setup_airfoil"];
+/** Retired setup kinds. Recognized only to explain the retirement. */
+export const RETIRED_ACTION_KINDS: ReadonlyArray<string> = ["setup_high_pressure"];
+/** Confirm chip actions. Never auto applied, they wait for the chip. */
+export const RUN_ACTION_KINDS: ReadonlyArray<string> = ["run_lbm", "cancel_lbm"];
+/** Every live action kind, in prompt order. */
+export const ACTION_KINDS: ReadonlyArray<string> = [...PRIMITIVE_ACTION_KINDS, ...RUN_ACTION_KINDS, ...PRESET_ACTION_KINDS];
+/** Auto apply subset: primitives plus live presets. */
+export const SETUP_ACTION_KINDS: ReadonlyArray<string> = [...PRIMITIVE_ACTION_KINDS, ...PRESET_ACTION_KINDS];
+/** One preset line of the action contract. Live presets carry the
+ *  expanded body plus alpha plus Re plus field from expandCasePreset so
+ *  the prompt never hardcodes an expansion. Retired presets carry the
+ *  honest reason plus no expansion. */
+export interface PresetContract {
+    id: string;
+    actionKind: string;
+    retired: boolean;
+    body: string | null;
+    alphaDeg: number | null;
+    reynolds: number | null;
+    field: string | null;
+    note: string | null;
+}
+
+/** Validator plus prompt contract. kinds lists every live action kind,
+ *  setupKinds the auto apply subset, runKinds the confirm chip subset,
+ *  retiredKinds the recognized but rejected kinds, and presets the
+ *  expansion of each setup preset. Consumed by buildBasetenMessages so
+ *  the prompt, the validator, and the console auto apply set cannot
+ *  drift. Never throws. */
+export interface ActionContractSummary {
+    kinds: string[];
+    setupKinds: string[];
+    runKinds: string[];
+    retiredKinds: string[];
+    presets: PresetContract[];
+}
+
+function presetContractFor(id: string, actionKind: string): PresetContract {
+    try {
+        const request =
+            id === "shedding"
+                ? { preset: "shedding" as const }
+                : id === "high_re_wake"
+                    ? { preset: "high_re_wake" as const }
+                    : id === "airfoil"
+                        ? { preset: "airfoil" as const }
+                        : { preset: "high_pressure" as const };
+        const expanded = expandCasePreset(request);
+        if (!expanded.ok) {
+            return {
+                id,
+                actionKind,
+                retired: true,
+                body: null,
+                alphaDeg: null,
+                reynolds: null,
+                field: null,
+                note: expanded.reason,
+            };
+        }
+        let body: string | null = null;
+        let alphaDeg: number | null = null;
+        let reynolds: number | null = null;
+        let field: string | null = null;
+        for (const a of expanded.actions) {
+            if (a.kind === "set_body") body = a.body;
+            else if (a.kind === "set_alpha") alphaDeg = a.alphaDeg;
+            else if (a.kind === "set_reynolds") reynolds = a.reynolds;
+            else if (a.kind === "set_field") field = a.field;
+        }
+        return { id, actionKind, retired: false, body, alphaDeg, reynolds, field, note: expanded.domainNote };
+    } catch {
+        return { id, actionKind, retired: true, body: null, alphaDeg: null, reynolds: null, field: null, note: "preset contract unreadable" };
+    }
+}
+
+export function actionContractSummary(): ActionContractSummary {
+    return {
+        kinds: [...ACTION_KINDS],
+        setupKinds: [...SETUP_ACTION_KINDS],
+        runKinds: [...RUN_ACTION_KINDS],
+        retiredKinds: [...RETIRED_ACTION_KINDS],
+        presets: [
+            presetContractFor("shedding", "setup_shedding"),
+            presetContractFor("high_re_wake", "setup_high_re_wake"),
+            presetContractFor("airfoil", "setup_airfoil"),
+            presetContractFor("high_pressure", "setup_high_pressure"),
+        ],
+    };
+}
+
 /** Upper bound on actions accepted from one envelope, so a rambling model
  *  reply cannot queue unbounded canvas writes. */
 export const MAX_ENVELOPE_ACTIONS = 5;
@@ -120,7 +224,7 @@ function expandedCasePoint(actions: AgentAction[]): { body: string; alphaDeg: nu
  * alpha envelope [-180, 180] with the characterized band flagged downstream,
  * and reynolds in [1000, 1000000]. Trusted setup_* preset actions bypass
  * that Re floor on the preset path (shedding carries its own validated Re
- * 100). Gated k and recirc fields need
+ * 100, high_re_wake Re 700, airfoil Re 1200). Gated k and recirc fields need
  * the channel plus the first stats sample. run_lbm needs the LBM engine
  * effective. Trusted setup presets expand through expandCasePreset and the
  * neural envelope gates them only while neuralAvailable is true, with an
@@ -202,16 +306,26 @@ export function validateAgentAction(action: unknown, ctx: AgentValidationContext
         }
         // Trusted preset entry points. The setup_* actions expand through
         // expandCasePreset and carry their own validated Re (shedding uses
-        // Re 100), so they bypass the per-action envelope Re floor above.
+        // Re 100, high_re_wake uses Re 700, airfoil uses Re 1200), so they
+        // bypass the per-action envelope Re floor above.
         // The App executor must apply the expansion, not the bare primitive.
+        // setup_high_pressure is retired: the expansion always fails with
+        // the honest divergence reason, never actions.
         // While neuralAvailable is true the expanded point is also gated by
         // classifyNeuralDomain with an honest bound plus nearest alternative.
-        if (kind === "setup_shedding" || kind === "setup_high_pressure" || kind === "setup_airfoil") {
+        if (
+            kind === "setup_shedding" ||
+            kind === "setup_high_pressure" ||
+            kind === "setup_high_re_wake" ||
+            kind === "setup_airfoil"
+        ) {
             const request = kind === "setup_shedding"
                 ? { preset: "shedding" as const }
                 : kind === "setup_high_pressure"
                     ? { preset: "high_pressure" as const, body: action.body as string | undefined }
-                    : { preset: "airfoil" as const, body: action.body as string | undefined, alphaDeg: action.alphaDeg as number | undefined };
+                    : kind === "setup_high_re_wake"
+                        ? { preset: "high_re_wake" as const }
+                        : { preset: "airfoil" as const, body: action.body as string | undefined, alphaDeg: action.alphaDeg as number | undefined };
             const expanded = expandCasePreset(request);
             if (!expanded.ok) {
                 return { ok: false, reason: expanded.reason ?? "preset setup rejected", action: null };
@@ -222,6 +336,7 @@ export function validateAgentAction(action: unknown, ctx: AgentValidationContext
                 if (gated !== null) return { ok: false, reason: gated, action: null };
             }
             if (kind === "setup_shedding") return { ok: true, reason: null, action: { kind: "setup_shedding" } };
+            if (kind === "setup_high_re_wake") return { ok: true, reason: null, action: { kind: "setup_high_re_wake" } };
             if (kind === "setup_high_pressure") {
                 const out: AgentAction = action.body === undefined
                     ? { kind: "setup_high_pressure" }

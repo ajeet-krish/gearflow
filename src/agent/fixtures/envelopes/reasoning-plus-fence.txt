@@ -1,0 +1,5 @@
+Let me reason: the user asked for NACA 2412 at alpha 6, so I will emit a body plus alpha envelope.
+```action-json
+{"actions": [{"kind": "set_body", "body": "naca2412"}, {"kind": "set_alpha", "alphaDeg": 6}]}
+```
+This applies the requested case.

@@ -12,7 +12,9 @@ import type { AgentAction, ChatTurn } from "@/contracts/types";
 import type { AgentContext } from "@/agent/agentContext";
 import { BasetenClient, type BasetenChatResult, type BasetenMessage, type BasetenStreamChunk } from "@/agent/basetenClient";
 import { BASETEN_MODEL_ID } from "@/agent/basetenGate";
-import { parseAgentEnvelope, type AgentValidationContext } from "@/agent/agentActions";
+import { actionContractSummary, parseAgentEnvelope, validateAgentAction, type AgentValidationContext } from "@/agent/agentActions";
+import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/agent/airfoilIntent";
+import { expandCasePreset } from "@/agent/casePresets";
 import { cachedChat } from "@/agent/agentCache";
 import { localReply } from "@/agent/localAssistant";
 import { PROVISIONAL_NEURAL_ENVELOPE } from "@/flow/neuralDomain";
@@ -60,6 +62,13 @@ export const BASETEN_TIMEOUT_MS = 15000;
 export const STREAM_FLUSH_MS = 50;
 export const SPEND_SOFT_STOP_USD = SESSION_SPEND_CAP_USD;
 export const TRANSCRIPT_CAP = 50;
+/** Parser fast path floor: a high confidence apply (>= 0.9) skips Spark
+ *  with zero credits and zero port calls. Clarify, invalid, question, and
+ *  low confidence results fall through to the Baseten or local path. */
+export const PARSER_APPLY_CONFIDENCE = 0.9;
+/** Model attribution for zero credit parser turns. Spend stays untouched,
+ *  the badge names the local path honestly. */
+export const PARSER_LOCAL_MODEL = "parser-local";
 
 export const PRESET_CHIPS: ReadonlyArray<string> = [
     "Explain this run",
@@ -67,19 +76,13 @@ export const PRESET_CHIPS: ReadonlyArray<string> = [
     "How do I change Re",
 ];
 
-const SETUP_KINDS: ReadonlySet<string> = new Set([
-    "set_body",
-    "set_alpha",
-    "set_reynolds",
-    "set_engine",
-    "set_field",
-    "set_spec",
-    "setup_shedding",
-    "setup_high_pressure",
-    "setup_airfoil",
-]);
+/** Auto apply kinds plus confirm chip kinds, derived from the validator
+ *  contract so the console, the prompt, and the validator cannot drift.
+ *  Retired setup_high_pressure is in neither set: the validator rejects
+ *  it with the honest divergence reason before it could apply. */
+export const SETUP_KINDS: ReadonlySet<string> = new Set(actionContractSummary().setupKinds);
 
-const RUN_KINDS: ReadonlySet<string> = new Set(["run_lbm", "cancel_lbm"]);
+export const RUN_KINDS: ReadonlySet<string> = new Set(actionContractSummary().runKinds);
 
 export interface TurnExtra {
     model: string;
@@ -147,6 +150,49 @@ export function validationContextFor(ctx: AgentContext | null | undefined): Agen
     };
 }
 
+/** Prompt lines for the setup presets, derived from the validator
+ *  contract plus live expandCasePreset output so expansions and Re values
+ *  in the prompt can never drift from what the App executor applies.
+ *  Retired setup_high_pressure is labeled retired with its honest reason
+ *  plus the redirect, never a live example. */
+export function presetPromptLines(): { live: string; retired: string } {
+    const contract = actionContractSummary();
+    const parts: string[] = [];
+    for (const preset of contract.presets) {
+        if (preset.retired) continue;
+        const expanded = expandCasePreset(
+            preset.id === "shedding"
+                ? { preset: "shedding" }
+                : preset.id === "high_re_wake"
+                    ? { preset: "high_re_wake" }
+                    : { preset: "airfoil" }
+        );
+        if (!expanded.ok) continue;
+        let body = "";
+        let alpha = 0;
+        let re = 0;
+        let field = "";
+        for (const a of expanded.actions) {
+            if (a.kind === "set_body") body = a.body;
+            else if (a.kind === "set_alpha") alpha = a.alphaDeg;
+            else if (a.kind === "set_reynolds") re = a.reynolds;
+            else if (a.kind === "set_field") field = a.field;
+        }
+        if (preset.id === "airfoil") {
+            parts.push(
+                `airfoil (${preset.actionKind}) is ${body} at alpha ${alpha} Re ${re} ${field} field, honoring a named NACA body (0012, 2412, 4412) plus alpha`
+            );
+        } else {
+            parts.push(`${preset.id} (${preset.actionKind}) is ${body} alpha ${alpha} Re ${re} ${field} field`);
+        }
+    }
+    const retiredPreset = contract.presets.find((p) => p.retired);
+    const retired = retiredPreset !== undefined && retiredPreset.note !== null
+        ? `${retiredPreset.actionKind} is retired: ${retiredPreset.note}`
+        : "setup_high_pressure is retired (orifice diverges in the LBM solver), use setup_high_re_wake instead";
+    return { live: parts.join(", "), retired };
+}
+
 /** Prompt messages: system instruction plus bounded context plus recent history.
  *  Setup presets auto apply through the App executor, run and cancel render
  *  as confirm chips only, at most five validated actions per envelope. */
@@ -155,6 +201,8 @@ export function buildBasetenMessages(
     ctx: AgentContext | null | undefined,
     history: ChatTurn[]
 ): BasetenMessage[] {
+    const contract = actionContractSummary();
+    const presetLines = presetPromptLines();
     const contextJson = ctx === null || ctx === undefined ? "{}" : JSON.stringify(ctx).slice(0, 3500);
     const system: BasetenMessage = {
         role: "system",
@@ -164,8 +212,11 @@ export function buildBasetenMessages(
             "```action-json",
             '{"kind":"set_alpha","alphaDeg":6}',
             "```",
-            "Valid kinds: set_body, set_alpha, set_reynolds, set_engine, set_field, run_lbm, cancel_lbm, set_spec, setup_shedding, setup_high_pressure, setup_airfoil.",
-            "Setup presets expand atomically: shedding is cylinder alpha 0 Re 100 speed field, high pressure is orifice alpha 0 Re 1000 cp field, airfoil is the named NACA body at the given alpha (default 2412 at 6) Re 50000 speed field.",
+            `Valid kinds: ${contract.kinds.join(", ")}.`,
+            `Setup presets expand atomically: ${presetLines.live}.`,
+            presetLines.retired,
+            "For NACA codes outside 0012, 2412, and 4412, set_body cannot carry them: send one set_spec with the full parametric geometry plus reynolds plus rationale instead.",
+            "Tutor voice: when a NACA section is valid but unrealistically thick or cambered (outside 6 to 18% thickness or 0 to 9% camber), add one physics explainer sentence naming the draggy unvalidated coefficients and pointing at 12 to 15% thickness with 2 to 4% camber, then keep the applied case.",
             "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [1000, 1000000].",
             "set_engine accepts analytic or lbm only. set_field k needs TKE ready, recirc needs the mask ready. run_lbm needs LBM live and renders as a confirm chip, never auto runs.",
             "Never invent bodies, Re, or alpha: quote the envelope bounds and name the nearest in-domain case on rejection. Out of domain cases stay on the analytic path.",
@@ -193,7 +244,7 @@ function metricsContext(metrics: { cl: number; cpMin: number; reynolds: number }
     const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
     const re = num(safe.reynolds);
     return {
-        spec: { kind: "unknown", alphaDeg: null, reynolds: re === null ? null : Math.round(re) },
+        spec: { kind: "unknown", alphaDeg: null, reynolds: re === null ? null : Math.round(re), naca: null },
         reynolds: re === null ? null : Math.round(re),
         regime: "unknown regime",
         bodyLabel: "current body",
@@ -232,7 +283,8 @@ function describeAction(a: AgentAction): string {
     if (a.kind === "run_lbm") return "Run LBM";
     if (a.kind === "cancel_lbm") return "Cancel LBM";
     if (a.kind === "setup_shedding") return "vortex shedding case (cylinder, alpha 0, Re 100, speed field)";
-    if (a.kind === "setup_high_pressure") return "high pressure case (orifice, alpha 0, Re 1000, cp field)";
+    if (a.kind === "setup_high_re_wake") return "high Re wake case (cylinder, alpha 0, Re 700, speed field)";
+    if (a.kind === "setup_high_pressure") return "retired high pressure case (use setup_high_re_wake instead)";
     if (a.kind === "setup_airfoil") return "airfoil case (NACA, speed field)";
     return "custom spec";
 }
@@ -378,8 +430,67 @@ export default function AgentConsole({
         }
     }
 
-    function settleEnvelope(id: string, rawText: string): void {
-        settleParsedEnvelope(id, parseAgentEnvelope(rawText, validationCtx));
+    /** Live NACA code for relative parser edits, null off section. */
+    function currentSectionCode(): string | null {
+        try {
+            const code = agentContext?.spec?.naca?.code;
+            return typeof code === "string" && /^\d{4}$/.test(code) ? code : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /** Validate one parser apply into the shared settle shape. Zero valid
+     *  actions means the caller falls through to the model path instead of
+     *  applying half a reshape. */
+    function settleParserApply(
+        apply: AirfoilApply,
+        extraRejections: string[] = []
+    ): { reply: string; actions: AgentAction[]; rejections: string[] } {
+        const built = buildAirfoilEnvelope(
+            apply,
+            { alphaDeg: agentContext?.alphaDeg ?? null, reynolds: agentContext?.reynolds ?? null }
+        );
+        const actions: AgentAction[] = [];
+        const rejections = [...extraRejections];
+        for (const candidate of built.candidates) {
+            const checked = validateAgentAction(candidate, validationCtx);
+            if (checked.ok && checked.action !== null) actions.push(checked.action);
+            else rejections.push(checked.reason ?? "parser action rejected");
+        }
+        return { reply: built.reply, actions, rejections };
+    }
+
+    function settleEnvelope(id: string, rawText: string, userText?: string): void {
+        const parsed = parseAgentEnvelope(rawText, validationCtx);
+        // Post-rescue: the model answered with no actionable envelope, but
+        // the original request parses high confidence. Settle the parser
+        // envelope on the same path instead of leaving the canvas stale.
+        if (parsed.actions.length === 0 && typeof userText === "string" && userText.length > 0) {
+            let intent: ReturnType<typeof parseAirfoilIntent> = null;
+            try {
+                intent = parseAirfoilIntent(userText, { code: currentSectionCode() });
+            } catch {
+                intent = null;
+            }
+            if (intent !== null && intent.kind === "apply" && intent.confidence >= PARSER_APPLY_CONFIDENCE) {
+                const rescued = settleParserApply(intent, parsed.rejections);
+                // Zero-rejection gate matches the pre-intercept fast path:
+                // a partial rescue with any rejection applies nothing, keeps
+                // the model reply, surfaces the rejections, canvas unchanged.
+                if (rescued.actions.length > 0 && rescued.rejections.length === 0) {
+                    const reply = parsed.reply.trim().length > 0 ? parsed.reply : rescued.reply;
+                    settleParsedEnvelope(id, { reply, actions: rescued.actions, rejections: rescued.rejections });
+                    return;
+                }
+                if (rescued.rejections.length > 0) {
+                    const reply = parsed.reply.trim().length > 0 ? parsed.reply : rescued.reply;
+                    settleParsedEnvelope(id, { reply, actions: [], rejections: rescued.rejections });
+                    return;
+                }
+            }
+        }
+        settleParsedEnvelope(id, parsed);
     }
 
     function pushOfflineAssistant(userText: string): void {
@@ -390,7 +501,7 @@ export default function AgentConsole({
         settleParsedEnvelope(id, { reply: "", actions: envelope.actions, rejections: envelope.rejections });
     }
 
-    async function runStream(id: string, messages: BasetenMessage[], controller: AbortController): Promise<void> {
+    async function runStream(id: string, messages: BasetenMessage[], controller: AbortController, userText: string): Promise<void> {
         let fullText = "";
         let lastResult: BasetenChatResult | null = null;
         let lastFlush = Date.now();
@@ -492,7 +603,7 @@ export default function AgentConsole({
         } else {
             setExtra(id, { streaming: false });
         }
-        settleEnvelope(id, fullText);
+        settleEnvelope(id, fullText, userText);
     }
 
     async function onSubmit(raw: string): Promise<void> {
@@ -510,6 +621,29 @@ export default function AgentConsole({
             setBusy(false);
             return;
         }
+        // R3 parser fast path: a high confidence apply that validates cleanly
+        // settles locally with zero credits and zero port calls. Clarify,
+        // invalid, question, low confidence, and partially rejected envelopes
+        // fall through to the model path below (an empty model reply there
+        // surfaces the parser rejections with zero applies in settleEnvelope).
+        let fastIntent: ReturnType<typeof parseAirfoilIntent> = null;
+        try {
+            fastIntent = parseAirfoilIntent(text, { code: currentSectionCode() });
+        } catch {
+            fastIntent = null;
+        }
+        if (fastIntent !== null && fastIntent.kind === "apply" && fastIntent.confidence >= PARSER_APPLY_CONFIDENCE) {
+            const fast = settleParserApply(fastIntent);
+            if (fast.actions.length > 0 && fast.rejections.length === 0) {
+                const id = nextId();
+                pushTurn({ id, role: "assistant", at: nowIso(), text: "", tool: "baseten", status: "live" });
+                setExtra(id, makeExtra({ streaming: false, model: PARSER_LOCAL_MODEL, inputTokens: 0, outputTokens: 0, costUsd: 0 }));
+                settleParsedEnvelope(id, { reply: fast.reply, actions: fast.actions, rejections: fast.rejections });
+                busyRef.current = false;
+                setBusy(false);
+                return;
+            }
+        }
         const controller = new AbortController();
         abortRef.current = controller;
         const id = nextId();
@@ -517,7 +651,7 @@ export default function AgentConsole({
         setExtra(id, makeExtra({ streaming: true }));
         try {
             const messages = buildBasetenMessages(text, agentContext ?? null, [...turns, userTurn]);
-            await runStream(id, messages, controller);
+            await runStream(id, messages, controller, text);
         } finally {
             abortRef.current = null;
             busyRef.current = false;

@@ -1,0 +1,4 @@
+Retired case probe.
+```action-json
+{"reply": "Trying the retired case.", "actions": [{"kind": "setup_high_pressure"}]}
+```

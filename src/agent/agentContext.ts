@@ -97,8 +97,18 @@ export interface AgentLbmStats {
     strouhal: number | null;
 }
 
+/** NACA section snapshot so relative parser edits (thicker, more camber)
+ *  resolve against the live section instead of guessing a code. Null for
+ *  non NACA bodies. */
+export interface AgentNacaSnapshot {
+    code: string;
+    m: number;
+    p: number;
+    t: number;
+}
+
 export interface AgentContext {
-    spec: { kind: string; alphaDeg: number | null; reynolds: number | null };
+    spec: { kind: string; alphaDeg: number | null; reynolds: number | null; naca: AgentNacaSnapshot | null };
     reynolds: number | null;
     regime: string;
     bodyLabel: string;
@@ -152,6 +162,24 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
         const cpRaw = finiteOrNull(snap.cpMin);
         const statsIn = snap.lbmStats ?? null;
         let stats: AgentLbmStats | null = null;
+        let naca: AgentNacaSnapshot | null = null;
+        try {
+            const nacaRaw = (specRaw as { naca?: unknown }).naca as
+                | { code?: unknown; m?: unknown; p?: unknown; t?: unknown }
+                | null
+                | undefined;
+            if (kind === "naca4" && typeof nacaRaw === "object" && nacaRaw !== null) {
+                const code = typeof nacaRaw.code === "string" && /^\d{4}$/.test(nacaRaw.code) ? nacaRaw.code : null;
+                const m = finiteOrNull(nacaRaw.m);
+                const p = finiteOrNull(nacaRaw.p);
+                const t = finiteOrNull(nacaRaw.t);
+                if (code !== null && m !== null && p !== null && t !== null) {
+                    naca = { code, m, p, t };
+                }
+            }
+        } catch {
+            naca = null;
+        }
         if (snap.lbmStatsReady === true && statsIn !== null && typeof statsIn === "object") {
             const samples = cleanStep((statsIn as LbmStats).samples);
             const step = cleanStep((statsIn as LbmStats).step);
@@ -219,6 +247,7 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
                 kind,
                 alphaDeg: alphaRaw === null ? null : round4(alphaRaw),
                 reynolds: reRaw === null ? null : Math.round(reRaw),
+                naca,
             },
             reynolds: reRaw === null ? null : Math.round(reRaw),
             regime: cleanLabel(snap.regime, LABEL_MAX, "unknown regime"),
@@ -269,7 +298,7 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
         return ctx;
     } catch {
         return {
-            spec: { kind: "unknown", alphaDeg: null, reynolds: null },
+            spec: { kind: "unknown", alphaDeg: null, reynolds: null, naca: null },
             reynolds: null,
             regime: "unknown regime",
             bodyLabel: "unknown body",

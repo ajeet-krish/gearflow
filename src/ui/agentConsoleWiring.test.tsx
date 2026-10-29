@@ -577,3 +577,121 @@ describe("agent console spend gate", () => {
         }
     });
 });
+
+describe("agent console parser fast path (R3)", () => {
+    it("settles high confidence applies with zero port calls", async () => {
+        const ctx = buildAgentContext(pendingSnapshot() as never);
+        expect(ctx.spec.naca?.code).toBe("2412");
+        const onAgentAction = vi.fn();
+        const counter = { streams: 0, chats: 0 };
+        const m = mountConsole({
+            offline: false,
+            onOfflineChange: () => {},
+            agentContext: ctx,
+            onAgentAction,
+            chatClient: streamingPort(SETUP_ENVELOPE, counter),
+            initialTurns: [],
+        });
+        typeText(m, "Set up NACA 2412 alpha 6 Re 50000");
+        submitForm(m);
+        await flush();
+        try {
+            expect(counter.streams).toBe(0);
+            expect(counter.chats).toBe(0);
+            expect(onAgentAction).toHaveBeenCalledTimes(3);
+            expect(onAgentAction).toHaveBeenNthCalledWith(1, { kind: "set_body", body: "naca2412" });
+            expect(onAgentAction).toHaveBeenNthCalledWith(2, { kind: "set_alpha", alphaDeg: 6 });
+            expect(onAgentAction).toHaveBeenNthCalledWith(3, { kind: "set_reynolds", reynolds: 50000 });
+            expect(m.text()).toContain("Applying NACA 2412, alpha 6, Re 50000.");
+            expect(m.text()).toContain("Applied: body naca2412.");
+        } finally {
+            m.unmount();
+        }
+    });
+
+    it("falls through to exactly one port call on ambiguous input", async () => {
+        const ctx = buildAgentContext(pendingSnapshot() as never);
+        const onAgentAction = vi.fn();
+        const counter = { streams: 0, chats: 0 };
+        const m = mountConsole({
+            offline: false,
+            onOfflineChange: () => {},
+            agentContext: ctx,
+            onAgentAction,
+            chatClient: streamingPort("Which section did you mean? Reply with one 4-digit code.", counter),
+            initialTurns: [],
+        });
+        typeText(m, "naka 24112");
+        submitForm(m);
+        await flush();
+        try {
+            expect(counter.streams).toBe(1);
+            expect(onAgentAction).not.toHaveBeenCalled();
+            expect(m.text()).toContain("Which section did you mean?");
+            expect(m.text()).not.toContain("Applied:");
+        } finally {
+            m.unmount();
+        }
+    });
+
+    it("blocks partial rescue when the parser envelope carries a rejection", async () => {
+        const ctx = buildAgentContext(pendingSnapshot() as never);
+        const onAgentAction = vi.fn();
+        const counter = { streams: 0, chats: 0 };
+        const m = mountConsole({
+            offline: false,
+            onOfflineChange: () => {},
+            agentContext: ctx,
+            onAgentAction,
+            chatClient: streamingPort("Sure, setting that up now.", counter),
+            initialTurns: [],
+        });
+        // Alpha 200 misses the hard envelope, so the fast path yields to the
+        // model; the model answers with no envelope. The zero-rejection gate
+        // matches the pre-intercept rule: the valid subset stays unapplied,
+        // the model reply plus the alpha rejection render, canvas unchanged.
+        typeText(m, "Set up NACA 2412 alpha 200 Re 50000");
+        submitForm(m);
+        await flush();
+        try {
+            expect(counter.streams).toBe(1);
+            expect(onAgentAction).not.toHaveBeenCalled();
+            expect(m.text()).toContain("Sure, setting that up now.");
+            expect(m.text()).toContain("Rejected:");
+            expect(m.text()).toContain("outside [-180, 180]");
+            expect(m.text()).not.toContain("Applied:");
+        } finally {
+            m.unmount();
+        }
+    });
+
+    it("blocks partial rescue on a rejected reynolds edit with zero canvas writes", async () => {
+        const ctx = buildAgentContext(pendingSnapshot() as never);
+        const onAgentAction = vi.fn();
+        const counter = { streams: 0, chats: 0 };
+        const m = mountConsole({
+            offline: false,
+            onOfflineChange: () => {},
+            agentContext: ctx,
+            onAgentAction,
+            chatClient: streamingPort("Noted, holding the current case.", counter),
+            initialTurns: [],
+        });
+        // Re 5 misses the [1000, 1000000] envelope, so the fast path yields
+        // to the model and the rescue must apply nothing while surfacing
+        // the reynolds rejection next to the model reply.
+        typeText(m, "Set up NACA 2412 alpha 6 Re 5");
+        submitForm(m);
+        await flush();
+        try {
+            expect(counter.streams).toBe(1);
+            expect(onAgentAction).not.toHaveBeenCalled();
+            expect(m.text()).toContain("Noted, holding the current case.");
+            expect(m.text()).toContain("Rejected:");
+            expect(m.text()).toContain("outside [1000, 1000000]");
+            expect(m.text()).not.toContain("Applied:");
+        } finally {
+            m.unmount();
+        }
+    });
+});

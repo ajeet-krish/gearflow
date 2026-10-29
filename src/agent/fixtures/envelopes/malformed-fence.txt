@@ -1,0 +1,4 @@
+Here is the case.
+```action-json
+{not valid json
+```

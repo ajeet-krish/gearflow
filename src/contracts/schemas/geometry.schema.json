@@ -13,7 +13,7 @@
         "code": { "type": "string", "minLength": 4, "maxLength": 4 },
         "m": { "type": "number", "minimum": 0, "maximum": 0.09 },
         "p": { "type": "number", "minimum": 0.2, "maximum": 0.8 },
-        "t": { "type": "number", "minimum": 0.06, "maximum": 0.18 }
+        "t": { "type": "number", "minimum": 0.06, "maximum": 0.4 }
       }
     },
     "chord": { "type": "number" },

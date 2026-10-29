@@ -15,17 +15,31 @@ import {
 import { EXTENT_MAX } from "@/contracts/schema";
 import { migrateDuctToOrifice } from "@/geometry/parametric";
 
-/** Token shown by the BODY select for a spec. Unknown NACA codes fall back to the 2412 slot. */
+/** Token shown by the BODY select for a spec. Any valid 4-digit NACA code
+ *  returns its own naca<code> token so the rail names the real section
+ *  (6415 no longer shows as 2412). Unknown or missing codes fall back to
+ *  the 2412 slot. */
 export function bodySelectValue(spec: GeometrySpec): string {
     if (spec.kind === "naca4") {
         const code = spec.naca?.code;
-        if (code === "0012" || code === "2412" || code === "4412") {
+        if (typeof code === "string" && /^\d{4}$/.test(code)) {
             return `naca${code}`;
         }
         return "naca2412";
     }
     return spec.kind;
 }
+
+/** Canonical BODY select tokens. The select renders one extra dynamic
+ *  NACA XXXX (custom) option for any other valid code. */
+export const CANONICAL_BODY_VALUES: ReadonlySet<string> = new Set([
+    "naca0012",
+    "naca2412",
+    "naca4412",
+    "cylinder",
+    "block",
+    "orifice",
+]);
 
 /** Block dims keep any schema valid extent, out of envelope values reset. */
 const BLOCK_EXTENT_MIN = 0.1;

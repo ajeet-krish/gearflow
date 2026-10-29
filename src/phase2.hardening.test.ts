@@ -324,7 +324,7 @@ describe("phase2 provider cache and UI contract", () => {
     expect(ALPHA_HARD_MIN).toBe(-180);
     expect(ALPHA_HARD_MAX).toBe(180);
     expect(NACA_T_MIN).toBe(0.06);
-    expect(NACA_T_MAX_ENV).toBe(0.18);
+    expect(NACA_T_MAX_ENV).toBe(0.4);
     const src = fs.readFileSync(path.join(process.cwd(), "src/ui/FlowControls.tsx"), "utf8");
     expect(src).toMatch(/min=\{-4\}/);
     expect(src).toMatch(/max=\{12\}/);

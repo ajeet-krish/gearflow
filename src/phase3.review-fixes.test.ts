@@ -260,7 +260,7 @@ describe("review Major: production-shape sync gate with analytic fallback", () =
     expect(provider.meta.cached).toBe(true);
     provider.setGeometry({
       kind: "naca4",
-      naca: { code: "2412", m: 0.02, p: 0.4, t: 0.15 },
+      naca: { code: "2415", m: 0.02, p: 0.4, t: 0.15 },
       chord: 1,
       alphaDeg: 6,
       nPoints: 12,

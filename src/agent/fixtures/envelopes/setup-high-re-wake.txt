@@ -1,0 +1,4 @@
+Applying the high Re wake case.
+```action-json
+{"reply": "Wake case.", "actions": [{"kind": "setup_high_re_wake"}]}
+```

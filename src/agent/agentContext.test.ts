@@ -124,3 +124,18 @@ describe("buildAgentContext B2 minors", () => {
         expect(low.honesty.join(" ")).toContain("Alpha -90.0 deg is outside the characterized band");
     });
 });
+
+describe("buildAgentContext naca snapshot (R3)", () => {
+    it("carries the live section code plus fractions for relative edits", () => {
+        const ctx = buildAgentContext(snapshot());
+        expect(ctx.spec.naca).toEqual({ code: "2412", m: 0.02, p: 0.4, t: 0.12 });
+    });
+
+    it("nulls the snapshot off section and on missing input", () => {
+        const cyl = snapshot({
+            spec: { kind: "cylinder", chord: 1, alphaDeg: 0, nPoints: 64, radius: 0.25 },
+        });
+        expect(buildAgentContext(cyl).spec.naca).toBeNull();
+        expect(buildAgentContext(null).spec.naca).toBeNull();
+    });
+});

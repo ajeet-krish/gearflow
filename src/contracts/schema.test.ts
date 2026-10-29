@@ -279,9 +279,25 @@ describe("alpha envelope (hard plus characterized band)", () => {
         for (const alphaDeg of [-180, 180, 45, -90]) {
             expect(() => validateGeometrySpec({ ...base(), alphaDeg })).not.toThrow();
         }
-        expect(() => validateGeometrySpec({ ...base(), naca: { code: "2006", m: 0.02, p: 0.4, t: 0.06 } })).not.toThrow();
-        expect(() => validateGeometrySpec({ ...base(), naca: { code: "2918", m: 0.02, p: 0.4, t: 0.18 } })).not.toThrow();
-        expect(() => validateGeometrySpec({ ...base(), naca: { code: "2006", m: 0, p: 0.4, t: 0.06 } })).not.toThrow();
+        expect(() => validateGeometrySpec({ ...base(), naca: { code: "2406", m: 0.02, p: 0.4, t: 0.06 } })).not.toThrow();
+        expect(() => validateGeometrySpec({ ...base(), naca: { code: "2418", m: 0.02, p: 0.4, t: 0.18 } })).not.toThrow();
+        expect(() => validateGeometrySpec({ ...base(), naca: { code: "0006", m: 0, p: 0.4, t: 0.06 } })).not.toThrow();
+    });
+
+    it("rejects a code that does not match its m/p/t fractions (2412 vs 6415)", () => {
+        const base = {
+            kind: "naca4" as const,
+            naca: { code: "2412", m: 0.06, p: 0.4, t: 0.15 },
+            chord: 1,
+            alphaDeg: 6,
+            nPoints: 60,
+        };
+        expect(() => validateGeometrySpec(base)).toThrow(/does not match/);
+        expect(() => validateGeometrySpec({ ...base, naca: { code: "6415", m: 0.06, p: 0.4, t: 0.15 } })).not.toThrow();
+        // Symmetric sections ignore p: 0012 with stored p 0.4 stays valid.
+        expect(() =>
+            validateGeometrySpec({ ...base, naca: { code: "0012", m: 0, p: 0.4, t: 0.12 } })
+        ).not.toThrow();
     });
 
     it("rejects alphaDeg outside [-180, 180]", () => {
@@ -300,9 +316,14 @@ describe("alpha envelope (hard plus characterized band)", () => {
         expect(alphaOutOfBandNote(45)).toContain("outside the characterized band");
     });
 
-    it("rejects naca params outside the slider envelope", () => {
+    it("rejects naca params outside the widened envelope (thickness to 40%)", () => {
+        // Widened per the trainer decision: 19% meshes now and only fails
+        // the tutor realistic band, while past 40% chord fails validation.
         expect(() =>
             validateGeometrySpec({ ...base(), naca: { code: "2419", m: 0.02, p: 0.4, t: 0.19 } })
+        ).not.toThrow();
+        expect(() =>
+            validateGeometrySpec({ ...base(), naca: { code: "2441", m: 0.02, p: 0.4, t: 0.41 } })
         ).toThrow(/naca\.t/);
         expect(() =>
             validateGeometrySpec({ ...base(), naca: { code: "2412", m: 0.02, p: 0.4, t: 0.05 } })
