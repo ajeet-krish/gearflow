@@ -116,7 +116,7 @@ def _patch_entrypoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, modal_tra
 
 def test_finetune_defaults_support_long_schedule() -> None:
     modal_train = _import_modal_train()
-    assert modal_train.FINETUNE_DEFAULTS["epochs"] == 200
+    assert modal_train.FINETUNE_DEFAULTS["epochs"] == 300
     assert modal_train.FINETUNE_DEFAULTS["batch"] == 8
     assert modal_train.FINETUNE_DEFAULTS["lr"] == 3e-4
     assert modal_train.FINETUNE_DEFAULTS["div_weight"] == 0.01
