@@ -5,14 +5,21 @@
 // cap, or a network fault forces local mode. Setup actions auto apply
 // through onAgentAction, run and cancel render as confirm chips only,
 // rejections render as reason text. Transcript persists capped at 50.
-// React plus plain CSS classes from the Zenith shell, no new styling deps.
+// React plus plain CSS classes from the Zenith shell, react-markdown plus
+// remark-gfm for agent and tutor prose (user turns stay plain text).
+// Tutor turns carry a badge plus a real before vs after table.
 
-import { useMemo, useRef, useState } from "react";
-import type { AgentAction, ChatTurn } from "@/contracts/types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { AgentAction, ChatTurn, FieldMode } from "@/contracts/types";
 import type { AgentContext } from "@/agent/agentContext";
 import { BasetenClient, type BasetenChatResult, type BasetenMessage, type BasetenStreamChunk } from "@/agent/basetenClient";
 import { BASETEN_MODEL_ID } from "@/agent/basetenGate";
 import { actionContractSummary, parseAgentEnvelope, validateAgentAction, type AgentValidationContext } from "@/agent/agentActions";
+import { buildTutorTable, tutorRowsText, type TutorSnapshotLite, type TutorTableRow } from "@/agent/tutorTable";
+import { detectConcept, fieldForConcept, localTutorReply, type TutorConcept, type TutorFieldSuggestion } from "@/agent/tutorPolicy";
+import { buildTutorMessages } from "@/agent/tutorPrompt";
 import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/agent/airfoilIntent";
 import { expandCasePreset } from "@/agent/casePresets";
 import { cachedChat } from "@/agent/agentCache";
@@ -62,6 +69,12 @@ export const BASETEN_TIMEOUT_MS = 15000;
 export const STREAM_FLUSH_MS = 50;
 export const SPEND_SOFT_STOP_USD = SESSION_SPEND_CAP_USD;
 export const TRANSCRIPT_CAP = 50;
+/** Phase T2 tutor hook constants. The tutor fires once the settled case key
+ *  moves past the applied key, or after the timeout with a loading line. */
+export const TUTOR_FEATURE = "tutor";
+export const TUTOR_TIMEOUT_MS = 2500;
+export const TUTOR_LOADING_LINE = "Prediction still loading, showing the pending table.";
+export const TUTOR_LOCAL_MODEL = "tutor-local";
 /** Parser fast path floor: a high confidence apply (>= 0.9) skips Spark
  *  with zero credits and zero port calls. Clarify, invalid, question, and
  *  low confidence results fall through to the Baseten or local path. */
@@ -125,6 +138,89 @@ function envOffline(): boolean {
 
 export function spendExceeded(costUsd: number, cap: number = SPEND_SOFT_STOP_USD): boolean {
     return isSoftStopped(costUsd, cap);
+}
+
+/** Phase T2 tutor lite snapshot. Maps the bounded agent context onto the
+ *  tutor table input. Finite guards throughout, labels fall back to n/a
+ *  through the table cleaner. Never throws. */
+export function snapshotLiteFor(ctx: AgentContext | null | undefined): TutorSnapshotLite {
+    try {
+        const c = (ctx ?? {}) as Partial<AgentContext>;
+        const spec = (c.spec ?? {}) as { kind?: unknown; alphaDeg?: unknown };
+        const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+        const text = (v: unknown, fallback: string): string => {
+            if (typeof v !== "string") return fallback;
+            const t = v.trim().replace(/\s+/g, " ");
+            return t.length > 0 ? t : fallback;
+        };
+        const kind = typeof spec.kind === "string" ? spec.kind : "unknown";
+        const alpha = num(c.alphaDeg ?? spec.alphaDeg);
+        const reynolds = num(c.reynolds);
+        const fieldVar = (() => {
+            const f = (c.field ?? {}) as { variable?: unknown; effective?: unknown };
+            if (typeof f.variable === "string" && f.variable.trim().length > 0) return f.variable.trim();
+            if (typeof f.effective === "string" && f.effective.trim().length > 0) return f.effective.trim();
+            return "speed";
+        })();
+        const fieldToken = `f${fieldVar}`;
+        const key = typeof c.caseKey === "string" && c.caseKey.trim().length > 0
+            ? c.caseKey.trim()
+            : `${kind}|a${alpha === null ? "?" : alpha}|Re${reynolds === null ? "?" : Math.round(reynolds)}|${text(c.neural?.path, "analytic")}|${fieldToken}`;
+        // Explicit keys from the App already carry the field token. Legacy or
+        // hand built keys without one get the field suffix so a field-only
+        // apply moves the key and cannot be mistaken for a settled repeat.
+        const keyWithField = key.includes("|f") ? key : `${key}|${fieldToken}`;
+        const pathLabel = text(c.provenanceLabel, "") !== ""
+            ? text(c.provenanceLabel, "analytic")
+            : text(c.neural?.path, "analytic");
+        const strouhal = c.surrogate?.strouhal ?? c.lbm?.stats?.strouhal ?? null;
+        return {
+            caseKey: keyWithField,
+            bodyLabel: text(c.bodyLabel, "unknown body"),
+            alpha,
+            reynolds,
+            cl: num(c.cl),
+            cpMin: num(c.cpMin),
+            regime: text(c.regime, "unknown regime"),
+            pathLabel,
+            strouhal: num(strouhal),
+        };
+    } catch {
+        return {
+            caseKey: "n/a",
+            bodyLabel: "n/a",
+            alpha: null,
+            reynolds: null,
+            cl: null,
+            cpMin: null,
+            regime: "n/a",
+            pathLabel: "n/a",
+            strouhal: null,
+        };
+    }
+}
+
+/** Pending tutor capture: the turn that applied plus the before snapshot.
+ *  The effect fires once the settled context moves past caseKeyBefore. */
+export interface PendingTutor {
+    turnId: string;
+    before: TutorSnapshotLite;
+    caseKeyBefore: string;
+    actionsSummary: string;
+    startedAt: number;
+    beforeVariable: string;
+}
+
+/** Effect shim: legacy wiring harnesses mock useState/useMemo/useRef only.
+ *  The tutor effect is skipped there (caught) instead of crashing the
+ *  transcript, spend, and gating tests. Full harnesses provide useEffect
+ *  and the tutor fires normally. */
+function useSafeEffect(fn: () => void | (() => void), deps?: unknown[]): void {
+    try {
+        useEffect(fn, deps);
+    } catch {
+        // Legacy harness without effect support: tutor stays pending.
+    }
 }
 
 /** Validation context derived from the agent snapshot, engine flag first,
@@ -304,6 +400,49 @@ function makeExtra(over: Partial<TurnExtra> = {}): TurnExtra {
     };
 }
 
+/** Phase T2 frontend: GFM table repair for tutor prose. tutorRowsText emits
+ *  a header line plus data rows with no delimiter row, which remark-gfm
+ *  would leave as plain paragraphs. Inserting the delimiter once turns the
+ *  Before vs after block into a real table. Idempotent, never throws. */
+export function tutorProseToGfm(text: string): string {
+    try {
+        const header = "Metric | Before | After | Delta";
+        if (typeof text !== "string" || !text.includes(header)) return text;
+        if (text.includes("| --- | --- | --- | ---")) return text;
+        return text.replace(header, `${header}\n| --- | --- | --- | ---`);
+    } catch {
+        return text;
+    }
+}
+
+/** Phase T2 frontend: markdown body for agent and tutor turns. GFM tables,
+ *  lists, bold, and inline code render as real elements inside the quiet
+ *  chat prose skin. Raw HTML is never parsed (no rehype plugins), links
+ *  render as inert spans, images collapse to alt text, so model output
+ *  cannot inject markup or leak network requests. Script text stays inert.
+ *  User turns never use this component: they render as plain text. */
+export function ChatMarkdown({ children }: { children: string }): React.JSX.Element {
+    return (
+        <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+                table: ({ children: tableChildren }) => (
+                    <div className="chatTableWrap">
+                        <table className="chatTable">{tableChildren}</table>
+                    </div>
+                ),
+                a: ({ children: linkChildren }) => <span className="chatLink">{linkChildren}</span>,
+                img: ({ alt }) => (
+                    <span className="chatImgAlt">{typeof alt === "string" && alt.length > 0 ? alt : "image omitted"}</span>
+                ),
+                pre: ({ children: preChildren }) => <pre className="chatPre">{preChildren}</pre>,
+            }}
+        >
+            {tutorProseToGfm(typeof children === "string" ? children : "")}
+        </ReactMarkdown>
+    );
+}
+
 export default function AgentConsole({
     spec = undefined,
     reynolds = Number.NaN,
@@ -343,6 +482,21 @@ export default function AgentConsole({
     const [spend, setSpend] = useState<SpendTotals>({ model: BASETEN_MODEL_ID, inputTokens: 0, outputTokens: 0, costUsd: 0 });
     const busyRef = useRef<boolean>(initialBusy ?? false);
     const abortRef = useRef<AbortController | null>(null);
+    // Phase T2 tutor hook state. pendingTutor captures the before snapshot
+    // at apply time, the settle effect fires once the settled context moves
+    // past the before key. firedKeys dedupes by after caseKey, suppressedKeys
+    // records manual field changes that cancel the auto set_field.
+    const [pendingTutor, setPendingTutor] = useState<PendingTutor | null>(null);
+    const pendingRef = useRef<PendingTutor | null>(null);
+    const firedKeysRef = useRef<Set<string>>(new Set());
+    const suppressedKeysRef = useRef<Set<string>>(new Set());
+    const lastVariableRef = useRef<string | null>(null);
+    const ctxRef = useRef<AgentContext | null>(agentContext ?? null);
+    ctxRef.current = agentContext ?? null;
+    // Phase T2 frontend: transcript scroll anchor. Ref callbacks never run
+    // in the effect-less test harness, so the ref stays null there and the
+    // scroll effect below is a silent no-op.
+    const logRef = useRef<HTMLDivElement | null>(null);
 
     const validationCtx = useMemo(() => validationContextFor(agentContext ?? null), [agentContext]);
     const softStopped = spendExceeded(spend.costUsd, spendCapUsd);
@@ -396,6 +550,7 @@ export default function AgentConsole({
     function settleParsedEnvelope(id: string, envelope: { reply: string; actions: AgentAction[]; rejections: string[] }): void {
         const applied: string[] = [];
         const pending: AgentAction[] = [];
+        const appliedActions: AgentAction[] = [];
         const rejections = [...envelope.rejections];
         for (const action of envelope.actions) {
             if (RUN_KINDS.has(action.kind)) {
@@ -406,6 +561,7 @@ export default function AgentConsole({
                 try {
                     onAgentAction?.(action);
                     applied.push(`Applied: ${describeAction(action)}.`);
+                    appliedActions.push(action);
                 } catch {
                     // Executor faults render as a rejection line, never throw.
                     rejections.push(`apply failed for ${action.kind}, canvas unchanged`);
@@ -427,6 +583,27 @@ export default function AgentConsole({
                 saveTurns(merged.slice(-TRANSCRIPT_CAP));
                 return merged.slice(-TRANSCRIPT_CAP);
             });
+        }
+        // Phase T2 tutor capture: run-only envelopes stay on the confirm
+        // chip with zero tutor, auto applied envelopes arm the pending hook.
+        // Applied plus rejection lines stay on this action turn, the tutor
+        // renders later as its own assistant turn.
+        if (appliedActions.length > 0) {
+            try {
+                const before = snapshotLiteFor(agentContext ?? null);
+                const next: PendingTutor = {
+                    turnId: id,
+                    before,
+                    caseKeyBefore: before.caseKey,
+                    actionsSummary: appliedActions.map((a) => a.kind).join(", "),
+                    startedAt: Date.now(),
+                    beforeVariable: (agentContext?.field?.variable ?? "speed") as string,
+                };
+                pendingRef.current = next;
+                setPendingTutor(next);
+            } catch {
+                // Tutor capture never breaks the action settle path.
+            }
         }
     }
 
@@ -492,6 +669,246 @@ export default function AgentConsole({
         }
         settleParsedEnvelope(id, parsed);
     }
+
+    /** Phase T2 tutor fire. Builds rows plus concept plus suggestion from the
+     *  before/after snapshots, renders one assistant turn with the tutor
+     *  payload, and rides at most one primary set_field through the same
+     *  validated settle path. Secondary stays chip data. Never throws. */
+    async function fireTutor(capture: PendingTutor, after: TutorSnapshotLite, timedOut: boolean): Promise<void> {
+        const key = after.caseKey;
+        if (firedKeysRef.current.has(key)) {
+            pendingRef.current = null;
+            setPendingTutor(null);
+            return;
+        }
+        firedKeysRef.current.add(key);
+        pendingRef.current = null;
+        setPendingTutor(null);
+        let rows: TutorTableRow[] = [];
+        try {
+            rows = buildTutorTable(capture.before, after);
+        } catch {
+            rows = [];
+        }
+        const ctx = ctxRef.current;
+        let concept: TutorConcept = "general";
+        try {
+            concept = detectConcept({
+                alphaDeg: after.alpha,
+                regime: after.regime,
+                bodyLabel: after.bodyLabel,
+                strouhal: after.strouhal,
+                cpMin: after.cpMin,
+            });
+        } catch {
+            concept = "general";
+        }
+        let suggestion: TutorFieldSuggestion = { primary: "speed", secondary: "cp" };
+        try {
+            suggestion = fieldForConcept(concept, {
+                current: (ctx?.field?.variable ?? "speed") as FieldMode,
+                tkeReady: ctx?.field?.hasTke === true,
+                recircReady: ctx?.field?.hasRecirc === true,
+            });
+        } catch {
+            suggestion = { primary: "speed", secondary: "cp" };
+        }
+        // Manual field change suppresses the auto set_field for this key.
+        // The tutor still renders with the table, only the canvas write is
+        // skipped. An already current primary is also a no-op.
+        let suppressed = suppressedKeysRef.current.has(key);
+        try {
+            const beforeVar = capture.beforeVariable;
+            const afterVar = typeof ctx?.field?.variable === "string" ? ctx.field.variable : "speed";
+            if (beforeVar !== afterVar) {
+                suppressed = true;
+                suppressedKeysRef.current.add(key);
+            }
+        } catch {
+            // Suppression checks never break the tutor turn.
+        }
+        if (!suppressed) {
+            try {
+                const currentVar = typeof ctx?.field?.variable === "string" ? ctx.field.variable : "speed";
+                if (suggestion.primary !== currentVar) {
+                    const checked = validateAgentAction({ kind: "set_field", field: suggestion.primary }, validationCtx);
+                    if (checked.ok && checked.action !== null) {
+                        try {
+                            onAgentAction?.(checked.action);
+                        } catch {
+                            // Tutor auto faults stay silent, the table still renders.
+                        }
+                    }
+                }
+            } catch {
+                // Tutor auto apply never breaks the tutor turn.
+            }
+        }
+        const tableText = tutorRowsText(rows);
+        const timedNote = timedOut ? `\n\n${TUTOR_LOADING_LINE}` : "";
+        const useLocal = forcedLocal || timedOut;
+        let text: string;
+        let model = TUTOR_LOCAL_MODEL;
+        if (useLocal) {
+            let local = "";
+            try {
+                local = localTutorReply(capture.before, after);
+            } catch {
+                local = "Local tutor note, local only. The run is pending, press Run for a clean solve.\n\nCaveat: pending, press Run for a clean solve.";
+            }
+            text = timedOut ? `${local}${timedNote}` : local;
+        } else {
+            try {
+                const messages = buildTutorMessages({ after: ctx, rows, concept: concept as never, suggestion });
+                const result = await port.chat(messages, { feature: TUTOR_FEATURE, timeoutMs: BASETEN_TIMEOUT_MS });
+                model = result.model;
+                recordSpend(result);
+                text = `${result.text}\n\nBefore vs after\n${tableText}${timedNote}`;
+            } catch {
+                let local = "";
+                try {
+                    local = localTutorReply(capture.before, after);
+                } catch {
+                    local = "Local tutor note, local only. The run is pending, press Run for a clean solve.\n\nCaveat: pending, press Run for a clean solve.";
+                }
+                text = timedOut ? `${local}${timedNote}` : local;
+                model = TUTOR_LOCAL_MODEL;
+            }
+        }
+        const tutorId = nextId();
+        pushTurn({
+            id: tutorId,
+            role: "assistant",
+            at: nowIso(),
+            text: text.slice(0, 2000),
+            tool: "baseten",
+            status: useLocal ? "offline" : "live",
+            tutor: {
+                concept,
+                primary: suggestion.primary,
+                secondary: suggestion.secondary,
+                rows: rows.slice(0, 12).map((r) => ({
+                    metric: String(r.metric).slice(0, 80),
+                    before: String(r.before).slice(0, 80),
+                    after: String(r.after).slice(0, 80),
+                    delta: String(r.delta).slice(0, 80),
+                })),
+                caseKey: key.slice(0, 80),
+            },
+        });
+        setExtra(tutorId, makeExtra({ streaming: false, model }));
+        try {
+            await g_evalLog.add({
+                feature: TUTOR_FEATURE,
+                model,
+                latencyMs: 0,
+                costUsd: 0,
+                costEstimated: true,
+                cached: false,
+                ok: true,
+                fallback: useLocal ? "tutor-local" : null,
+                hash: TUTOR_FEATURE,
+            });
+        } catch {
+            // Eval faults never break the tutor path.
+        }
+        try {
+            if (evalSink !== undefined && evalSink !== null) evalSink({ feature: TUTOR_FEATURE, model });
+        } catch {
+            // Optional test sink faults never break the tutor path.
+        }
+    }
+
+    // Phase T2 settle effect. Fires once the settled context moves past the
+    // applied key, or after TUTOR_TIMEOUT_MS with the loading line. Dedupes
+    // by after caseKey, never refires on rerender with the same key.
+    useSafeEffect(() => {
+        const capture = pendingRef.current;
+        if (capture === null) return;
+        const ctx = ctxRef.current;
+        try {
+            const currentVar = typeof ctx?.field?.variable === "string" ? ctx.field.variable : null;
+            if (lastVariableRef.current !== null && currentVar !== null && currentVar !== lastVariableRef.current) {
+                const curKey = typeof ctx?.caseKey === "string" && ctx.caseKey.trim().length > 0
+                    ? ctx.caseKey.trim()
+                    : snapshotLiteFor(ctx).caseKey;
+                suppressedKeysRef.current.add(curKey);
+            }
+            if (currentVar !== null) lastVariableRef.current = currentVar;
+        } catch {
+            // Manual tracking never breaks the effect.
+        }
+        const after = snapshotLiteFor(ctx);
+        if (after.caseKey === capture.caseKeyBefore) {
+            const elapsed = Date.now() - capture.startedAt;
+            if (elapsed < TUTOR_TIMEOUT_MS) {
+                const wait = TUTOR_TIMEOUT_MS - elapsed;
+                const timer = setTimeout(() => {
+                    try {
+                        const cur = pendingRef.current;
+                        if (cur === null) return;
+                        const nowCtx = ctxRef.current;
+                        const nowAfter = snapshotLiteFor(nowCtx);
+                        // Timeout with a pending capture always fires with the
+                        // loading line, even when the key never moved. Dedupe
+                        // inside fireTutor still guards repeats.
+                        void fireTutor(cur, nowAfter, true);
+                    } catch {
+                        // Timeout faults never break the console.
+                    }
+                }, wait);
+                return () => clearTimeout(timer);
+            }
+            // Elapsed past the timeout with the key unmoved: fire with the
+            // loading line instead of discarding, the contract at the top of
+            // this effect.
+            void fireTutor(capture, after, true);
+            return;
+        }
+        if (firedKeysRef.current.has(after.caseKey)) {
+            pendingRef.current = null;
+            setPendingTutor(null);
+            return;
+        }
+        const settled = ctx?.frameSettled === true;
+        const elapsed = Date.now() - capture.startedAt;
+        if (settled) {
+            void fireTutor(capture, after, false);
+            return;
+        }
+        if (elapsed >= TUTOR_TIMEOUT_MS) {
+            void fireTutor(capture, after, true);
+            return;
+        }
+        const wait = TUTOR_TIMEOUT_MS - elapsed;
+        const timer = setTimeout(() => {
+            try {
+                const cur = pendingRef.current;
+                if (cur === null) return;
+                if (firedKeysRef.current.has(snapshotLiteFor(ctxRef.current).caseKey)) {
+                    pendingRef.current = null;
+                    setPendingTutor(null);
+                    return;
+                }
+                void fireTutor(cur, snapshotLiteFor(ctxRef.current), true);
+            } catch {
+                // Timeout faults never break the console.
+            }
+        }, wait);
+        return () => clearTimeout(timer);
+    }, [agentContext, pendingTutor]);
+
+    // Phase T2 frontend: keep the latest turn in view. Quiet instant jump,
+    // no animation, so reduced motion needs no override. Runs on every
+    // transcript change, streaming flushes included.
+    useSafeEffect(() => {
+        try {
+            const el = logRef.current;
+            if (el !== null && el !== undefined) el.scrollTop = el.scrollHeight;
+        } catch {
+            // Scroll faults never break the console.
+        }
+    }, [turns]);
 
     function pushOfflineAssistant(userText: string): void {
         const id = nextId();
@@ -678,6 +1095,8 @@ export default function AgentConsole({
         }
         setTurns([]);
         setExtras({});
+        pendingRef.current = null;
+        setPendingTutor(null);
     }
 
     function onConfirmRun(turnId: string, action: AgentAction): void {
@@ -697,6 +1116,22 @@ export default function AgentConsole({
                 },
             };
         });
+    }
+
+    /** Phase T2 secondary field chip. Rides the same validated settle path
+     *  as the primary auto, gated k/recirc respected, faults stay local. */
+    function onApplyTutorField(field: FieldMode): void {
+        try {
+            const checked = validateAgentAction({ kind: "set_field", field }, validationCtx);
+            if (!checked.ok || checked.action === null) return;
+            try {
+                onAgentAction?.(checked.action);
+            } catch {
+                // Executor faults stay local to the chip control.
+            }
+        } catch {
+            // Validation faults never break the chip control.
+        }
     }
 
     return (
@@ -720,19 +1155,21 @@ export default function AgentConsole({
                     Clear chat
                 </button>
             </div>
-            <div className="chatLog" role="log" aria-label="Agent chat transcript" aria-live="polite">
+            <div className="chatLog" ref={logRef} role="log" aria-label="Agent chat transcript" aria-live="polite">
                 {turns.length === 0 && (
                     <p className="mSub">Ask to explain the run, set up NACA 2412, or change Re.</p>
                 )}
                 {turns.map((t) => {
                     const extra = extras[t.id];
                     const isAssistant = t.role === "assistant";
+                    const isTutor = isAssistant && t.tutor !== undefined && t.tutor !== null;
                     const toolText = typeof t.tool === "string" && t.tool.length > 0 ? t.tool : "legacy";
                     const statusText = typeof t.status === "string" && t.status.length > 0 ? t.status : "fallback";
                     return (
-                        <div key={t.id} className={`chatTurn ${t.role}`}>
+                        <div key={t.id} className={`chatTurn ${t.role} ${t.role === "user" ? "chatRight" : "chatLeft"}${isTutor ? " tutorTurn" : ""}`}>
                             <div className="chatHead">
-                                <span className="mono">{t.role === "user" ? "You" : "Agent"}</span>
+                                <span className="mono">{t.role === "user" ? "You" : isTutor ? "Tutor" : "Agent"}</span>
+                                {isTutor && <span className="badge tutorBadge">tutor</span>}
                                 {isAssistant && <span className="badge status-info">{toolText}</span>}
                                 {isAssistant && (
                                     <span className={`badge status-${statusText === "live" ? "pass" : statusText === "cached" ? "info" : "warn"}`}>{statusText}</span>
@@ -742,7 +1179,15 @@ export default function AgentConsole({
                                 {extra?.stopped === true && <span className="badge status-warn">stopped</span>}
                                 {(extra?.applied.length ?? 0) > 0 && <span className="badge status-pass">applied</span>}
                             </div>
-                            <p className="chatText">{t.text.length > 0 ? t.text : "Composing reply"}</p>
+                            {t.role === "user" ? (
+                                <p className="chatText">{t.text.length > 0 ? t.text : "Composing reply"}</p>
+                            ) : t.text.length > 0 ? (
+                                <div className="chatProse">
+                                    <ChatMarkdown>{t.text}</ChatMarkdown>
+                                </div>
+                            ) : (
+                                <p className="chatText">Composing reply</p>
+                            )}
                             {(extra?.applied ?? []).map((note, i) => (
                                 <p key={`applied-${i}`} className="mSub mono">{note}</p>
                             ))}
@@ -760,6 +1205,45 @@ export default function AgentConsole({
                                     Confirm {run.kind === "run_lbm" ? "Run LBM" : "Cancel LBM"}
                                 </button>
                             ))}
+                            {t.tutor !== undefined && t.tutor !== null && (
+                                <div className="tutorBlock" aria-label={`Tutor note on ${t.tutor.concept}`}>
+                                    <p className="mSub mono tutorLine">Tutor: {t.tutor.concept}, suggested field {t.tutor.primary}</p>
+                                    <div className="chatTableWrap tutorTableWrap">
+                                        <table className="chatTable tutorTable">
+                                            <caption className="visuallyHidden">Before versus after quantities</caption>
+                                            <thead>
+                                                <tr>
+                                                    <th scope="col">Quantity</th>
+                                                    <th scope="col">Before</th>
+                                                    <th scope="col">After</th>
+                                                    <th scope="col">Change</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(t.tutor.rows ?? []).map((row, i) => (
+                                                    <tr key={`tutor-row-${i}`}>
+                                                        <th scope="row">{row.metric}</th>
+                                                        <td>{row.before}</td>
+                                                        <td>{row.after}</td>
+                                                        <td>{row.delta}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {t.tutor.secondary !== null && t.tutor.secondary !== t.tutor.primary && (
+                                        <button
+                                            key="tutor-secondary"
+                                            type="button"
+                                            className="chip tutorChip"
+                                            onClick={() => onApplyTutorField(t.tutor?.secondary as FieldMode)}
+                                            aria-label={`Show ${t.tutor.secondary} field`}
+                                        >
+                                            Show {t.tutor.secondary}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     );
                 })}

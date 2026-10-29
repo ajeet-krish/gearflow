@@ -16,6 +16,15 @@ function finiteOrNull(v: unknown): number | null {
     return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+/** Probability guard for the v3 validity logit sigmoid. Rejects finite but
+ *  out-of-range values (for example 42 or -1) as null, so the model never
+ *  quotes an impossible probability. Boundaries 0 and 1 are kept. */
+function finiteProbabilityOrNull(v: unknown): number | null {
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    if (v < 0 || v > 1) return null;
+    return v;
+}
+
 function round4(v: number): number {
     return Math.round(v * 10000) / 10000;
 }
@@ -128,6 +137,7 @@ export interface AppSurrogateEvidence {
     explained?: unknown;
     harmonicValid?: unknown;
     harmonicInvalidReason?: unknown;
+    validityProbability?: unknown;
     recircFraction?: unknown;
     tkePeak?: unknown;
     vorticityPeak?: unknown;
@@ -152,6 +162,7 @@ export interface AgentSurrogateEvidence {
     explained: number | null;
     harmonicValid: boolean | null;
     harmonicInvalidReason: string | null;
+    validityProbability: number | null;
     recircFraction: number | null;
     tkePeak: number | null;
     vorticityPeak: number | null;
@@ -325,6 +336,7 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
                     explained: finiteOrNull(ev.explained),
                     harmonicValid: boolOrNull(ev.harmonicValid),
                     harmonicInvalidReason: textOrNull(ev.harmonicInvalidReason, 140),
+                    validityProbability: finiteProbabilityOrNull(ev.validityProbability),
                     recircFraction: finiteOrNull(ev.recircFraction),
                     tkePeak: finiteOrNull(ev.tkePeak),
                     vorticityPeak: finiteOrNull(ev.vorticityPeak),

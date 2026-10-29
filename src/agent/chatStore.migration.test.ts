@@ -1,7 +1,7 @@
 // Phase B2 chat store migration: old transcripts load, baseten tag survives.
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { CHAT_STORAGE_KEY, clearTurns, loadTurns } from "./chatStore";
+import { CHAT_STORAGE_KEY, clearTurns, isTutorPayload, loadTurns } from "./chatStore";
 
 /** Node test env has no DOM storage, install a memory backed stub. */
 function installMemoryStorage(): void {
@@ -75,5 +75,50 @@ describe("chatStore migration", () => {
         const loaded = loadTurns();
         expect(loaded.length).toBe(1);
         expect(loaded[0].specSnapshot).toBeUndefined();
+    });
+
+    it("rejects a tutor payload with secondary omitted so no chip renders", () => {
+        const omitted = {
+            concept: "attached-lift",
+            primary: "speed",
+            rows: [{ metric: "Cl", before: "0.600", after: "0.700", delta: "+0.100" }],
+            caseKey: "naca4|NACA 2412|a6|Re50000|analytic",
+        };
+        expect(isTutorPayload(omitted)).toBe(false);
+        const shape = {
+            version: 1,
+            turns: [
+                {
+                    id: "t1",
+                    role: "assistant",
+                    text: "Tutor note",
+                    at: "2026-01-01T00:00:04.000Z",
+                    tool: "chat",
+                    status: "live",
+                    tutor: omitted,
+                },
+            ],
+        };
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(shape));
+        const loaded = loadTurns();
+        expect(loaded.length).toBe(1);
+        expect(loaded[0].tutor).toBeUndefined();
+        const tutor = loaded[0].tutor;
+        const showsChip = tutor !== undefined
+            && tutor !== null
+            && tutor.secondary !== null
+            && tutor.secondary !== tutor.primary;
+        expect(showsChip).toBe(false);
+    });
+
+    it("keeps a tutor payload with an explicit null secondary and no chip", () => {
+        const nulled = {
+            concept: "attached-lift",
+            primary: "speed",
+            secondary: null,
+            rows: [{ metric: "Cl", before: "0.600", after: "0.700", delta: "+0.100" }],
+            caseKey: "naca4|NACA 2412|a6|Re50000|analytic",
+        };
+        expect(isTutorPayload(nulled)).toBe(true);
     });
 });

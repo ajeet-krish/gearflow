@@ -243,4 +243,21 @@ describe("buildAgentContext T1 surrogate evidence, caseKey, frameSettled", () =>
             buildAgentContext(snapshot({ frameSettled: "true" as unknown as boolean })).frameSettled
         ).toBe(false);
     });
+
+    it("nulls out-of-range validityProbability instead of quoting it", () => {
+        const high = buildAgentContext(snapshot({ surrogate: { validityProbability: 42 } }));
+        expect(high.surrogate?.validityProbability).toBeNull();
+        const negative = buildAgentContext(snapshot({ surrogate: { validityProbability: -1 } }));
+        expect(negative.surrogate?.validityProbability).toBeNull();
+        const aboveOne = buildAgentContext(snapshot({ surrogate: { validityProbability: 1.5 } }));
+        expect(aboveOne.surrogate?.validityProbability).toBeNull();
+        const nonFinite = buildAgentContext(snapshot({ surrogate: { validityProbability: Number.NaN } }));
+        expect(nonFinite.surrogate?.validityProbability).toBeNull();
+        const zero = buildAgentContext(snapshot({ surrogate: { validityProbability: 0 } }));
+        expect(zero.surrogate?.validityProbability).toBe(0);
+        const one = buildAgentContext(snapshot({ surrogate: { validityProbability: 1 } }));
+        expect(one.surrogate?.validityProbability).toBe(1);
+        const mid = buildAgentContext(snapshot({ surrogate: { validityProbability: 0.9 } }));
+        expect(mid.surrogate?.validityProbability).toBeCloseTo(0.9, 5);
+    });
 });

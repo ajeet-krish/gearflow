@@ -251,6 +251,17 @@ export const DEFAULT_GRID: GridSpec = { nx: 128, ny: 128, domain: DEFAULT_DOMAIN
 
 /** Phase 6 conversational agent, display, and resolution contracts. */
 
+/** Phase T2 tutor payload. Rows carry the before vs after table, concept
+ *  names the taught idea, primary/secondary carry the field suggestion.
+ *  Stored on the assistant turn so reloads keep the table without recall. */
+export interface TutorPayload {
+    concept: string;
+    primary: FieldMode;
+    secondary: FieldMode | null;
+    rows: Array<{ metric: string; before: string; after: string; delta: string }>;
+    caseKey: string;
+}
+
 /** One chat transcript row in the agent console. */
 export interface ChatTurn {
     id: string;
@@ -261,6 +272,7 @@ export interface ChatTurn {
     status?: "live" | "cached" | "fallback" | "offline";
     applied?: boolean;
     specSnapshot?: ParametricSpec;
+    tutor?: TutorPayload;
 }
 
 /** Structured action the agent can take on a turn. */

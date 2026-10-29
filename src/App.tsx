@@ -117,6 +117,51 @@ function describeSolveError(e: unknown): string {
     return raw.length > 220 ? `${raw.slice(0, 217)}...` : raw;
 }
 
+/** Phase T2 apply receipt. Additive return on the agent executor: the
+ *  canvas behavior is unchanged, callers that ignore the return see the
+ *  same writes. applied lists the actions that wrote canvas state, gated
+ *  lists the human readable gate notes for actions that did not. */
+export interface ApplyReceipt {
+    applied: AgentAction[];
+    gated: string[];
+    summary: string;
+}
+
+/** One line summary for an apply receipt. Names applied kinds first, then
+ *  gated notes, so console and test logs stay readable. Never throws. */
+export function describeApplyReceipt(applied: AgentAction[], gated: string[]): string {
+    try {
+        const names = applied.map((a) => a.kind);
+        if (names.length === 0 && gated.length === 0) return "no-op, canvas unchanged";
+        if (names.length > 0 && gated.length === 0) return `applied ${names.join(", ")}`;
+        if (names.length === 0) return `gated ${gated.join("; ")}`;
+        return `applied ${names.join(", ")}, gated ${gated.join("; ")}`;
+    } catch {
+        return "apply settled";
+    }
+}
+
+/** LBM run outcome for the T2 apply receipt. Started means the worker run
+ *  was posted, blocked means the preflight gate held it. Never throws. */
+export type LbmRunOutcome = "started" | "blocked";
+
+/** Build the run_lbm apply receipt from the preflight outcome. A blocked
+ *  run lands in gated with a block note, never in applied, so the receipt
+ *  cannot claim a run that never started. Never throws. */
+export function receiptForLbmRun(action: AgentAction, outcome: LbmRunOutcome, blockReason?: string): ApplyReceipt {
+    try {
+        if (outcome === "blocked") {
+            const note = blockReason !== undefined && blockReason.length > 0
+                ? `run_lbm blocked by preflight: ${blockReason}`
+                : "run_lbm blocked by preflight gate, resolve the block notice before running";
+            return { applied: [], gated: [note], summary: describeApplyReceipt([], [note]) };
+        }
+        return { applied: [action], gated: [], summary: describeApplyReceipt([action], []) };
+    } catch {
+        return { applied: [], gated: ["run_lbm receipt unavailable"], summary: "apply settled" };
+    }
+}
+
 /** Zero field used only when the very first solve fails (no last good yet). */
 function emptyFrame(): SolvedFrame {
     const n = DEFAULT_GRID.nx * DEFAULT_GRID.ny;
@@ -1429,7 +1474,7 @@ export default function App() {
     // current state and keeps the last snapshot on screen. Run first passes
     // the pre-flight gate: a hard block never starts the worker and lands
     // in the notice stack plus the run log, warnings allow Run with a note.
-    const onLbmRun = useCallback(() => {
+    const onLbmRun = useCallback((): LbmRunOutcome => {
         try {
             const gate = preflightLbm(
                 debouncedSpec,
@@ -1441,7 +1486,7 @@ export default function App() {
                 const reason = gate.blockReasons.join(" ");
                 setLbmNotice(reason);
                 appendRunLog({ step: lbmProgressRef.current.step, message: `Run blocked: ${reason}`, level: "block" });
-                return;
+                return "blocked";
             }
             if (gate.warnings.length > 0) {
                 const note = gate.warnings.join(" ");
@@ -1449,8 +1494,10 @@ export default function App() {
                 appendRunLog({ step: lbmProgressRef.current.step, message: note, level: "warn" });
             }
             lbmClientRef.current?.run();
+            return "started";
         } catch {
             // Run must never throw out of the button handler.
+            return "blocked";
         }
     }, [debouncedSpec, lbmGrid.nx, lbmGrid.ny, lbmULattice, debouncedRe, appendRunLog]);
     const onLbmCancel = useCallback(() => {
@@ -1551,7 +1598,15 @@ export default function App() {
     // overlays), and presets never arm LBM. Canvas plus sim settings update
     // on the next render from state. A failed preset surfaces its reason to
     // the console instead of silently doing nothing.
-    const applyAgentAction = useCallback((action: AgentAction) => {
+    // Phase T2: returns an ApplyReceipt (additive, behavior unchanged).
+    // Gated set_field and rejected engine tokens land in gated, everything
+    // that writes canvas state lands in applied.
+    const applyAgentAction = useCallback((action: AgentAction): ApplyReceipt => {
+        const finish = (applied: AgentAction[], gated: string[]): ApplyReceipt => ({
+            applied,
+            gated,
+            summary: describeApplyReceipt(applied, gated),
+        });
         if (action.kind === "setup_shedding" || action.kind === "setup_high_pressure" || action.kind === "setup_high_re_wake" || action.kind === "setup_airfoil") {
             const request = action.kind === "setup_shedding"
                 ? { preset: "shedding" as const }
@@ -1562,63 +1617,84 @@ export default function App() {
                         : { preset: "airfoil" as const, body: action.body, alphaDeg: action.alphaDeg };
             const expanded = expandCasePreset(request);
             if (!expanded.ok) {
-                console.warn(`setup preset rejected: ${expanded.reason ?? "unknown reason"}`);
-                return;
+                const reason = expanded.reason ?? "unknown reason";
+                console.warn(`setup preset rejected: ${reason}`);
+                return finish([], [`setup preset rejected: ${reason}`]);
             }
+            const applied: AgentAction[] = [];
+            const gated: string[] = [];
             for (const prim of expanded.actions) {
                 if (prim.kind === "set_body") {
                     const next = applyBodyPreset(spec, prim.body);
                     if (next !== spec) setSpec(next);
+                    applied.push(prim);
                 } else if (prim.kind === "set_alpha") {
                     onAlphaBar(prim.alphaDeg);
+                    applied.push(prim);
                 } else if (prim.kind === "set_reynolds") {
                     onReynoldsBar(prim.reynolds);
+                    applied.push(prim);
                 } else if (prim.kind === "set_field") {
+                    if (prim.field === "k" && !hasTke) {
+                        gated.push("set_field k gated until the first LBM statistics sample");
+                        continue;
+                    }
+                    if (prim.field === "recirc" && !hasRecirc) {
+                        gated.push("set_field recirc gated until the first LBM statistics sample");
+                        continue;
+                    }
                     onVariable(prim.field);
+                    applied.push(prim);
                 }
             }
-            return;
+            return finish(applied, gated);
         }
         if (action.kind === "set_body") {
             const next = applyBodyPreset(spec, action.body);
             if (next !== spec) setSpec(next);
-            return;
+            return finish([action], []);
         }
         if (action.kind === "set_alpha") {
             onAlphaBar(action.alphaDeg);
-            return;
+            return finish([action], []);
         }
         if (action.kind === "set_reynolds") {
             onReynoldsBar(action.reynolds);
-            return;
+            return finish([action], []);
         }
         if (action.kind === "set_engine") {
             if (action.engine === "analytic") {
                 setLbmArmedAndMirror(false);
+                return finish([action], []);
             } else if (action.engine === "lbm") {
                 setLbmArmedAndMirror(true);
+                return finish([action], []);
             } else {
-                return;
+                return finish([], [`set_engine ${action.engine} needs engine in [analytic, lbm]`]);
             }
-            return;
         }
         if (action.kind === "set_field") {
-            if (action.field === "k" && !hasTke) return;
-            if (action.field === "recirc" && !hasRecirc) return;
+            if (action.field === "k" && !hasTke) return finish([], ["set_field k gated until the first LBM statistics sample"]);
+            if (action.field === "recirc" && !hasRecirc) return finish([], ["set_field recirc gated until the first LBM statistics sample"]);
             onVariable(action.field);
-            return;
+            return finish([action], []);
         }
         if (action.kind === "run_lbm") {
-            onLbmRun();
-            return;
+            const outcome = onLbmRun();
+            if (outcome === "blocked") {
+                return receiptForLbmRun(action, "blocked");
+            }
+            return receiptForLbmRun(action, "started");
         }
         if (action.kind === "cancel_lbm") {
             onLbmCancel();
-            return;
+            return finish([action], []);
         }
         if (action.kind === "set_spec") {
             applyParametric(action.spec);
+            return finish([action], []);
         }
+        return finish([], ["unknown action kind, canvas unchanged"]);
     }, [spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setLbmArmedAndMirror, applyParametric]);
 
     // Telemetry engine word. Short uppercase token for the status strip.
@@ -1656,7 +1732,40 @@ export default function App() {
     // Neural availability mirrors the served neural frame, the envelope
     // summary quotes the provisional envelope, and the displayed path names
     // the solver path actually rendered this frame.
-    const agentSnapshot: AppSnapshot = useMemo(() => ({
+    // Phase T2: the snapshot also carries the stable caseKey (kind, body,
+    // alpha, rounded Re, solver path, displayed field), the settled
+    // flag, the neural scalars (strouhal, explained, validityProbability,
+    // harmonic reason), and the analytic baseline Cl/CpMin plus deltas for
+    // the tutor before vs after table. All additive, all finite guarded
+    // downstream by buildAgentContext.
+    const agentSnapshot: AppSnapshot = useMemo(() => {
+        const caseKey = `${debouncedSpec.kind}|${nacaCode ?? bodySelectValue}|a${debouncedSpec.alphaDeg}|Re${Math.round(debouncedRe)}|${solverPath}|f${effectiveVariable}`;
+        const settled = isFixture
+            ? true
+            : solveError !== null
+                ? false
+                : lbmEffective
+                    ? lbmHasSnapshot
+                    : isNeuralV3Pending || isNeuralPending
+                        ? false
+                        : true;
+        const analyticCl = solved.frame.cl;
+        const analyticCpMin = solved.frame.cpMin;
+        const liveCl = frame.cl;
+        const liveCp = frame.cpMin;
+        const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+        const aCl = finite(analyticCl);
+        const aCp = finite(analyticCpMin);
+        const lCl = finite(liveCl);
+        const lCp = finite(liveCp);
+        const strouhal = neuralV3Keyed?.strouhal ?? lbmStats?.strouhal ?? null;
+        const explained = neuralV3Keyed?.explained ?? null;
+        const harmonicValid = neuralV3Keyed?.harmonicValid ?? null;
+        const harmonicInvalidReason = neuralV3Keyed?.harmonicInvalidReason ?? null;
+        const validityProbability = typeof flow.validityProbability === "number" && Number.isFinite(flow.validityProbability) && flow.validityProbability >= 0 && flow.validityProbability <= 1
+            ? flow.validityProbability
+            : null;
+        return {
         spec: debouncedSpec,
         reynolds: debouncedRe,
         regime,
@@ -1681,7 +1790,33 @@ export default function App() {
         neuralAvailable: isNeuralActive || isNeuralV3Active,
         neuralEnvelopeSummary: `provisional neural envelope [${PROVISIONAL_NEURAL_ENVELOPE.kinds.join(", ")}], alpha [${PROVISIONAL_NEURAL_ENVELOPE.alphaMin}, ${PROVISIONAL_NEURAL_ENVELOPE.alphaMax}], Re [${PROVISIONAL_NEURAL_ENVELOPE.reMin}, ${PROVISIONAL_NEURAL_ENVELOPE.reMax}], ${PROVISIONAL_NEURAL_ENVELOPE.note}`,
         displayedPath: solverPath,
-    }), [debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, lbmArmed, flow, frame, lbmStatus, lbmHasSnapshot, lbmEffective, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline, isNeuralActive, isNeuralV3Active, solverPath]);
+        caseKey,
+        frameSettled: settled,
+        surrogate: {
+            path: solverPath,
+            honestyState: neuralV3Keyed !== null
+                ? neuralV3Keyed.harmonicValid ? "phase-averaged" : "steady"
+                : solverPath,
+            weightsVersion: neuralV3Keyed?.weightsVersion ?? "weights pending",
+            runId: null,
+            latencyMs: neuralV3Keyed?.latencyMs ?? null,
+            inDomain: domainVerdict.inDomain,
+            domainReason: domainVerdict.reason,
+            strouhal,
+            explained,
+            harmonicValid: typeof harmonicValid === "boolean" ? harmonicValid : null,
+            harmonicInvalidReason: typeof harmonicInvalidReason === "string" ? harmonicInvalidReason : null,
+            validityProbability,
+            recircFraction: lbmStats?.recircFraction ?? null,
+            tkePeak: null,
+            vorticityPeak: null,
+            analyticCl: aCl,
+            analyticCpMin: aCp,
+            deltaClVsAnalytic: aCl !== null && lCl !== null ? lCl - aCl : null,
+            deltaCpMinVsAnalytic: aCp !== null && lCp !== null ? lCp - aCp : null,
+        },
+        };
+    }, [debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, lbmArmed, flow, frame, lbmStatus, lbmHasSnapshot, lbmEffective, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline, isNeuralActive, isNeuralV3Active, solverPath, nacaCode, bodySelectValue, solveError, isFixture, isNeuralPending, isNeuralV3Pending, neuralV3Keyed, domainVerdict, solved]);
     const agentContextValue = useMemo(() => buildAgentContext(agentSnapshot), [agentSnapshot]);
 
     return (

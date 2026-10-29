@@ -349,6 +349,89 @@ html, body, #root {
 .chatInput:focus { border-color: rgba(189, 147, 249, 0.5); outline: none; }
 .card .mBtn.chatSend { width: auto; padding: 0 1.2em; }
 
+/* Phase T2 chat layout: teaching conversation in the Claude style. User
+   turns sit right and narrow, agent turns sit left, tutor turns carry a
+   cyan badge plus the numbers table. The Change column glow is the one
+   bold note, everything else stays quiet. No animation here, so the
+   shared reduced motion query needs no override. */
+.chatTurn.user.chatRight {
+  margin-left: auto;
+  max-width: 82%;
+  border-left: 1px solid var(--dust);
+  border-right: 3px solid var(--comment);
+  background: rgba(98, 114, 164, 0.12);
+}
+.chatTurn.assistant.chatLeft { margin-right: auto; max-width: 94%; }
+.chatTurn.tutorTurn {
+  border-left: 3px solid var(--cyan);
+  background: rgba(139, 233, 253, 0.05);
+}
+.tutorBadge { border-color: var(--cyan); color: var(--cyan); }
+.tutorLine { color: var(--cyan); }
+.tutorBlock { display: grid; gap: 8px; }
+.chatProse { display: grid; gap: 6px; font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
+.chatProse p { margin: 0; }
+.chatProse strong { color: var(--text); }
+.chatProse ul, .chatProse ol { margin: 0; padding-left: 1.4em; display: grid; gap: 2px; }
+.chatProse li { margin: 0; }
+.chatProse code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  padding: 0 0.3em;
+}
+.chatProse .chatPre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dust) transparent;
+}
+.chatProse .chatPre code { background: transparent; border: 0; padding: 0; }
+.chatLink { color: var(--cyan); text-decoration: underline; }
+.chatImgAlt { color: var(--comment); font-style: italic; }
+.chatTableWrap {
+  overflow-x: auto;
+  max-width: 100%;
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  scrollbar-width: thin;
+  scrollbar-color: var(--dust) transparent;
+}
+.chatTable { border-collapse: collapse; width: 100%; min-width: 320px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.chatTable thead th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--comment);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--dust);
+  background: var(--nebula);
+  white-space: nowrap;
+}
+.chatTable tbody th, .chatTable tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--nebula);
+  text-align: left;
+  color: var(--text);
+  white-space: nowrap;
+}
+.chatTable tbody tr:last-child th, .chatTable tbody tr:last-child td { border-bottom: 0; }
+.chatTable tbody th { color: var(--label); font-weight: 600; }
+/* Signature readout: the Change column carries the purple instrument glow,
+   the single bold note in an otherwise quiet transcript. */
+.tutorTable tbody td:last-child { color: var(--purple); font-weight: 700; }
+.tutorTableWrap { border-color: rgba(139, 233, 253, 0.35); }
+.tutorChip { border-color: var(--cyan); color: var(--cyan); }
+.tutorChip:hover { border-color: var(--cyan); color: var(--text); background: rgba(139, 233, 253, 0.12); }
+
 /* Resize handle: 4px, col-resize, purple on hover. */
 .resizeHandle {
   flex: none;
@@ -1144,6 +1227,7 @@ html, body, #root {
 @media (max-width: 560px) {
   .modalBackdrop { padding: 12px; }
   .settingsModal { width: 100%; max-height: 90vh; }
+  .chatTurn.chatRight, .chatTurn.chatLeft { max-width: 100%; }
 }
 
 .noticeDismiss {

@@ -220,8 +220,9 @@ describe("agent mutation corpus (R4 deterministic edits)", () => {
                     if (done.ok && done.action !== null) {
                         settled += 1;
                         if (done.action.kind === "set_spec") {
-                            expect(() => validateParametricSpec(done.action.spec), `invalid set_spec settled on ${item.label}`).not.toThrow();
-                            const code = done.action.spec.geometry.naca?.code ?? "";
+                            const specAction = done.action;
+                            expect(() => validateParametricSpec(specAction.spec), `invalid set_spec settled on ${item.label}`).not.toThrow();
+                            const code = specAction.spec.geometry.naca?.code ?? "";
                             expect(isSchemaValidCode(code).ok, `invalid spec code settled on ${item.label}`).toBe(true);
                         }
                         if (done.action.kind === "set_body" && done.action.body.startsWith("naca")) {
