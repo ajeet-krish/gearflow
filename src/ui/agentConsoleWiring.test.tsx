@@ -260,6 +260,20 @@ function hangingPort(counter: { streams: number; chats: number }) {
     };
 }
 
+function throwingPort(counter: { streams: number; chats: number }) {
+    return {
+        async *streamChat(_messages: unknown, _opts?: unknown) {
+            counter.streams += 1;
+            throw new Error("fetch failed");
+            yield { delta: "", text: "", done: true };
+        },
+        async chat(_messages: unknown, _opts?: unknown) {
+            counter.chats += 1;
+            throw new Error("fetch failed");
+        },
+    };
+}
+
 function statusResponse(status: number, retryAfter: string | null): Record<string, unknown> {
     return {
         ok: status >= 200 && status < 300,
@@ -489,7 +503,10 @@ describe("agent console offline paths", () => {
         try {
             expect(fetchFn).toHaveBeenCalled();
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("Baseten unreachable, local mode. Canvas unchanged.");
+            expect(m.text()).toContain("Before vs after");
+            expect(m.text()).toContain("Cl");
+            expect(m.text()).toContain("CpMin");
+            expect(m.text()).toContain("Canvas unchanged");
             expect(badgeTexts(m.tree(), "offline").length).toBeGreaterThan(0);
         } finally {
             m.unmount();
@@ -516,7 +533,65 @@ describe("agent console offline paths", () => {
         try {
             expect(fetchFn).toHaveBeenCalled();
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("Baseten unreachable, local mode. Canvas unchanged.");
+            expect(m.text()).toContain("Before vs after");
+            expect(m.text()).toContain("Cl");
+            expect(m.text()).toContain("CpMin");
+            expect(m.text()).toContain("Canvas unchanged");
+            expect(badgeTexts(m.tree(), "offline").length).toBeGreaterThan(0);
+        } finally {
+            m.unmount();
+        }
+    });
+
+    it("falls back to the local invalid explanation with nearest on Baseten down for naca 2500", async () => {
+        const counter = { streams: 0, chats: 0 };
+        const onAgentAction = vi.fn();
+        const m = mountConsole({
+            offline: false,
+            onOfflineChange: () => {},
+            agentContext: buildAgentContext(pendingSnapshot() as never),
+            onAgentAction,
+            chatClient: throwingPort(counter),
+            initialTurns: [],
+        });
+        typeText(m, "set up naca 2500");
+        submitForm(m);
+        await flush(120);
+        try {
+            expect(counter.streams).toBeGreaterThan(0);
+            expect(onAgentAction).not.toHaveBeenCalled();
+            expect(m.text()).toContain("not a valid 4-digit section");
+            expect(m.text()).toContain("Did you mean NACA");
+            expect(m.text()).toContain("Canvas unchanged");
+            expect(m.text()).not.toContain("Baseten unreachable");
+            expect(badgeTexts(m.tree(), "offline").length).toBeGreaterThan(0);
+        } finally {
+            m.unmount();
+        }
+    });
+
+    it("falls back to the local tutor table on Baseten down for Explain this run", async () => {
+        const counter = { streams: 0, chats: 0 };
+        const onAgentAction = vi.fn();
+        const m = mountConsole({
+            offline: false,
+            onOfflineChange: () => {},
+            agentContext: buildAgentContext(pendingSnapshot() as never),
+            onAgentAction,
+            chatClient: throwingPort(counter),
+            initialTurns: [],
+        });
+        typeText(m, "Explain this run");
+        submitForm(m);
+        await flush(120);
+        try {
+            expect(counter.streams).toBeGreaterThan(0);
+            expect(onAgentAction).not.toHaveBeenCalled();
+            expect(m.text()).toContain("Before vs after");
+            expect(m.text()).toContain("Cl");
+            expect(m.text()).toContain("CpMin");
+            expect(m.text()).toContain("Canvas unchanged");
+            expect(m.text()).not.toContain("Baseten unreachable");
             expect(badgeTexts(m.tree(), "offline").length).toBeGreaterThan(0);
         } finally {
             m.unmount();

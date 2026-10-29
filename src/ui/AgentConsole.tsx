@@ -918,6 +918,28 @@ export default function AgentConsole({
         settleParsedEnvelope(id, { reply: "", actions: envelope.actions, rejections: envelope.rejections });
     }
 
+    /** Stream failure local fallback. Reuses the pending turn id, answers
+     *  from the deterministic local envelope (invalid plus nearest, tutor
+     *  table offline), settles through the shared parsed path so the tutor
+     *  hook still fires, keeps the offline badge with zero network. */
+    function settleStreamOffline(id: string, userText: string): void {
+        let envelope: { reply: string; actions: AgentAction[]; rejections: string[] };
+        try {
+            envelope = localReply(userText, agentContext ?? null);
+        } catch {
+            envelope = { reply: "Local note, no network. Canvas unchanged.", actions: [], rejections: [] };
+        }
+        setTurns((prev) => {
+            const merged = prev.map((t) =>
+                t.id === id ? { ...t, text: envelope.reply, tool: "baseten" as const, status: "offline" as const } : t
+            );
+            saveTurns(merged.slice(-TRANSCRIPT_CAP));
+            return merged.slice(-TRANSCRIPT_CAP);
+        });
+        setExtra(id, { streaming: false });
+        settleParsedEnvelope(id, { reply: "", actions: envelope.actions, rejections: envelope.rejections });
+    }
+
     async function runStream(id: string, messages: BasetenMessage[], controller: AbortController, userText: string): Promise<void> {
         let fullText = "";
         let lastResult: BasetenChatResult | null = null;
@@ -963,31 +985,11 @@ export default function AgentConsole({
                     lastResult = plain;
                     fullText = plain.text;
                 } catch {
-                    pushTurn({ id: nextId(), role: "assistant", at: nowIso(), text: "Baseten unreachable, local mode. Canvas unchanged.", tool: "baseten", status: "offline" });
-                    setTurns((prev) => {
-                        const merged = prev.filter((t) => t.id !== id);
-                        saveTurns(merged.slice(-TRANSCRIPT_CAP));
-                        return merged.slice(-TRANSCRIPT_CAP);
-                    });
-                    setExtras((prev) => {
-                        const next = { ...prev };
-                        delete next[id];
-                        return next;
-                    });
+                    settleStreamOffline(id, userText);
                     return;
                 }
             } else {
-                pushTurn({ id: nextId(), role: "assistant", at: nowIso(), text: "Baseten unreachable, local mode. Canvas unchanged.", tool: "baseten", status: "offline" });
-                setTurns((prev) => {
-                    const merged = prev.filter((t) => t.id !== id);
-                    saveTurns(merged.slice(-TRANSCRIPT_CAP));
-                    return merged.slice(-TRANSCRIPT_CAP);
-                });
-                setExtras((prev) => {
-                    const next = { ...prev };
-                    delete next[id];
-                    return next;
-                });
+                settleStreamOffline(id, userText);
                 return;
             }
         }

@@ -1545,3 +1545,36 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: closed for T2. The timeout edge now fires with the loading line in the unchanged-key branch where it matters, and the field token is carried in both the App key and the lite snapshot key, ending the silent-discard path flagged in the prior review.
+
+## 2026-10-29 - Baseten Fallback Fix Review
+
+Date: 2026-10-29
+Reviewer: code-reviewer
+Scope: Baseten fallback fix (src/ui/AgentConsole.tsx settleStreamOffline plus catch branches, src/agent/localAssistant.ts EXPLAIN localTutorReply route)
+Verdict: PASS
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| Pending turn reused, not deleted | PASS | src/ui/AgentConsole.tsx:932-938 maps the existing turn in place (no filter, no new assistant push); the pending turn created at 1068-1070 is the one settled |
+| localReply settled via same path | PASS | settleStreamOffline at 925-941 calls localReply then settleParsedEnvelope at 940 with reply empty, the identical settle shape used by pushOfflineAssistant at 913-919, so actions, rejections, and applied notes flow through one path |
+| Tutor hook fires | PASS | Applied local actions reach the tutor capture in settleParsedEnvelope at 591-607 (pendingRef plus setPendingTutor), so an applied stream fallback still arms the Phase T2 tutor |
+| Offline badge | PASS | The reused turn is rewritten with status offline at 934, rendered as the offline badge at 1176-1178; pinned by the 503 and fetch failure cases at src/ui/agentConsoleWiring.test.tsx:488-544 |
+| Zero extra port calls | PASS | settleStreamOffline itself calls only localReply and settleParsedEnvelope, no port, no spend recording; the only chat call before it is the pre existing plain fallback at 984, and the non fallback branch at 992 settles directly |
+| Abort untouched | PASS | The abort branch at 968-979 returns before any fallback, keeps the stopped badge and partial text handling, never calls settleStreamOffline; pinned at src/ui/agentConsoleWiring.test.tsx:416-456 (streams 1, chats 0) |
+| NACA 2500 invalid plus nearest preserved | PASS | parseAirfoilIntent returns a clarify with the invalid reason plus Did you mean nearest at src/agent/airfoilIntent.ts:232-242, localReply surfaces it with zero actions at src/agent/localAssistant.ts:372-377 and 407-446; pinned at src/ui/agentConsoleWiring.test.tsx:546-571 with no executor calls and the offline badge |
+| Explain table offline | PASS | EXPLAIN_RE routes to localTutorReply(snap, snap) when context exists at src/agent/localAssistant.ts:266-276, producing the Before vs after table with Cl and CpMin rows from src/agent/tutorTable.ts:148-159; pinned at src/ui/agentConsoleWiring.test.tsx:573-599 |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Minor (non blocking) | src/ui/AgentConsole.tsx:996-1004 | The empty stream reply catch still substitutes a generic local mode line and proceeds with a live status instead of routing through settleStreamOffline, so an empty completion followed by a failed plain chat loses the localReply body (no Explain table, no invalid plus nearest) on that narrow path | frontend-dev: route that catch through settleStreamOffline as well, or set the offline status there; add an empty stream plus failing chat test. Delegate via orchestrator |
+
+### Verification Checklist
+- [x] All checks passed (8 of 8, one Minor residual on a separate empty reply path)
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). The inspected pins are the behavioral cases in src/ui/agentConsoleWiring.test.tsx:488-599 plus the abort pin at 416-456. Note recurring pattern: none new for the scoped fix; the stream failure seam now reuses the shared local settle path instead of inventing a second one, and the only residual is the older empty reply catch beside it.

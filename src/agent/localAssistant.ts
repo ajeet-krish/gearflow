@@ -23,7 +23,60 @@ import {
 } from "./agentActions";
 import { parseAirfoilIntent, parseAlphaDeg, parseReynolds } from "./airfoilIntent";
 import { parseNacaLoose } from "./nacaParse";
+import { localTutorReply } from "./tutorPolicy";
+import type { TutorSnapshotLite } from "./tutorTable";
 import type { AgentAction, BodyToken } from "@/contracts/types";
+
+/** Lite tutor snapshot from the live agent context, mirroring the console
+ *  snapshotLiteFor mapping without the React layer. Never throws. */
+function tutorLiteFromCtx(ctx: AgentContext): TutorSnapshotLite {
+    try {
+        const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+        const text = (v: unknown, fallback: string): string => {
+            if (typeof v !== "string") return fallback;
+            const t = v.trim().replace(/\s+/g, " ");
+            return t.length > 0 ? t : fallback;
+        };
+        const spec = (ctx.spec ?? {}) as { kind?: unknown; alphaDeg?: unknown };
+        const kind = typeof spec.kind === "string" ? spec.kind : "unknown";
+        const alpha = num(ctx.alphaDeg ?? spec.alphaDeg);
+        const reynolds = num(ctx.reynolds);
+        const fieldVar = (() => {
+            const f = (ctx.field ?? {}) as { variable?: unknown; effective?: unknown };
+            if (typeof f.variable === "string" && f.variable.trim().length > 0) return f.variable.trim();
+            if (typeof f.effective === "string" && f.effective.trim().length > 0) return f.effective.trim();
+            return "speed";
+        })();
+        const fieldToken = `f${fieldVar}`;
+        const key = typeof ctx.caseKey === "string" && ctx.caseKey.trim().length > 0
+            ? ctx.caseKey.trim()
+            : `${kind}|a${alpha === null ? "?" : alpha}|Re${reynolds === null ? "?" : Math.round(reynolds)}|${text(ctx.neural?.path, "analytic")}|${fieldToken}`;
+        const keyWithField = key.includes("|f") ? key : `${key}|${fieldToken}`;
+        return {
+            caseKey: keyWithField,
+            bodyLabel: text(ctx.bodyLabel, "unknown body"),
+            alpha,
+            reynolds,
+            cl: num(ctx.cl),
+            cpMin: num(ctx.cpMin),
+            regime: text(ctx.regime, "unknown regime"),
+            pathLabel: text(ctx.provenanceLabel, "") !== "" ? text(ctx.provenanceLabel, "analytic") : text(ctx.neural?.path, "analytic"),
+            strouhal: num(ctx.surrogate?.strouhal ?? ctx.lbm?.stats?.strouhal ?? null),
+        };
+    } catch {
+        return {
+            caseKey: "n/a",
+            bodyLabel: "n/a",
+            alpha: null,
+            reynolds: null,
+            cl: null,
+            cpMin: null,
+            regime: "n/a",
+            pathLabel: "n/a",
+            strouhal: null,
+        };
+    }
+}
 
 /** Canonical console bodies. Anything else valid goes through set_spec. */
 const CANONICAL_NACA: ReadonlySet<string> = new Set(["naca0012", "naca2412", "naca4412"]);
@@ -211,6 +264,15 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             };
         }
         if (EXPLAIN_RE.test(lower)) {
+            if (safe !== null) {
+                try {
+                    const snap = tutorLiteFromCtx(safe);
+                    const table = localTutorReply(snap, snap);
+                    return { reply: `${buildExplainer(safe)}\n\n${table}`.slice(0, REPLY_MAX), actions: [], rejections: [] };
+                } catch {
+                    return { reply: buildExplainer(safe), actions: [], rejections: [] };
+                }
+            }
             return { reply: buildExplainer(safe), actions: [], rejections: [] };
         }
         if (SEPARATION_RE.test(lower) && vctx.lbmEffective !== true) {
