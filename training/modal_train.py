@@ -463,10 +463,32 @@ def _pretrain_checkpoint_remote(run_id: str) -> str:
     return f"{run_id}/pretrain/best.pt"
 
 
+def _read_volume_bytes(remote_path: str) -> bytes:
+    """Normalize ckpt_volume.read_file to bytes across modal versions.
+
+    modal 1.6.2 returns a generator of bytes chunks, older versions
+    return plain bytes. Accept str chunks by encoding as utf-8.
+    """
+    data = ckpt_volume.read_file(remote_path)
+    if isinstance(data, bytes):
+        return data
+    if isinstance(data, str):
+        return data.encode("utf-8")
+    chunks: list = []
+    for chunk in data:
+        if isinstance(chunk, bytes):
+            chunks.append(chunk)
+        elif isinstance(chunk, str):
+            chunks.append(chunk.encode("utf-8"))
+        else:
+            chunks.append(bytes(chunk))
+    return b"".join(chunks)
+
+
 def _require_pretrain_checkpoint(run_id: str) -> None:
     """Fail closed when finetune only has no pretrain checkpoint to resume."""
     try:
-        probe = ckpt_volume.read_file(_pretrain_checkpoint_remote(run_id))
+        probe = _read_volume_bytes(_pretrain_checkpoint_remote(run_id))
     except ValueError:
         raise
     except Exception as exc:
@@ -495,8 +517,7 @@ def _download_artifacts(routes: list) -> Path | None:
     dest: Path | None = None
     for remote_path, local_path in routes:
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        data = ckpt_volume.read_file(remote_path)
-        local_path.write_bytes(data if isinstance(data, bytes) else data.encode())
+        local_path.write_bytes(_read_volume_bytes(remote_path))
         dest = local_path.parent
     return dest
 
