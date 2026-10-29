@@ -357,7 +357,10 @@ describe("agent console tutor hook (T2)", () => {
             expect(tutorBlocks(m.tree())).toHaveLength(1);
             expect(m.text()).toContain("attached-lift");
             expect(m.text()).toContain("Spark tutor prose");
-            expect(m.text()).toContain("Before vs after");
+            // Single-table contract: prose pipe block stripped, payload
+            // table renders once with its accessible caption.
+            expect(m.text()).toContain("Before versus after");
+            expect(m.text()).not.toContain("Metric | Before");
             expect(m.text()).toContain("Applied: body naca2412.");
             const rows = buildTutorTable(snapshotLiteFor(before), snapshotLiteFor(after));
             // T2 frontend renders rows as a real numbers table, never raw pipes.
@@ -562,7 +565,10 @@ describe("agent console tutor hook (T2)", () => {
                 expect(log.chats).toBe(0);
                 expect(tutorBlocks(m.tree())).toHaveLength(1);
                 expect(m.text()).toContain(TUTOR_LOADING_LINE);
-                expect(m.text()).toContain("Before vs after");
+                // Single-table contract: prose pipe block stripped, payload
+                // table renders once with its accessible caption.
+                expect(m.text()).toContain("Before versus after");
+                expect(m.text()).not.toContain("Metric | Before");
             } finally {
                 m.unmount();
             }
@@ -682,7 +688,10 @@ describe("agent console tutor hook (T2)", () => {
                 expect(log.chats).toBe(0);
                 expect(tutorBlocks(m.tree())).toHaveLength(1);
                 expect(m.text()).toContain(TUTOR_LOADING_LINE);
-                expect(m.text()).toContain("Before vs after");
+                // Single-table contract: prose pipe block stripped, payload
+                // table renders once with its accessible caption.
+                expect(m.text()).toContain("Before versus after");
+                expect(m.text()).not.toContain("Metric | Before");
                 expect(snapshotLiteFor(after).caseKey).toContain("fcp");
                 expect(snapshotLiteFor(after).caseKey).not.toBe(snapshotLiteFor(before).caseKey);
             } finally {

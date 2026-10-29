@@ -415,6 +415,30 @@ export function tutorProseToGfm(text: string): string {
     }
 }
 
+/** Dedupe: strip the Before vs after pipe block from tutor prose when the
+ *  structured payload table will render. The live and local tutor paths
+ *  both append tutorRowsText to the reply text, so rendering prose GFM plus
+ *  the payload table shows the same numbers twice. With rows present the
+ *  payload table is the single source of truth; prose keeps everything
+ *  else (explanation, Try next, caveat). With no rows the prose table is
+ *  the fallback and this function is never called. Never throws. */
+export function stripTutorPipeTable(text: string): string {
+    try {
+        if (typeof text !== "string" || !text.includes("Metric | Before | After | Delta")) return text;
+        const lines = text.split("\n");
+        const headerIdx = lines.findIndex((line) => line.includes("Metric | Before | After | Delta"));
+        if (headerIdx < 0) return text;
+        let start = headerIdx;
+        if (headerIdx > 0 && lines[headerIdx - 1]?.trim() === "Before vs after") start = headerIdx - 1;
+        let end = headerIdx + 1;
+        while (end < lines.length && lines[end]?.includes("|")) end += 1;
+        const kept = [...lines.slice(0, start), ...lines.slice(end)];
+        return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    } catch {
+        return text;
+    }
+}
+
 /** Phase T2 frontend: markdown body for agent and tutor turns. GFM tables,
  *  lists, bold, and inline code render as real elements inside the quiet
  *  chat prose skin. Raw HTML is never parsed (no rehype plugins), links
@@ -1165,6 +1189,13 @@ export default function AgentConsole({
                     const extra = extras[t.id];
                     const isAssistant = t.role === "assistant";
                     const isTutor = isAssistant && t.tutor !== undefined && t.tutor !== null;
+                    // Dedupe: when structured rows exist the payload table is
+                    // the single table; the prose pipe block is stripped so
+                    // Before vs after renders once. With no rows the prose
+                    // GFM table stays as the fallback.
+                    const tutorRows = isTutor ? (t.tutor?.rows ?? []) : [];
+                    const hasTutorRows = isTutor && Array.isArray(tutorRows) && tutorRows.length > 0;
+                    const proseText = hasTutorRows ? stripTutorPipeTable(t.text) : t.text;
                     const toolText = typeof t.tool === "string" && t.tool.length > 0 ? t.tool : "legacy";
                     const statusText = typeof t.status === "string" && t.status.length > 0 ? t.status : "fallback";
                     return (
@@ -1184,9 +1215,11 @@ export default function AgentConsole({
                             {t.role === "user" ? (
                                 <p className="chatText">{t.text.length > 0 ? t.text : "Composing reply"}</p>
                             ) : t.text.length > 0 ? (
-                                <div className="chatProse">
-                                    <ChatMarkdown>{t.text}</ChatMarkdown>
-                                </div>
+                                proseText.trim().length > 0 ? (
+                                    <div className="chatProse">
+                                        <ChatMarkdown>{proseText}</ChatMarkdown>
+                                    </div>
+                                ) : null
                             ) : (
                                 <p className="chatText">Composing reply</p>
                             )}
@@ -1210,6 +1243,7 @@ export default function AgentConsole({
                             {t.tutor !== undefined && t.tutor !== null && (
                                 <div className="tutorBlock" aria-label={`Tutor note on ${t.tutor.concept}`}>
                                     <p className="mSub mono tutorLine">Tutor: {t.tutor.concept}, suggested field {t.tutor.primary}</p>
+                                    {hasTutorRows && (
                                     <div className="chatTableWrap tutorTableWrap">
                                         <table className="chatTable tutorTable">
                                             <caption className="visuallyHidden">Before versus after quantities</caption>
@@ -1233,6 +1267,7 @@ export default function AgentConsole({
                                             </tbody>
                                         </table>
                                     </div>
+                                    )}
                                     {t.tutor.secondary !== null && t.tutor.secondary !== t.tutor.primary && (
                                         <button
                                             key="tutor-secondary"

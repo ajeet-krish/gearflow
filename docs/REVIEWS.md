@@ -1578,3 +1578,57 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). The inspected pins are the behavioral cases in src/ui/agentConsoleWiring.test.tsx:488-599 plus the abort pin at 416-456. Note recurring pattern: none new for the scoped fix; the stream failure seam now reuses the shared local settle path instead of inventing a second one, and the only residual is the older empty reply catch beside it.
+
+## 2026-10-29 - Offline Any-Airfoil, Glossary, Dedupe Review
+
+Date: 2026-10-29
+Reviewer: code-reviewer
+Scope: Offline any-airfoil plus glossary plus dedupe (src/agent/localAssistant.ts anyAirfoilSpec set_spec both branches, cylinder high-pressure routing, glossary zero-action, src/ui/AgentConsole.tsx stripTutorPipeTable plus single table render; validator sole gate, alpha/Re inside spec, invalid nearest, questions never apply, offline badge, no throws, dedupe)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major | src/agent/localAssistant.ts:356-357,381-398,621-632 | Glossary is not a zero-action gate: buildGlossary only pushes a section, then phenomenological presets, setup parsing, and field parsing can still stage actions for a question that names a glossary term plus a trigger (for example a high pressure or show field phrasing). Questions must never apply. | backend-dev: when buildGlossary matches, return the definition envelope with zero actions and zero rejections before preset, setup, engine, field, and run staging; add tests pairing each glossary term with airfoil, high pressure, and field triggers. Delegate to backend-dev. |
+| Major | src/agent/localAssistant.ts:381-389,621-632 | Cylinder high-pressure routing is not clean: setup_high_re_wake is staged, then the generic pressure field parse also stages set_field cp, so the App applies the wake preset speed field and immediately overrides it with cp while the reply claims the speed field case. | backend-dev: suppress the generic field stage for the cylinder high-pressure preset (or make the reply and preset honestly end on cp); add an exact-actions test expecting only setup_high_re_wake for the cylinder stagnation prompt. Delegate to backend-dev. |
+| Major | src/agent/localAssistant.ts:405-410,424-428 | Invalid airfoil codes on the AIRFOIL_WORD branch reject without the nearest valid code: parseNacaLoose carries nearest, but both invalid replies substitute only the generic 0012, 2412, 4412 list, unlike the clarify path at airfoilIntent.ts:232-242. | backend-dev: include parsed.nearest (Did you mean NACA X) in both invalid airfoil replies when present, keeping zero actions; add 0099 and 2500 airfoil-word tests. Delegate to backend-dev. |
+
+Checks detail: Validator sole gate PASS (every local candidate flows through accept at localAssistant.ts:358-371 into validateAgentAction; set_spec validates the full spec at agentActions.ts:295-305). Alpha/Re inside spec PASS with no double apply (AIRFOIL_WORD branch carries geometry alphaDeg plus spec reynolds at localAssistant.ts:441-458 with presetHandled suppressing later setup staging; intent branch sets carriedBySpec only on a staged spec and skips set_alpha and set_reynolds at localAssistant.ts:551-579). Invalid rejects PASS on the intent clarify path, FAIL on the airfoil-word branch per the Major above. Glossary and questions FAIL per the Major above (the pinned what is Cl, CpMin, and vorticity cases do return zero actions). Cylinder high-pressure routing FAIL per the Major above. Offline badge PASS (pushOfflineAssistant and settleStreamOffline set status offline at AgentConsole.tsx:937-943,949-965, rendered as the offline badge). No throws PASS (localReply outer guard at localAssistant.ts:310,658-660, buildGlossary guard at 256,295-297, stripTutorPipeTable guard at AgentConsole.tsx:425-440). Dedupe PASS (stripTutorPipeTable removes the Before vs after header plus pipe rows at AgentConsole.tsx:425-440; render strips prose only when payload rows exist and renders the single payload table at AgentConsole.tsx:1192-1198,1243-1270, with the prose GFM fallback retained when rows are empty; pins at agentConsoleMarkdown.test.tsx:139-195). Tests inspected, not executed (reviewer has no shell tool in this session).
+
+### Verification Checklist
+- [ ] All checks passed
+- [ ] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases
+
+Note recurring pattern: a shared contract (glossary question, preset field, parser nearest) is computed in one place but not treated as authoritative at the integration seam, so later generic staging can override it, the same isolated pass pattern flagged in earlier phases. Delegate fixes to backend-dev, added tests to tester.
+
+## 2026-10-29 - Offline Any-Airfoil Majors Fix Re-review
+
+Date: 2026-10-29
+Reviewer: code-reviewer
+Scope: Re-review of offline any-airfoil Majors fix vs prior FAIL at the Offline Any-Airfoil, Glossary, Dedupe Review (glossary gate, cylinder double stage, invalid nearest missing), plus no-new-issues spot checks on validator sole gate, alpha and Re inside spec, offline badge, no throws, and dedupe
+Verdict: PASS
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| Glossary gate (Major) | PASS | src/agent/localAssistant.ts:356-359 returns the glossary envelope with zero actions and zero rejections before preset, setup, engine, field, and run staging; pinned at src/agent/localAssistant.test.ts:222-240 pairing Cl with a NACA setup, CpMin with high pressure, vorticity with a field trigger, and alpha with a set alpha trigger |
+| Cylinder double stage (Major) | PASS | src/agent/localAssistant.ts:386-388 sets suppressFieldStage on the cylinder high pressure branch and src/agent/localAssistant.ts:634 gates the generic field stage on it, so only setup_high_re_wake stages; pinned exactly at src/agent/localAssistant.test.ts:242-246 |
+| Invalid nearest missing (Major) | PASS | src/agent/localAssistant.ts:409-415 uses parsed.nearest on the invalid branch and src/agent/localAssistant.ts:430-440 uses nearestValidCode on the schema-invalid branch, both with zero actions; pinned for 0099 suggesting 0009 and 2500 suggesting 2510 at src/agent/localAssistant.test.ts:248-259 |
+| Validator sole gate, alpha and Re inside spec | PASS | Every local candidate still flows through accept at src/agent/localAssistant.ts:360-373 into validateAgentAction; the any-airfoil branches still carry alpha and Re inside one set_spec at src/agent/localAssistant.ts:453-470 and src/agent/localAssistant.ts:544-566 with carriedBySpec suppressing a double apply |
+| Offline badge, no throws, dedupe | PASS | Unchanged from prior review: offline settle paths set the offline status, localReply keeps its outer guard at src/agent/localAssistant.ts:310 and 670-672, and AgentConsole stripTutorPipeTable plus the single payload table render remain at src/ui/AgentConsole.tsx:425-440 and 1192-1198 |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| None | n/a | No FAIL items remain and no new issues were found in the spot checked surfaces | None |
+
+### Verification Checklist
+- [x] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: closed for this fix cycle. The glossary definition, preset field, and parser nearest are now treated as authoritative at the local integration seam instead of being overridden by later generic staging.

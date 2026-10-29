@@ -22,7 +22,7 @@ import {
     type AgentValidationContext,
 } from "./agentActions";
 import { parseAirfoilIntent, parseAlphaDeg, parseReynolds } from "./airfoilIntent";
-import { parseNacaLoose } from "./nacaParse";
+import { isSchemaValidCode, nearestValidCode, parseNacaLoose } from "./nacaParse";
 import { localTutorReply } from "./tutorPolicy";
 import type { TutorSnapshotLite } from "./tutorTable";
 import type { AgentAction, BodyToken } from "@/contracts/types";
@@ -98,6 +98,8 @@ const AIRFOIL_WORD_RE = /\bairfoil\b/;
 const CANNOT_3D_RE = /(3d|three dimensional)/;
 const CANNOT_COMPRESSIBLE_RE = /(supersonic|compressible|transonic|mach\s*\d)/;
 const SEPARATION_RE = /(viscous separation|flow separation|separation bubble|\bstall\b)/;
+/** Glossary questions name a physics term, never a setup action. */
+const GLOSSARY_Q_RE = /\bwhat\s+(is|are|does|do)\b|\bwhat's\b|\bdefine\b|\bmeaning of\b/;
 
 function finiteOrNull(v: unknown): number | null {
     return typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -229,6 +231,72 @@ function buildGeneric(): string {
     );
 }
 
+/** Any-airfoil set_spec candidate mirroring the online buildAirfoilEnvelope
+ *  single set_spec shape: full naca4 parametrics carrying alpha and Re, so
+ *  the body never applies without its flow condition. Never throws. */
+function anyAirfoilSpec(code: string, m: number, p: number, t: number, alpha: number, reynolds: number): AgentAction {
+    return {
+        kind: "set_spec",
+        spec: {
+            geometry: {
+                kind: "naca4",
+                naca: { code, m, p, t },
+                chord: 1,
+                alphaDeg: alpha,
+                nPoints: 120,
+            },
+            reynolds,
+            rationale: `Parser apply for NACA ${code}.`,
+        },
+    };
+}
+
+/** Plain physics definitions with current case numbers when the context
+ *  carries them. Zero actions, questions never auto-apply. Never throws. */
+function buildGlossary(lower: string, ctx: AgentContext | null): string | null {
+    try {
+        if (!GLOSSARY_Q_RE.test(lower)) return null;
+        const parts: string[] = [];
+        if (/\blift\b|\bcl\b/.test(lower)) {
+            const cl = ctx === null ? null : finiteOrNull(ctx.cl);
+            parts.push(
+                "Cl is the lift coefficient, lift divided by dynamic pressure times chord. Higher means more lift for the same size and speed." +
+                (cl === null ? "" : ` Current case: Cl ${cl.toFixed(3)}.`)
+            );
+        }
+        if (/\bcpmin\b|\bpressure\b|\bcp\b/.test(lower)) {
+            const cp = ctx === null ? null : finiteOrNull(ctx.cpMin);
+            parts.push(
+                "Cp is the pressure coefficient, local pressure minus freestream over dynamic pressure. Negative means suction, and CpMin is the lowest value, the strongest suction peak." +
+                (cp === null ? "" : ` Current case: CpMin ${cp.toFixed(3)}.`)
+            );
+        }
+        if (/\bvorticity\b|\bomega\b|\bswirl\b/.test(lower)) {
+            parts.push(
+                "Vorticity (omega) is the local swirl of the flow, the curl of velocity. Positive spins one way and negative the other, marking shear layers and the wake."
+            );
+        }
+        if (/\breynolds\b|\bre\b/.test(lower)) {
+            const re = ctx === null ? null : finiteOrNull(ctx.reynolds);
+            parts.push(
+                "Re is the Reynolds number, inertial over viscous forces. Higher means a thinner boundary layer and more tendency to unsteadiness." +
+                (re === null ? "" : ` Current case: Re ${Math.round(re)}.`)
+            );
+        }
+        if (/\balpha\b|\bangle of attack\b|\baoa\b/.test(lower)) {
+            const alpha = ctx === null ? null : finiteOrNull(ctx.alphaDeg);
+            parts.push(
+                "Alpha is the angle of attack in degrees, nose up positive. More alpha means more lift until stall." +
+                (alpha === null ? "" : ` Current case: alpha ${alpha.toFixed(1)} deg.`)
+            );
+        }
+        if (parts.length === 0) return null;
+        return `Local definition, no network. ${parts.join(" ")}`;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Deterministic local reply with the Baseten envelope shape. Zero network,
  * never throws: malformed or empty input falls back to a plain note with no
@@ -285,6 +353,10 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         const actions: AgentAction[] = [];
         const rejections: string[] = [];
         const sections: string[] = [];
+        const glossary = buildGlossary(lower, safe);
+        if (glossary !== null) {
+            return { reply: `${glossary} Canvas unchanged.`, actions: [], rejections: [] };
+        }
         const accept = (candidate: AgentAction): boolean => {
             if (actions.length >= 5) {
                 rejections.push("extra actions beyond 5 ignored");
@@ -300,6 +372,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             }
         };
         let presetHandled = false;
+        let suppressFieldStage = false;
         if (SHEDDING_RE.test(lower)) {
             presetHandled = true;
             const staged = accept({ kind: "setup_shedding" });
@@ -310,13 +383,23 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             );
         } else if (HIGH_PRESSURE_PHENOM_RE.test(lower)) {
             presetHandled = true;
-            const wantsBlock = /\bblock\b/.test(lower);
-            const staged = accept(wantsBlock ? { kind: "setup_high_pressure", body: "block" } : { kind: "setup_high_pressure" });
-            sections.push(
-                staged
-                    ? `Local setup note, no network. Applying the high Re wake case (cylinder, alpha 0, Re 700, speed field). Canvas updates on apply.`
-                    : `Local setup note, no network. Staying on ${bodyLabel}; the high pressure case is outside the serving envelope. Canvas unchanged.`
-            );
+            if (lower.includes("cylinder")) {
+                suppressFieldStage = true;
+                const staged = accept({ kind: "setup_high_re_wake" });
+                sections.push(
+                    staged
+                        ? "Local setup note, no network. Applying the high Re wake case (cylinder, alpha 0, Re 700, speed field). Stagnation tutor note: Cp nears 1 at the nose where the flow stops, then falls around the shoulders. Canvas updates on apply."
+                        : `Local setup note, no network. Staying on ${bodyLabel}; the high Re wake case is outside the serving envelope. Canvas unchanged.`
+                );
+            } else {
+                const wantsBlock = /\bblock\b/.test(lower);
+                const staged = accept(wantsBlock ? { kind: "setup_high_pressure", body: "block" } : { kind: "setup_high_pressure" });
+                sections.push(
+                    staged
+                        ? `Local setup note, no network. Applying the high Re wake case (cylinder, alpha 0, Re 700, speed field). Canvas updates on apply.`
+                        : `Local setup note, no network. Staying on ${bodyLabel}; the high pressure case is outside the serving envelope. Nearest alternative: the high Re wake case (cylinder, alpha 0, Re 700). Canvas unchanged.`
+                );
+            }
         } else if (AIRFOIL_WORD_RE.test(lower)) {
             presetHandled = true;
             const parsed = parseNacaLoose(raw);
@@ -325,24 +408,39 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 sections.push(`Local setup note, no network. ${parsed.question} Canvas unchanged.`);
             } else if (parsed.status === "invalid") {
                 const label = parsed.code === null ? "That code" : `NACA ${parsed.code}`;
+                const hint = parsed.nearest !== null ? ` Did you mean NACA ${parsed.nearest}?` : "";
                 sections.push(
-                    `Local setup note, no network. ${label} is not a valid 4-digit section (${parsed.reason}). ` +
+                    `Local setup note, no network. ${label} is not a valid 4-digit section (${parsed.reason}).${hint} ` +
                     `Reply with a valid 4-digit code (try 0012, 2412, or 4412). Canvas unchanged.`
                 );
-            } else {
-                const code = parsed.status === "ok" ? parsed.code : null;
-                const tok = code !== null ? `naca${code}` : null;
-                const nacaBody = tok !== null && CANONICAL_NACA.has(tok) ? tok : undefined;
-                if (code !== null && nacaBody === undefined) {
-                    rejections.push(
-                        `naca ${code} is not a console body, staying on ${bodyLabel}; bodies are [${BODY_TOKENS.join(", ")}]`
-                    );
-                    sections.push(
-                        `Local setup note, no network. Staying on ${bodyLabel}; which airfoil should I set up (NACA 0012, 2412, or 4412), and at which alpha? Canvas unchanged.`
-                    );
+            } else if (parsed.status === "none") {
+                const candidate: AgentAction = { kind: "setup_airfoil" };
+                if (alphaHere !== null) (candidate as { alphaDeg?: number }).alphaDeg = alphaHere;
+                const staged = accept(candidate);
+                if (staged) {
+                    sections.push("Local setup note, no network. Applying the airfoil case (NACA, speed field). Canvas updates on apply.");
                 } else {
+                    sections.push(
+                        `Local setup note, no network. Staying on ${bodyLabel}; the airfoil case is outside the serving envelope. Canvas unchanged.`
+                    );
+                }
+            } else {
+                const check = isSchemaValidCode(parsed.code);
+                if (!check.ok) {
+                    let nearest: string | null = null;
+                    try {
+                        nearest = nearestValidCode(parsed.code);
+                    } catch {
+                        nearest = null;
+                    }
+                    const hint = nearest !== null ? ` Did you mean NACA ${nearest}?` : "";
+                    sections.push(
+                        `Local setup note, no network. NACA ${parsed.code} is not a valid 4-digit section (${check.reason ?? "outside the schema envelope"}).${hint} ` +
+                        `Reply with a valid 4-digit code (try 0012, 2412, or 4412). Canvas unchanged.`
+                    );
+                } else if (CANONICAL_NACA.has(`naca${check.code}`)) {
                     const candidate: AgentAction = { kind: "setup_airfoil" };
-                    if (nacaBody !== undefined) (candidate as { body?: BodyToken }).body = nacaBody as BodyToken;
+                    (candidate as { body?: BodyToken }).body = `naca${check.code}` as BodyToken;
                     if (alphaHere !== null) (candidate as { alphaDeg?: number }).alphaDeg = alphaHere;
                     const staged = accept(candidate);
                     if (staged) {
@@ -350,6 +448,36 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     } else {
                         sections.push(
                             `Local setup note, no network. Staying on ${bodyLabel}; the airfoil case is outside the serving envelope. Canvas unchanged.`
+                        );
+                    }
+                } else {
+                    // Valid non-canonical code: ride one set_spec like the
+                    // online fast path, carrying alpha and Re inside so the
+                    // body never applies without its flow condition. Only
+                    // invalid or ambiguous codes fall back to rejection.
+                    const reHere = parseReynolds(raw);
+                    const ctxAlpha = finiteOrNull(safe?.alphaDeg);
+                    const ctxRe = finiteOrNull(safe?.reynolds);
+                    let alpha = alphaHere ?? ctxAlpha ?? 6;
+                    let reynolds = reHere === null ? (ctxRe === null ? 50000 : Math.round(ctxRe)) : Math.round(reHere);
+                    const specNotes: string[] = [];
+                    const clampedAlpha = Math.min(Math.max(alpha, ALPHA_HARD_MIN), ALPHA_HARD_MAX);
+                    if (clampedAlpha !== alpha) specNotes.push(`Note: alpha ${alpha} clamped to ${clampedAlpha} (envelope [${ALPHA_HARD_MIN}, ${ALPHA_HARD_MAX}]).`);
+                    alpha = clampedAlpha;
+                    const clampedRe = Math.min(Math.max(Math.round(reynolds), RE_MIN), RE_MAX);
+                    if (clampedRe !== Math.round(reynolds)) specNotes.push(`Note: Re ${Math.round(reynolds)} clamped to ${clampedRe} (envelope [${RE_MIN}, ${RE_MAX}]).`);
+                    reynolds = clampedRe;
+                    const staged = accept(anyAirfoilSpec(check.code, check.m, check.p, check.t, alpha, reynolds));
+                    if (staged) {
+                        const tutor = parsed.note ?? check.note;
+                        sections.push(
+                            `Local setup note, no network. Applying body naca${check.code} (NACA ${check.code}, alpha ${alpha}, Re ${reynolds}). Canvas updates on apply.` +
+                            (specNotes.length > 0 ? ` ${specNotes.join(" ")}` : "") +
+                            (tutor !== null ? ` ${tutor}` : "")
+                        );
+                    } else {
+                        sections.push(
+                            `Local setup note, no network. Staying on ${bodyLabel}; NACA ${check.code} with alpha ${alpha} and Re ${reynolds} is outside the serving envelope. Canvas unchanged.`
                         );
                     }
                 }
@@ -408,16 +536,41 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         if (hasSetupValues) {
             const applied: string[] = [];
             const notices: string[] = [];
+            let carriedBySpec = false;
             if (bodyTok !== null) {
                 if (accept({ kind: "set_body", body: bodyTok as BodyToken })) {
                     applied.push(`body ${bodyTok}`);
                 }
             } else if (unknownNaca !== null) {
-                rejections.push(
-                    `naca ${unknownNaca} is not a console body, staying on ${bodyLabel}; bodies are [${BODY_TOKENS.join(", ")}]`
-                );
+                // Valid non-canonical code: ride one set_spec like the online
+                // fast path, carrying alpha and Re inside so the body never
+                // applies without its flow condition. Only invalid codes
+                // fall back to the console body rejection.
+                const check = isSchemaValidCode(unknownNaca);
+                if (check.ok) {
+                    const ctxAlpha = finiteOrNull(safe?.alphaDeg);
+                    const ctxRe = finiteOrNull(safe?.reynolds);
+                    const rawAlpha = alphaVal ?? ctxAlpha ?? 6;
+                    const clampedAlpha = Math.min(Math.max(rawAlpha, ALPHA_HARD_MIN), ALPHA_HARD_MAX);
+                    if (clampedAlpha !== rawAlpha) {
+                        notices.push(`Note: alpha ${rawAlpha} clamped to ${clampedAlpha} (envelope [${ALPHA_HARD_MIN}, ${ALPHA_HARD_MAX}]).`);
+                    }
+                    const rawRe = reVal === null ? (ctxRe === null ? 50000 : Math.round(ctxRe)) : Math.round(reVal);
+                    const clampedRe = Math.min(Math.max(rawRe, RE_MIN), RE_MAX);
+                    if (clampedRe !== rawRe) {
+                        notices.push(`Note: Re ${rawRe} clamped to ${clampedRe} (envelope [${RE_MIN}, ${RE_MAX}]).`);
+                    }
+                    if (accept(anyAirfoilSpec(check.code, check.m, check.p, check.t, clampedAlpha, clampedRe))) {
+                        applied.push(`body naca${check.code}`);
+                        carriedBySpec = true;
+                    }
+                } else {
+                    rejections.push(
+                        `naca ${unknownNaca} is not a console body, staying on ${bodyLabel}; bodies are [${BODY_TOKENS.join(", ")}]`
+                    );
+                }
             }
-            if (alphaVal !== null) {
+            if (alphaVal !== null && !carriedBySpec) {
                 const clamped = Math.min(Math.max(alphaVal, ALPHA_HARD_MIN), ALPHA_HARD_MAX);
                 if (accept({ kind: "set_alpha", alphaDeg: clamped })) {
                     applied.push(`alpha ${clamped}`);
@@ -426,7 +579,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     notices.push(`Note: alpha ${alphaVal} clamped to ${clamped} (envelope [${ALPHA_HARD_MIN}, ${ALPHA_HARD_MAX}]).`);
                 }
             }
-            if (reVal !== null) {
+            if (reVal !== null && !carriedBySpec) {
                 const rounded = Math.round(reVal);
                 const clamped = Math.min(Math.max(rounded, RE_MIN), RE_MAX);
                 if (accept({ kind: "set_reynolds", reynolds: clamped })) {
@@ -447,7 +600,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             if (notices.length > 0) sections.push(notices.join(" "));
             if (tutorNote !== null) sections.push(tutorNote);
             if (typoNotes !== null) sections.push(`Note: ${typoNotes}.`);
-            if (bodyTok === null && applied.length > 0) {
+            if (bodyTok === null && !carriedBySpec && applied.length > 0) {
                 sections.push(
                     `Staying on ${bodyLabel}; name a body (NACA 0012, 2412, 4412, cylinder, block, orifice) to switch.`
                 );
@@ -478,7 +631,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             );
         }
         const fieldName = findField(lower);
-        if (fieldName !== null && (FIELD_TRIGGER_RE.test(lower) || lower.includes(`field ${fieldName}`))) {
+        if (!suppressFieldStage && fieldName !== null && (FIELD_TRIGGER_RE.test(lower) || lower.includes(`field ${fieldName}`))) {
             accept({
                 kind: "set_field",
                 field: fieldName as AgentAction extends { kind: "set_field"; field: infer F } ? F : never,

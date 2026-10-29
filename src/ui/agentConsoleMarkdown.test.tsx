@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import AgentConsole, { ChatMarkdown, tutorProseToGfm } from "./AgentConsole";
+import AgentConsole, { ChatMarkdown, stripTutorPipeTable, tutorProseToGfm } from "./AgentConsole";
 import type { ChatTurn } from "@/contracts/types";
 
 function userTurn(over: Partial<ChatTurn> = {}): ChatTurn {
@@ -31,7 +31,7 @@ function agentTurn(over: Partial<ChatTurn> = {}): ChatTurn {
     };
 }
 
-function tutorTurn(): ChatTurn {
+function tutorTurn(over: Partial<ChatTurn> = {}): ChatTurn {
     return agentTurn({
         id: "t-tutor-1",
         text: "Local tutor note, local only. Attached flow at alpha 6.\n\nCaveat: pending, press Run for a clean solve.",
@@ -46,6 +46,7 @@ function tutorTurn(): ChatTurn {
             ],
             caseKey: "case-after",
         },
+        ...over,
     });
 }
 
@@ -133,5 +134,63 @@ describe("agent console T2 markdown layout", () => {
         expect(fixed).toContain("| --- | --- | --- | ---");
         expect(tutorProseToGfm(fixed)).toBe(fixed);
         expect(tutorProseToGfm("plain words, no table")).toBe("plain words, no table");
+    });
+
+    it("strips the tutor pipe block from prose, keeping the surrounding copy", () => {
+        const raw =
+            "Local tutor note, local only. Attached flow at alpha 6.\n\nBefore vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100\n\nTry next: raise alpha.";
+        const stripped = stripTutorPipeTable(raw);
+        expect(stripped).not.toContain("Metric | Before | After | Delta");
+        expect(stripped).not.toContain("Cl | 0.600");
+        expect(stripped).toContain("Local tutor note");
+        expect(stripped).toContain("Try next: raise alpha.");
+        expect(stripTutorPipeTable("plain words, no table")).toBe("plain words, no table");
+    });
+
+    it("renders a single table when the tutor payload and prose pipe block coexist", () => {
+        const html = renderToStaticMarkup(
+            <AgentConsole
+                offline
+                onOfflineChange={() => {}}
+                initialTurns={[
+                    tutorTurn({
+                        text: "Local tutor note, local only. Attached flow at alpha 6.\n\nBefore vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100\n\nCaveat: pending, press Run for a clean solve.",
+                    }),
+                ]}
+            />
+        );
+        const tableCount = (html.match(/<table/g) ?? []).length;
+        expect(tableCount).toBe(1);
+        expect(html).not.toContain("Metric | Before | After | Delta");
+        expect(html).toContain("Quantity");
+        expect(html).toContain("Change");
+        expect(html).toContain("0.700");
+        expect(html).toContain("Local tutor note");
+    });
+
+    it("falls back to the prose GFM table when the tutor payload has no rows", () => {
+        const html = renderToStaticMarkup(
+            <AgentConsole
+                offline
+                onOfflineChange={() => {}}
+                initialTurns={[
+                    tutorTurn({
+                        text: "Before vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100",
+                        tutor: {
+                            concept: "attached-lift",
+                            primary: "speed",
+                            secondary: "speed",
+                            rows: [],
+                            caseKey: "case-after",
+                        },
+                    }),
+                ]}
+            />
+        );
+        const tableCount = (html.match(/<table/g) ?? []).length;
+        expect(tableCount).toBe(1);
+        expect(html).not.toContain("Quantity");
+        expect(html).not.toContain("Metric | Before | After | Delta");
+        expect(html).toContain("0.700");
     });
 });

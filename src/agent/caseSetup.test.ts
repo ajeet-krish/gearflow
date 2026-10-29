@@ -139,11 +139,41 @@ describe("local phenomenological triggers", () => {
         expect(named.actions).toContainEqual({ kind: "setup_airfoil", body: "naca4412", alphaDeg: 2 });
     });
 
-    it("asks one clarifying question for an unknown airfoil with canvas unchanged", () => {
-        const out = localReply("set up airfoil naca 0015", makeCtx());
+    it("asks one clarifying question for an invalid airfoil with canvas unchanged", () => {
+        const out = localReply("set up airfoil naca 0099", makeCtx());
         expect(out.actions).toEqual([]);
-        expect(out.reply).toContain("which airfoil should I set up");
+        expect(out.reply).toContain("not a valid 4-digit section");
         expect(out.reply).toContain("Canvas unchanged");
+    });
+
+    it("stages any valid non-canonical airfoil through set_spec", () => {
+        const out = localReply("set up airfoil naca 0015", makeCtx());
+        const spec = out.actions.find((a) => a.kind === "set_spec");
+        expect(spec).toBeDefined();
+        expect(JSON.stringify(spec)).toContain("0015");
+        expect(out.reply).toContain("Applying body naca0015");
+    });
+
+    it("maps cylinder stagnation talk to the high Re wake case with a Cp tutor note", () => {
+        const out = localReply("show the high pressure zone on the cylinder", makeCtx());
+        expect(out.actions).toContainEqual({ kind: "setup_high_re_wake" });
+        expect(out.reply).toContain("Stagnation tutor note");
+        expect(out.reply).toContain("Cp nears 1");
+    });
+
+    it("answers glossary questions with definitions and zero actions", () => {
+        const cl = localReply("what is Cl", makeCtx());
+        expect(cl.actions).toEqual([]);
+        expect(cl.rejections).toEqual([]);
+        expect(cl.reply).toContain("lift coefficient");
+        expect(cl.reply).toContain("Cl 0.600");
+        const cp = localReply("what is CpMin", makeCtx());
+        expect(cp.actions).toEqual([]);
+        expect(cp.reply).toContain("suction");
+        expect(cp.reply).toContain("CpMin -1.200");
+        const vort = localReply("what is vorticity", makeCtx());
+        expect(vort.actions).toEqual([]);
+        expect(vort.reply).toContain("swirl");
     });
 
     it("answers ambiguous setup with one question and zero actions", () => {

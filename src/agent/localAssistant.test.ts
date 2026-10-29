@@ -115,11 +115,18 @@ describe("localReply setup parsing", () => {
         expect(re.reply).toContain("clamped");
     });
 
-    it("rejects unknown NACA codes while keeping the parsed alpha", () => {
+    it("stages any valid non-canonical NACA through set_spec with the parsed alpha carried inside", () => {
         const out = localReply("set up naca 0015 alpha 6", makeCtx());
-        expect(out.actions).toContainEqual({ kind: "set_alpha", alphaDeg: 6 });
         expect(out.actions.some((a) => a.kind === "set_body")).toBe(false);
-        expect(out.rejections.join(" ")).toContain("0015");
+        const spec = out.actions.find((a) => a.kind === "set_spec");
+        expect(spec).toBeDefined();
+        const flat = JSON.stringify(spec);
+        expect(flat).toContain("0015");
+        expect(flat).toContain('"alphaDeg":6');
+        expect(flat).toContain('"reynolds":50000');
+        expect(out.rejections).toEqual([]);
+        expect(out.reply).toContain("Applying body naca0015");
+        expect(out.reply).not.toContain("Canvas unchanged");
     });
 
     it("defaults an ambiguous setup to the current body with one clarifying line", () => {
@@ -208,5 +215,46 @@ describe("localReply safety", () => {
         expect(out.actions).toEqual([]);
         expect(out.rejections).toEqual([]);
         expect(out.reply).toContain("Canvas unchanged");
+    });
+});
+
+describe("localReply offline review gates", () => {
+    it("answers glossary questions with zero actions even when paired with setup triggers", () => {
+        const clSetup = localReply("what is Cl, set up naca 2412 alpha 6", makeCtx());
+        expect(clSetup.actions).toEqual([]);
+        expect(clSetup.rejections).toEqual([]);
+        expect(clSetup.reply).toContain("lift coefficient");
+        expect(clSetup.reply).not.toContain("Applying");
+        const pressurePreset = localReply("what is CpMin, show the high pressure zone", makeCtx());
+        expect(pressurePreset.actions).toEqual([]);
+        expect(pressurePreset.rejections).toEqual([]);
+        expect(pressurePreset.reply).toContain("suction");
+        const vortField = localReply("what does vorticity do, show field cp", makeCtx());
+        expect(vortField.actions).toEqual([]);
+        expect(vortField.rejections).toEqual([]);
+        expect(vortField.reply).toContain("swirl");
+        const alphaSetup = localReply("define alpha, set alpha 6", makeCtx());
+        expect(alphaSetup.actions).toEqual([]);
+        expect(alphaSetup.rejections).toEqual([]);
+        expect(alphaSetup.reply).toContain("angle of attack");
+    });
+
+    it("stages only setup_high_re_wake for the cylinder stagnation prompt", () => {
+        const out = localReply("show the high pressure zone on the cylinder", makeCtx());
+        expect(out.actions).toEqual([{ kind: "setup_high_re_wake" }]);
+        expect(out.reply).not.toContain("Switching field");
+    });
+
+    it("suggests the nearest valid code for invalid airfoil words 0099 and 2500", () => {
+        const bad99 = localReply("set up airfoil naca 0099", makeCtx());
+        expect(bad99.actions).toEqual([]);
+        expect(bad99.reply).toContain("not a valid 4-digit section");
+        expect(bad99.reply).toContain("Did you mean NACA 0009");
+        expect(bad99.reply).toContain("Canvas unchanged");
+        const bad25 = localReply("set up airfoil naca 2500", makeCtx());
+        expect(bad25.actions).toEqual([]);
+        expect(bad25.reply).toContain("not a valid 4-digit section");
+        expect(bad25.reply).toContain("Did you mean NACA 2510");
+        expect(bad25.reply).toContain("Canvas unchanged");
     });
 });

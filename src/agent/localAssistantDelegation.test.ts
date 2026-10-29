@@ -60,28 +60,37 @@ function makeCtx(over: Partial<AgentContext> = {}): AgentContext {
 describe("localReply follows the airfoil corpus", () => {
     for (const row of rows) {
         it(`delegates ${row.id}`, () => {
-            const codeMatch = typeof row.current === "string" ? row.current.match(/(\d{4})(?!\d)/) : null;
-            const specNaca = codeMatch !== null
-                ? {
-                    code: codeMatch[1],
-                    m: parseInt(codeMatch[1][0], 10) / 100,
-                    p: parseInt(codeMatch[1][1], 10) / 10,
-                    t: parseInt(codeMatch[1].slice(2), 10) / 100,
-                }
-                : { code: "2412", m: 0.02, p: 0.4, t: 0.12 };
-            const ctx = makeCtx({
-                bodyLabel: row.current ?? "NACA 2412",
-                spec: { kind: "naca4", alphaDeg: 6, reynolds: 50000, naca: specNaca },
-            });
+            const ctx = row.current == null
+                ? makeCtx({
+                    bodyLabel: "cylinder",
+                    spec: { kind: "cylinder", alphaDeg: 0, reynolds: 50000, naca: null },
+                })
+                : (() => {
+                    const codeMatch = typeof row.current === "string" ? row.current.match(/(\d{4})(?!\d)/) : null;
+                    const specNaca = codeMatch !== null
+                        ? {
+                            code: codeMatch[1],
+                            m: parseInt(codeMatch[1][0], 10) / 100,
+                            p: parseInt(codeMatch[1][1], 10) / 10,
+                            t: parseInt(codeMatch[1].slice(2), 10) / 100,
+                        }
+                        : { code: "2412", m: 0.02, p: 0.4, t: 0.12 };
+                    return makeCtx({
+                        bodyLabel: row.current ?? "NACA 2412",
+                        spec: { kind: "naca4", alphaDeg: 6, reynolds: 50000, naca: specNaca },
+                    });
+                })();
             const out = localReply(row.text, ctx);
             expect(typeof out.reply).toBe("string");
             expect(out.reply.length).toBeGreaterThan(0);
             if (row.intent === null || row.intent === undefined) {
                 expect(out.actions.some((a) => a.kind === "set_body")).toBe(false);
+                expect(out.actions.some((a) => a.kind === "set_spec")).toBe(false);
                 return;
             }
             if (row.intent.kind === "clarify") {
                 expect(out.actions.some((a) => a.kind === "set_body")).toBe(false);
+                expect(out.actions.some((a) => a.kind === "set_spec")).toBe(false);
                 expect(out.reply).toContain("Canvas unchanged");
                 return;
             }
@@ -93,15 +102,27 @@ describe("localReply follows the airfoil corpus", () => {
                 if (CANONICAL.has(tok)) {
                     expect(out.actions).toContainEqual({ kind: "set_body", body: tok });
                 } else {
+                    // Non console bodies ride one set_spec like the online
+                    // fast path, never a bare set_body or a rejection.
+                    const spec = out.actions.find((a) => a.kind === "set_spec");
+                    expect(spec, `missing set_spec for ${parsed.code} on ${row.id}`).toBeDefined();
                     expect(out.actions.some((a) => a.kind === "set_body")).toBe(false);
-                    expect(out.rejections.join(" ")).toContain(parsed.code);
+                    expect(out.rejections.join(" ")).not.toContain(parsed.code);
                 }
             }
             if (parsed.alphaDeg !== null) {
-                expect(out.actions).toContainEqual({ kind: "set_alpha", alphaDeg: parsed.alphaDeg });
+                if (out.actions.some((a) => a.kind === "set_spec")) {
+                    expect(JSON.stringify(out.actions)).toContain(`"alphaDeg":${parsed.alphaDeg}`);
+                } else {
+                    expect(out.actions).toContainEqual({ kind: "set_alpha", alphaDeg: parsed.alphaDeg });
+                }
             }
             if (parsed.reynolds !== null) {
-                expect(out.actions).toContainEqual({ kind: "set_reynolds", reynolds: parsed.reynolds });
+                if (out.actions.some((a) => a.kind === "set_spec")) {
+                    expect(JSON.stringify(out.actions)).toContain(`"reynolds":${parsed.reynolds}`);
+                } else {
+                    expect(out.actions).toContainEqual({ kind: "set_reynolds", reynolds: parsed.reynolds });
+                }
             }
         });
     }
@@ -111,9 +132,12 @@ describe("localReply follows the airfoil corpus", () => {
         expect(out.actions).toContainEqual({ kind: "set_body", body: "naca2412" });
         expect(out.actions).toContainEqual({ kind: "set_alpha", alphaDeg: 6 });
         const mixed = localReply("use 6415 at 8deg Re200k", makeCtx());
-        expect(mixed.actions).toContainEqual({ kind: "set_alpha", alphaDeg: 8 });
-        expect(mixed.actions).toContainEqual({ kind: "set_reynolds", reynolds: 200000 });
-        expect(mixed.rejections.join(" ")).toContain("6415");
+        const spec = mixed.actions.find((a) => a.kind === "set_spec");
+        expect(spec).toBeDefined();
+        expect(JSON.stringify(spec)).toContain("6415");
+        expect(JSON.stringify(spec)).toContain('"alphaDeg":8');
+        expect(JSON.stringify(spec)).toContain('"reynolds":200000');
+        expect(mixed.rejections).toEqual([]);
     });
 
     it("surfaces the shared parser typo corrections", () => {
@@ -128,9 +152,13 @@ describe("localReply follows the airfoil corpus", () => {
 
     it("adds the tutor physics note for valid but unrealistic thickness", () => {
         const out = localReply("NACA 2440", makeCtx());
+        const spec = out.actions.find((a) => a.kind === "set_spec");
+        expect(spec).toBeDefined();
+        expect(JSON.stringify(spec)).toContain("2440");
         expect(out.actions.some((a) => a.kind === "set_body")).toBe(false);
         expect(out.reply).toContain("6 to 18%");
-        expect(out.reply).toContain("Canvas unchanged");
+        expect(out.reply).toContain("Applying body naca2440");
+        expect(out.reply).not.toContain("Canvas unchanged");
     });
 
     it("asks the clarify question instead of applying an ambiguous code", () => {
