@@ -1,0 +1,62 @@
+{
+  "version": "3",
+  "arch": "unet-v3",
+  "base": 8,
+  "inCh": 4,
+  "outCh": 10,
+  "auxCh": 3,
+  "inHeads": [
+    "sdf",
+    "mask",
+    "alpha",
+    "logRe"
+  ],
+  "spatialHeads": [
+    "meanU",
+    "meanV",
+    "cp",
+    "vorticity",
+    "tke",
+    "recirc",
+    "uCos",
+    "uSin",
+    "vCos",
+    "vSin"
+  ],
+  "auxHeads": [
+    "strouhalNorm",
+    "explainedLogit",
+    "harmonicValidLogit"
+  ],
+  "nx": 128,
+  "ny": 128,
+  "opset": 18,
+  "normSchema": "gearflow-surrogate-norm/v3",
+  "harmonicCapable": false,
+  "files": {
+    "model": {
+      "path": "model.onnx",
+      "sha256": "de0ae560ffab01770ef42e996692493ce80f6b87069a10b4f357d2bf8eb44657"
+    },
+    "norm": {
+      "path": "norm.json",
+      "sha256": "c523ac0a3a874e22f111bac9f8589b7a82d1c74a300aceb8264a3fc68419df94"
+    }
+  },
+  "normSha256": "c523ac0a3a874e22f111bac9f8589b7a82d1c74a300aceb8264a3fc68419df94",
+  "runId": "dev",
+  "provenance": {
+    "checkpoint": "/Users/ajeet/Projects/Hackathons/Meta Global 2026/training/checkpoints/v3/dev/best.pt",
+    "exporter": "training/export_onnx.py",
+    "parity": {
+      "tolerance": 0.001,
+      "toleranceSpatial": 0.001,
+      "toleranceAux": 0.0001,
+      "status": "pass",
+      "maxErrSpatial": 0.00025272369384765625,
+      "maxErrAux": 2.384185791015625e-07,
+      "maxErr": 0.00025272369384765625
+    },
+    "postActivations": "sigmoid and expm1 stay in the TypeScript consumer, never in ONNX"
+  }
+}

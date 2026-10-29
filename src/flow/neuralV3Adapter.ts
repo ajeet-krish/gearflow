@@ -25,6 +25,8 @@ export interface NeuralV3PredictorLike {
     predictFrame(): Promise<FlowField>;
     setGeometry?: (geom: GeometrySpec) => void;
     setRe?: (re: number) => void;
+    /** Manifest harmonic capability when the predictor is a SurrogateV3Provider. Absent means unknown (treated as not capable). */
+    harmonicCapable?: boolean;
 }
 
 export interface NeuralV3Result {
@@ -89,8 +91,9 @@ export class NeuralV3Adapter {
     private lastHarmonic: { valid: boolean; reason: string | null } | null = null;
     private lastScalars: { strouhal: number | null; explained: number | null } | null = null;
     private lastLatencyMs = 0;
+    private harmonicCapableOverride: boolean | null;
 
-    constructor(predictor: NeuralV3PredictorLike, opts?: { U?: number; weightsVersion?: string }) {
+    constructor(predictor: NeuralV3PredictorLike, opts?: { U?: number; weightsVersion?: string; harmonicCapable?: boolean }) {
         if (predictor === null || predictor === undefined) {
             throw new Error("neuralV3Adapter: predictor is required");
         }
@@ -102,6 +105,7 @@ export class NeuralV3Adapter {
         this.U = U;
         const version = opts?.weightsVersion;
         this.weightsVersion = typeof version === "string" && version.length > 0 ? version : NEURAL_V3_ADAPTER_VERSION;
+        this.harmonicCapableOverride = typeof opts?.harmonicCapable === "boolean" ? opts.harmonicCapable : null;
     }
 
     get availability(): NeuralStatus {
@@ -110,6 +114,14 @@ export class NeuralV3Adapter {
 
     get version(): string {
         return this.weightsVersion;
+    }
+
+    /** Steady-only gate: explicit override wins, else the predictor manifest flag; absent means capable (legacy default). */
+    get harmonicCapable(): boolean {
+        if (this.harmonicCapableOverride !== null) return this.harmonicCapableOverride;
+        const fromPredictor = (this.predictor as NeuralV3PredictorLike).harmonicCapable;
+        if (fromPredictor === false) return false;
+        return true;
     }
 
     setAvailability(next: NeuralStatus): void {
@@ -176,6 +188,9 @@ export class NeuralV3Adapter {
             throw new Error("neuralV3Adapter: predicted frame failed the usable field gate");
         }
         const harmonic = harmonicStateForV3Field(flow);
+        const gatedHarmonic = this.harmonicCapable
+            ? harmonic
+            : { valid: false as boolean, reason: "harmonic heads disabled (steady-only bundle)" as string | null };
         const scalars = {
             strouhal: finiteOrNull(flow.strouhalPredicted),
             explained: finiteOrNull(flow.explainedPredicted),
@@ -183,7 +198,7 @@ export class NeuralV3Adapter {
         this.lastKey = key;
         this.lastFlow = flow;
         this.lastResult = result;
-        this.lastHarmonic = harmonic;
+        this.lastHarmonic = gatedHarmonic;
         this.lastScalars = scalars;
         this.lastLatencyMs = latencyMs;
         return {
@@ -194,8 +209,8 @@ export class NeuralV3Adapter {
             solveMs: result.solveMs,
             latencyMs,
             cached: false,
-            harmonicValid: harmonic.valid,
-            harmonicInvalidReason: harmonic.reason,
+            harmonicValid: gatedHarmonic.valid,
+            harmonicInvalidReason: gatedHarmonic.reason,
             strouhal: scalars.strouhal,
             explained: scalars.explained,
         };

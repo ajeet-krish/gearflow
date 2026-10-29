@@ -75,6 +75,7 @@ function testManifest(modelSha: string, normSha: string, provenance: unknown = {
         nx: 128,
         ny: 128,
         opset: 18,
+        harmonicCapable: true,
         files: {
             model: { path: "model.onnx", sha256: modelSha },
             norm: { path: "norm.json", sha256: normSha },

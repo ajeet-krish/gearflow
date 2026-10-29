@@ -24,17 +24,21 @@ export interface StreetLoopGate {
     solveError: string | null;
     /** Case scalar Strouhal from the v3 aux head. */
     strouhal: number | null;
+    /** Manifest harmonic capability. False forces steady even when the field gates pass. */
+    harmonicCapable?: boolean;
 }
 
 /**
  * Decide whether one served frame starts the street loop. True only for a
  * neural-v3 frame with valid harmonics, a positive finite Strouhal, and no
  * LBM, fixture, or held analytic frame in the way. Steady v3 frames keep
- * the mean field and never start the loop.
+ * the mean field and never start the loop. An explicit harmonicCapable
+ * false (steady-only bundle) never starts the loop.
  */
 export function shouldAnimateStreet(gate: StreetLoopGate): boolean {
     if (gate.path !== "neural-v3") return false;
     if (gate.lbmEffective || gate.isFixture || gate.solveError !== null) return false;
+    if (gate.harmonicCapable === false) return false;
     if (gate.harmonicValid !== true) return false;
     if (gate.strouhal === null || !Number.isFinite(gate.strouhal) || !(gate.strouhal > 0)) {
         return false;

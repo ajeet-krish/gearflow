@@ -126,6 +126,8 @@ export interface V3Manifest {
     nx: number;
     ny: number;
     opset: number;
+    /** Steady-only cut: false disables the street loop and phase reconstruction, frames serve steady. */
+    harmonicCapable: boolean;
     files: {
         model: V3ManifestFile;
         norm: V3ManifestFile;
@@ -217,6 +219,7 @@ export function validateV3Manifest(raw: unknown): V3Manifest {
         fail(`manifest grid ${String(m.nx)}x${String(m.ny)} must be ${SURROGATE_V3_NX}x${SURROGATE_V3_NY}`);
     }
     if (m.opset !== SURROGATE_V3_OPSET) fail(`manifest.opset must be ${SURROGATE_V3_OPSET}, got ${JSON.stringify(m.opset)}`);
+    if (typeof m.harmonicCapable !== "boolean") fail("manifest.harmonicCapable must be a boolean (steady-only cut: false serves steady frames)");
     if (typeof m.files !== "object" || m.files === null) fail("manifest.files must be an object");
     const files = m.files as Record<string, unknown>;
     const model = requireFile(files.model, "manifest.files.model");
@@ -235,6 +238,7 @@ export function validateV3Manifest(raw: unknown): V3Manifest {
         nx: SURROGATE_V3_NX,
         ny: SURROGATE_V3_NY,
         opset: SURROGATE_V3_OPSET,
+        harmonicCapable: m.harmonicCapable as boolean,
         files: { model, norm },
         normSha256: (m.normSha256 as string).toLowerCase(),
         runId: m.runId as string | undefined,
@@ -603,6 +607,11 @@ export class SurrogateV3Provider implements FrameSource {
 
     get loaded(): boolean {
         return this.session !== null;
+    }
+
+    /** Manifest harmonic capability. False before load (fail closed to steady) and false for steady-only bundles. */
+    get harmonicCapable(): boolean {
+        return this.manifest?.harmonicCapable ?? false;
     }
 
     setGeometry(geom: GeometrySpec): void {
