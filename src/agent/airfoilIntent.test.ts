@@ -132,6 +132,32 @@ describe("parseAirfoilIntent safety", () => {
         const got = parseAirfoilIntent("more camber", null);
         expect(got?.kind).toBe("clarify");
     });
+
+    it("grounds relative thickness edits on the live custom code", () => {
+        const thicker = parseAirfoilIntent("make it thicker", { code: "NACA 2415 custom" });
+        expect(thicker?.kind).toBe("apply");
+        if (thicker?.kind === "apply") {
+            expect(thicker.code).toBe("2417");
+        }
+        const thinner = parseAirfoilIntent("make it thinner", { code: "2415" });
+        expect(thinner?.kind).toBe("apply");
+        if (thinner?.kind === "apply") {
+            expect(thinner.code).toBe("2413");
+        }
+    });
+
+    it("grounds relative camber edits on the live custom code", () => {
+        const more = parseAirfoilIntent("more camber", { code: "2415" });
+        expect(more?.kind).toBe("apply");
+        if (more?.kind === "apply") {
+            expect(more.code).toBe("3415");
+        }
+        const less = parseAirfoilIntent("less camber", { code: "2415" });
+        expect(less?.kind).toBe("apply");
+        if (less?.kind === "apply") {
+            expect(less.code).toBe("1415");
+        }
+    });
 });
 
 describe("buildAirfoilEnvelope (R3)", () => {

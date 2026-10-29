@@ -1632,3 +1632,29 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: closed for this fix cycle. The glossary definition, preset field, and parser nearest are now treated as authoritative at the local integration seam instead of being overridden by later generic staging.
+
+## 2026-10-29 - Velocity and Thickness Grounding Fix Review
+
+Date: 2026-10-29
+Reviewer: code-reviewer
+Scope: Velocity plus thickness grounding fix (src/agent/localAssistant.ts speed default plus sectionCode grounding plus Re-only reply, src/agent/tutorPolicy.ts speed primary for attached/general, tests)
+Verdict: PASS
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| Explicit field never overridden | PASS | src/agent/localAssistant.ts:395-399 stageSpeedDefault returns when explicitFieldHere is non-null; src/agent/localAssistant.ts:613 mirrors this for the set_spec intent path; pinned at src/agent/localAssistant.test.ts:157-161 (cp staged, speed absent) |
+| Speed staged with set_spec and setup_airfoil | PASS | stageSpeedDefault called after staged relative, generic, canonical, and non-canonical airfoil branches at src/agent/localAssistant.ts:457,477,505,531; intent set_spec path stages speed at line 613; pinned at src/agent/localAssistant.test.ts:142-155 |
+| Relative edits ground on custom code | PASS | sectionCode prefers live spec.naca.code and falls back to bodyLabel at src/agent/localAssistant.ts:384-392, hoisted above the airfoil-word branch and passed to parseAirfoilIntent at lines 444 and 547; 2415 thicker yields 2417 and more camber yields 3415, pinned at src/agent/localAssistant.test.ts:176-192 |
+| Re-only stays on custom, no stale list | PASS | Re-only intent carries code null (src/agent/airfoilIntent.ts:306-308), so only set_reynolds stages and the reply stays on the live label at src/agent/localAssistant.ts:652-656; pinned at src/agent/localAssistant.test.ts:163-174 (no 0012, no body list) |
+| Tutor speed primary for attached and general | PASS | src/agent/tutorPolicy.ts:117-121 returns speed primary with cp secondary for attached-lift and general, omega reserved for stall, shedding, turbulence; pinned at src/agent/tutorPolicy.test.ts:57-70 and 111-138 |
+| Validator sole gate | PASS | Every candidate flows through accept at src/agent/localAssistant.ts:360-373 into validateAgentAction; no direct actions.push exists outside accept |
+| No throws | PASS | localReply outer guard at src/agent/localAssistant.ts:310,719-721 plus guarded sectionCode, glossary, and nearest lookups; tutorPolicy functions wrap in try/catch at src/agent/tutorPolicy.ts:64-90,100-125,197-226; pinned at src/agent/localAssistant.test.ts:242-257 |
+
+### Verification Checklist
+- [x] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: none new for this fix; the explicit field, live section code, and validator are now treated as authoritative at the local seam instead of being overridden by later generic staging.

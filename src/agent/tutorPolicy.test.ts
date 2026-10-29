@@ -54,10 +54,19 @@ describe("fieldForConcept", () => {
         expect(fieldForConcept("stagnation")).toEqual({ primary: "cp", secondary: "speed" });
     });
 
-    it("keeps the current field with the cp chip for attached and general", () => {
-        expect(fieldForConcept("attached-lift", { current: "omega" })).toEqual({ primary: "omega", secondary: "cp" });
-        expect(fieldForConcept("general", { current: "u" })).toEqual({ primary: "u", secondary: "cp" });
+    it("keeps speed with the cp chip for attached and general, never omega", () => {
+        expect(fieldForConcept("attached-lift", { current: "omega" })).toEqual({ primary: "speed", secondary: "cp" });
+        expect(fieldForConcept("general", { current: "u" })).toEqual({ primary: "speed", secondary: "cp" });
+        expect(fieldForConcept("attached-lift", { current: "speed" })).toEqual({ primary: "speed", secondary: "cp" });
         expect(fieldForConcept("general")).toEqual({ primary: "speed", secondary: "cp" });
+    });
+
+    it("reserves omega for stall, shedding, and turbulence concepts", () => {
+        expect(fieldForConcept("stall-separation").primary).toBe("omega");
+        expect(fieldForConcept("karman-shedding").primary).toBe("omega");
+        expect(fieldForConcept("turbulent-wake").primary).toBe("omega");
+        expect(fieldForConcept("attached-lift", { current: "cp" }).primary).toBe("speed");
+        expect(fieldForConcept("general", { current: "omega" }).primary).toBe("speed");
     });
 });
 
@@ -97,6 +106,35 @@ describe("localTutorReply", () => {
     it("never throws on null snapshots", () => {
         expect(() => localTutorReply(null, null)).not.toThrow();
         expect(localTutorReply(null, null)).toContain("Caveat:");
+    });
+
+    it("suggests the speed view for fresh attached and general frames", () => {
+        const attached = localTutorReply(
+            {
+                caseKey: "naca4|a6|Re50000|analytic|fspeed",
+                bodyLabel: "NACA 2412",
+                alpha: 6,
+                reynolds: 50000,
+                cl: 0.654,
+                cpMin: -1.2,
+                regime: "laminar, attached",
+                pathLabel: "analytic potential flow, not validated",
+                strouhal: null,
+            },
+            {
+                caseKey: "naca4|a6|Re50000|analytic|fspeed",
+                bodyLabel: "NACA 2412",
+                alpha: 6,
+                reynolds: 50000,
+                cl: 0.654,
+                cpMin: -1.2,
+                regime: "laminar, attached",
+                pathLabel: "analytic potential flow, not validated",
+                strouhal: null,
+            },
+        );
+        expect(attached).toContain("Suggested view: speed");
+        expect(attached).not.toMatch(/Suggested view: omega/);
     });
 
     it("reaches suction-peak from a deep CpMin with a neutral regime", () => {

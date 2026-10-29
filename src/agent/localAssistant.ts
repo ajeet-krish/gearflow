@@ -373,6 +373,30 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         };
         let presetHandled = false;
         let suppressFieldStage = false;
+        // NACA plus alpha plus Re come from the shared airfoil intent parser
+        // so offline setup agrees with the tested corpus. The live section
+        // code in the context snapshot grounds relative edits, the body
+        // label is the fallback for older snapshots. Non NACA bodies
+        // (cylinder, block, orifice) still resolve from the body tokens.
+        // Hoisted above the airfoil word branch so relative words without
+        // explicit digits (thicker, more camber) ground on the live custom
+        // code instead of resetting to the canonical default.
+        const sectionCode = (() => {
+            try {
+                const snap = safe?.spec?.naca?.code;
+                if (typeof snap === "string" && /\d{4}/.test(snap)) return snap;
+            } catch {
+                // Fall through to the body label below.
+            }
+            return safe === null ? null : cleanText(safe.bodyLabel, "current body");
+        })();
+        // Explicit field requests suppress the fresh case speed default so
+        // the canvas never overrides a requested cp or omega view.
+        const explicitFieldHere = findField(lower);
+        const stageSpeedDefault = (): void => {
+            if (explicitFieldHere !== null) return;
+            accept({ kind: "set_field", field: "speed" });
+        };
         if (SHEDDING_RE.test(lower)) {
             presetHandled = true;
             const staged = accept({ kind: "setup_shedding" });
@@ -414,15 +438,50 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     `Reply with a valid 4-digit code (try 0012, 2412, or 4412). Canvas unchanged.`
                 );
             } else if (parsed.status === "none") {
-                const candidate: AgentAction = { kind: "setup_airfoil" };
-                if (alphaHere !== null) (candidate as { alphaDeg?: number }).alphaDeg = alphaHere;
-                const staged = accept(candidate);
-                if (staged) {
-                    sections.push("Local setup note, no network. Applying the airfoil case (NACA, speed field). Canvas updates on apply.");
+                // Relative reshapes without explicit digits (thicker,
+                // thinner, more or less camber) ground on the live custom
+                // code from the context spec, never the canonical default.
+                const relative = parseAirfoilIntent(raw, { code: sectionCode });
+                if (relative !== null && relative.kind === "apply" && relative.code !== null) {
+                    const check = isSchemaValidCode(relative.code);
+                    if (check.ok) {
+                        const ctxAlpha = finiteOrNull(safe?.alphaDeg);
+                        const ctxRe = finiteOrNull(safe?.reynolds);
+                        const rawAlpha = relative.alphaDeg ?? parseAlphaDeg(raw) ?? ctxAlpha ?? 6;
+                        const clampedAlpha = Math.min(Math.max(rawAlpha, ALPHA_HARD_MIN), ALPHA_HARD_MAX);
+                        const rawRe = relative.reynolds === null
+                            ? (ctxRe === null ? 50000 : Math.round(ctxRe))
+                            : Math.round(relative.reynolds);
+                        const clampedRe = Math.min(Math.max(rawRe, RE_MIN), RE_MAX);
+                        const staged = accept(anyAirfoilSpec(check.code, check.m, check.p, check.t, clampedAlpha, clampedRe));
+                        if (staged) stageSpeedDefault();
+                        if (staged) {
+                            sections.push(
+                                `Local setup note, no network. Applying body naca${check.code} (NACA ${check.code}, alpha ${clampedAlpha}, Re ${clampedRe}, speed field). Canvas updates on apply.` +
+                                (relative.notes.length > 0 ? ` ${relative.notes.join(" ")}` : "")
+                            );
+                        } else {
+                            sections.push(
+                                `Local setup note, no network. Staying on ${bodyLabel}; NACA ${check.code} with alpha ${clampedAlpha} and Re ${clampedRe} is outside the serving envelope. Canvas unchanged.`
+                            );
+                        }
+                    } else {
+                        sections.push(
+                            `Local setup note, no network. Staying on ${bodyLabel}; that reshape falls outside the 4-digit family. Canvas unchanged.`
+                        );
+                    }
                 } else {
-                    sections.push(
-                        `Local setup note, no network. Staying on ${bodyLabel}; the airfoil case is outside the serving envelope. Canvas unchanged.`
-                    );
+                    const candidate: AgentAction = { kind: "setup_airfoil" };
+                    if (alphaHere !== null) (candidate as { alphaDeg?: number }).alphaDeg = alphaHere;
+                    const staged = accept(candidate);
+                    if (staged) stageSpeedDefault();
+                    if (staged) {
+                        sections.push("Local setup note, no network. Applying the airfoil case (NACA, speed field). Canvas updates on apply.");
+                    } else {
+                        sections.push(
+                            `Local setup note, no network. Staying on ${bodyLabel}; the airfoil case is outside the serving envelope. Canvas unchanged.`
+                        );
+                    }
                 }
             } else {
                 const check = isSchemaValidCode(parsed.code);
@@ -443,6 +502,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     (candidate as { body?: BodyToken }).body = `naca${check.code}` as BodyToken;
                     if (alphaHere !== null) (candidate as { alphaDeg?: number }).alphaDeg = alphaHere;
                     const staged = accept(candidate);
+                    if (staged) stageSpeedDefault();
                     if (staged) {
                         sections.push("Local setup note, no network. Applying the airfoil case (NACA, speed field). Canvas updates on apply.");
                     } else {
@@ -468,10 +528,11 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     if (clampedRe !== Math.round(reynolds)) specNotes.push(`Note: Re ${Math.round(reynolds)} clamped to ${clampedRe} (envelope [${RE_MIN}, ${RE_MAX}]).`);
                     reynolds = clampedRe;
                     const staged = accept(anyAirfoilSpec(check.code, check.m, check.p, check.t, alpha, reynolds));
+                    if (staged) stageSpeedDefault();
                     if (staged) {
                         const tutor = parsed.note ?? check.note;
                         sections.push(
-                            `Local setup note, no network. Applying body naca${check.code} (NACA ${check.code}, alpha ${alpha}, Re ${reynolds}). Canvas updates on apply.` +
+                            `Local setup note, no network. Applying body naca${check.code} (NACA ${check.code}, alpha ${alpha}, Re ${reynolds}, speed field). Canvas updates on apply.` +
                             (specNotes.length > 0 ? ` ${specNotes.join(" ")}` : "") +
                             (tutor !== null ? ` ${tutor}` : "")
                         );
@@ -483,20 +544,6 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 }
             }
         }
-        // NACA plus alpha plus Re come from the shared airfoil intent parser
-        // so offline setup agrees with the tested corpus. The live section
-        // code in the context snapshot grounds relative edits, the body
-        // label is the fallback for older snapshots. Non NACA bodies
-        // (cylinder, block, orifice) still resolve from the body tokens.
-        const sectionCode = (() => {
-            try {
-                const snap = safe?.spec?.naca?.code;
-                if (typeof snap === "string" && /\d{4}/.test(snap)) return snap;
-            } catch {
-                // Fall through to the body label below.
-            }
-            return safe === null ? null : cleanText(safe.bodyLabel, "current body");
-        })();
         const intent = presetHandled ? null : parseAirfoilIntent(raw, { code: sectionCode });
         const clarified = intent !== null && intent.kind === "clarify";
         if (clarified) {
@@ -563,6 +610,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     if (accept(anyAirfoilSpec(check.code, check.m, check.p, check.t, clampedAlpha, clampedRe))) {
                         applied.push(`body naca${check.code}`);
                         carriedBySpec = true;
+                        if (explicitFieldHere === null) accept({ kind: "set_field", field: "speed" });
                     }
                 } else {
                     rejections.push(
@@ -590,7 +638,8 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 }
             }
             if (applied.length > 0) {
-                sections.push(`Local setup note, no network. Applying ${applied.join(", ")}.`);
+                const speedStaged = carriedBySpec && actions.some((a) => a.kind === "set_field" && a.field === "speed");
+                sections.push(`Local setup note, no network. Applying ${applied.join(", ")}${speedStaged ? " with the speed field" : ""}.`);
             } else {
                 sections.push(
                     `Local setup note, no network. Staying on ${bodyLabel}; tell me which body ` +
@@ -602,7 +651,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             if (typoNotes !== null) sections.push(`Note: ${typoNotes}.`);
             if (bodyTok === null && !carriedBySpec && applied.length > 0) {
                 sections.push(
-                    `Staying on ${bodyLabel}; name a body (NACA 0012, 2412, 4412, cylinder, block, orifice) to switch.`
+                    `Staying on ${bodyLabel} with ${applied.join(", ")}.`
                 );
             }
         } else if (HELP_RE.test(lower)) {

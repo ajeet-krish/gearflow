@@ -29,8 +29,10 @@ export interface DetectConceptInput {
 }
 
 /** Suggested field pair for one concept. Secondary null means the reply
- *  needs no second view. Attached and general keep the current field and
- *  add the cp chip as secondary. */
+ *  needs no second view. Fresh attached and general default to the speed
+ *  view with the cp chip as secondary, so the canvas lands on velocity
+ *  plus streamlines; omega stays primary only for stall, shedding, and
+ *  turbulence concepts. */
 export interface TutorFieldSuggestion {
     primary: FieldMode;
     secondary: FieldMode | null;
@@ -92,7 +94,8 @@ export function detectConcept(input: DetectConceptInput | null | undefined): Tut
  * favors omega with speed second, suction favors cp with speed second,
  * turbulence favors k when ready else recirc when ready else omega with
  * speed second, stagnation favors cp with speed second, attached and
- * general keep the current field with the cp chip second. Never throws.
+ * general suggest speed with the cp chip second (keeping speed when the
+ * current field already shows velocity). Never throws.
  */
 export function fieldForConcept(
     concept: TutorConcept,
@@ -111,7 +114,11 @@ export function fieldForConcept(
             return { primary: "omega", secondary: "speed" };
         }
         if (concept === "stagnation") return { primary: "cp", secondary: "speed" };
-        return { primary: current, secondary: "cp" };
+        // Fresh attached lift and general frames land on velocity plus
+        // streamlines: keep speed when already there, otherwise suggest
+        // speed (never omega) with the cp chip second.
+        void current;
+        return { primary: "speed", secondary: "cp" };
     } catch {
         return { primary: "speed", secondary: "cp" };
     }
@@ -168,10 +175,23 @@ function caveatFor(pathLabel: string): string {
     return "Caveat: pending, press Run for a clean solve.";
 }
 
+function fieldFromCaseKey(caseKey: string): FieldMode {
+    try {
+        const m = caseKey.match(/\|f([a-z]+)/i);
+        const token = m !== null ? m[1].toLowerCase() : "";
+        if ((FIELD_TOKENS as ReadonlyArray<string>).includes(token)) return token as FieldMode;
+        return "speed";
+    } catch {
+        return "speed";
+    }
+}
+
 /**
  * Offline tutor reply with the same shape as the live tutor answer:
  * one explanation, the before vs after table, one Try next experiment,
- * and one honesty caveat. Cites only table cells, never invents numbers.
+ * the suggested view, and one honesty caveat. Cites only table cells,
+ * never invents numbers. Attached and general frames suggest the speed
+ * view; omega stays suggested only for stall, shedding, and turbulence.
  * Never throws.
  */
 export function localTutorReply(
@@ -191,10 +211,14 @@ export function localTutorReply(
         const explanation = explanationFor(concept, rows);
         const experiment = experimentFor(concept);
         const caveat = caveatFor(typeof focus?.pathLabel === "string" ? focus.pathLabel : "");
+        const currentField = fieldFromCaseKey(typeof focus?.caseKey === "string" ? focus.caseKey : "");
+        const suggestion = fieldForConcept(concept, { current: currentField });
+        const secondary = suggestion.secondary ?? "none";
         return (
             `Local tutor note, local only. ${explanation}\n\n` +
             `Before vs after\n${tutorRowsText(rows)}\n\n` +
             `Try next: ${experiment}\n\n` +
+            `Suggested view: ${suggestion.primary} (secondary: ${secondary}).\n\n` +
             caveat
         );
     } catch {

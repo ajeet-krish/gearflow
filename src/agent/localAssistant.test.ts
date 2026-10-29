@@ -138,6 +138,58 @@ describe("localReply setup parsing", () => {
         expect(bare.actions).toEqual([]);
         expect(bare.reply).toContain("Staying on NACA 2412");
     });
+
+    it("lands fresh any-airfoil set_spec cases on the speed field", () => {
+        const out = localReply("set up naca 0015 alpha 6", makeCtx());
+        expect(out.actions).toContainEqual({ kind: "set_field", field: "speed" });
+        expect(out.reply).toContain("speed field");
+    });
+
+    it("lands fresh setup_airfoil cases on the speed field", () => {
+        const generic = localReply("set up airfoil", makeCtx());
+        expect(generic.actions.some((a) => a.kind === "setup_airfoil")).toBe(true);
+        expect(generic.actions).toContainEqual({ kind: "set_field", field: "speed" });
+        const canonical = localReply("set up airfoil naca 2412", makeCtx());
+        expect(canonical.actions.some((a) => a.kind === "setup_airfoil")).toBe(true);
+        expect(canonical.actions).toContainEqual({ kind: "set_field", field: "speed" });
+    });
+
+    it("never overrides an explicit field request on fresh airfoil cases", () => {
+        const out = localReply("set up naca 0015 alpha 6 show the cp field", makeCtx());
+        expect(out.actions).toContainEqual({ kind: "set_field", field: "cp" });
+        expect(out.actions).not.toContainEqual({ kind: "set_field", field: "speed" });
+    });
+
+    it("stays on the custom section for Re only edits with no body list", () => {
+        const custom = makeCtx({
+            spec: { kind: "naca4", alphaDeg: 6, reynolds: 50000, naca: { code: "2415", m: 0.02, p: 0.4, t: 0.15 } },
+            bodyLabel: "NACA 2415 custom",
+        });
+        const out = localReply("set Re 80000", custom);
+        expect(out.actions).toContainEqual({ kind: "set_reynolds", reynolds: 80000 });
+        expect(out.reply).toContain("Staying on NACA 2415 custom");
+        expect(out.reply).toContain("80000");
+        expect(out.reply).not.toContain("0012");
+        expect(out.reply).not.toContain("name a body");
+    });
+
+    it("grounds airfoil word thickness edits on the live custom code", () => {
+        const custom = makeCtx({
+            spec: { kind: "naca4", alphaDeg: 6, reynolds: 50000, naca: { code: "2415", m: 0.02, p: 0.4, t: 0.15 } },
+            bodyLabel: "NACA 2415 custom",
+        });
+        const thicker = localReply("make the airfoil thicker", custom);
+        const spec = thicker.actions.find((a) => a.kind === "set_spec");
+        expect(spec).toBeDefined();
+        expect(JSON.stringify(spec)).toContain("2417");
+        expect(thicker.actions).toContainEqual({ kind: "set_field", field: "speed" });
+        expect(thicker.reply).toContain("2417");
+        const camber = localReply("give the airfoil more camber", custom);
+        const camberSpec = camber.actions.find((a) => a.kind === "set_spec");
+        expect(camberSpec).toBeDefined();
+        expect(JSON.stringify(camberSpec)).toContain("3415");
+        expect(camber.reply).toContain("3415");
+    });
 });
 
 describe("localReply engine, field, and run", () => {

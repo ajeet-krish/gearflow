@@ -134,9 +134,11 @@ describe("local phenomenological triggers", () => {
 
     it("maps airfoil plus optional alpha to the airfoil preset", () => {
         const out = localReply("set up the airfoil at alpha 8", makeCtx());
-        expect(out.actions).toEqual([{ kind: "setup_airfoil", alphaDeg: 8 }]);
+        expect(out.actions).toContainEqual({ kind: "setup_airfoil", alphaDeg: 8 });
+        expect(out.actions).toContainEqual({ kind: "set_field", field: "speed" });
         const named = localReply("airfoil naca 4412 alpha 2", makeCtx());
         expect(named.actions).toContainEqual({ kind: "setup_airfoil", body: "naca4412", alphaDeg: 2 });
+        expect(named.actions).toContainEqual({ kind: "set_field", field: "speed" });
     });
 
     it("asks one clarifying question for an invalid airfoil with canvas unchanged", () => {
