@@ -858,10 +858,15 @@ export default function App() {
         };
     }, [lbmActive, lbmGrid.nx, lbmGrid.ny, lbmGrid.reason, debouncedSpec, debouncedRe, lbmULattice, lbmTargetSteps, lbmLesEffective, lbmFailover]);
 
-    // Neural v2 availability plus request tracking. The adapter owns the
-    // provider and the last frame cache, the tracker hands out monotonic
-    // request ids so only the latest async predict can commit.
-    const [neuralStatus, setNeuralStatus] = useState<NeuralStatus>("loading");
+    // Neural v2 retired, v3 is the only neural path. No v2 bundle ships:
+    // public/surrogate/ root holds the superseded v1 weights.bin format
+    // (manifest version 1, no norm sidecar), and no surrogate/v2/ directory
+    // exists, so the v2 manifest URL serves the app shell and JSON parse
+    // fails by construction. The adapter plus request tracker stay so the
+    // types and the router legacy path keep compiling, but availability is
+    // pinned to unavailable so the router never selects neural-v2 and no v2
+    // popup can appear. Without v3 the app serves analytic with the reason.
+    const [neuralStatus] = useState<NeuralStatus>("unavailable");
     const [neuralFrame, setNeuralFrame] = useState<{
         key: string;
         flow: FlowField;
@@ -952,25 +957,8 @@ export default function App() {
         [routerBody, debouncedSpec.alphaDeg, debouncedRe, neuralStatus, neuralV3Status]
     );
 
-    // Availability load runs once. Any failure latches to failed so the
-    // router keeps serving analytic with an honest reason.
-    useEffect(() => {
-        let cancelled = false;
-        const adapter = neuralAdapterRef.current;
-        if (adapter === null) {
-            setNeuralStatus("unavailable");
-            return;
-        }
-        setNeuralStatus(adapter.availability === "ready" ? "ready" : "loading");
-        void adapter.ensureLoaded().then((status) => {
-            if (!cancelled) setNeuralStatus(status);
-        }).catch(() => {
-            if (!cancelled) setNeuralStatus("failed");
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    // v2 retired (see the Neural v2 comment above): availability stays
+    // pinned to unavailable, no v2 bundle is ever fetched.
 
     // v3 availability load runs once and never throws at startup. Any
     // failure latches so the router falls back to v2, then analytic, with
@@ -1341,8 +1329,11 @@ export default function App() {
             : neuralV3Status === "failed"
                 ? "weights failed to load"
                 : "weights unavailable";
-    const panelNeuralStatus = fastDecision.path === "neural-v3" ? neuralV3Status : neuralStatus;
-    const panelNeuralNote = fastDecision.path === "neural-v3" ? neuralV3Note : neuralNote;
+    // v2 retired: the panel follows v3 whenever v3 has anything to say,
+    // and falls back to the pinned v2 unavailable note only when the v3
+    // adapter itself is missing.
+    const panelNeuralStatus = neuralV3Status !== "unavailable" ? neuralV3Status : neuralStatus;
+    const panelNeuralNote = neuralV3Status !== "unavailable" ? neuralV3Note : neuralNote;
     const provenanceLabel = selectProvenanceLabel({
         isFixture,
         fixtureLabel: isFixture && fixtureSolved !== null ? fixtureSolved.provenance.label : null,
@@ -1838,22 +1829,13 @@ export default function App() {
                             )}
                             {packError && fixtureDebug && <p className="error notice" role="alert">{packError}</p>}
                             {packLoading && fixtureDebug && !pack && <p className="loading notice" role="status">Loading fixture pack</p>}
-                            {isNeuralPending && (
-                                <p className="loading notice" role="status">Neural v2 weights loading, showing analytic meanwhile. No action needed.</p>
-                            )}
                             {isNeuralV3Pending && (
                                 <p className="loading notice" role="status">Neural v3 weights loading, showing analytic meanwhile. No action needed.</p>
-                            )}
-                            {neuralStatus === "failed" && (
-                                <p className="fallbackNote notice" role="status">Neural v2 weights failed to load, analytic fallback active.</p>
                             )}
                             {neuralV3Status === "failed" && (
                                 <p className="fallbackNote notice" role="status">Neural v3 weights failed to load, analytic fallback active.</p>
                             )}
-                            {neuralStatus === "unavailable" && fastDecision.path === "analytic" && (
-                                <p className="fallbackNote notice" role="status">{fastDecision.reason}, analytic fallback active.</p>
-                            )}
-                            {neuralV3Status === "unavailable" && neuralStatus !== "unavailable" && fastDecision.path === "analytic" && (
+                            {neuralV3Status === "unavailable" && fastDecision.path === "analytic" && (
                                 <p className="fallbackNote notice" role="status">{fastDecision.reason}, analytic fallback active.</p>
                             )}
                             {gridState.notice !== null && (

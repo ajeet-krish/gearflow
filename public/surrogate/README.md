@@ -11,3 +11,9 @@ failure falls back to the analytic provider.
 
 Generate locally (user runs, never agents): `npm run gen:dataset`, then
 `npm run train`, then `npm run export`. See `training/` for details.
+
+Retired: the v1 files at this root (`model.json` version 1 plus
+`weights.bin`) are superseded and no `v2/` bundle ships, so the App pins
+neural v2 to unavailable and never fetches them. The only neural path is
+`v3/` (unet-v3 ONNX plus norm sidecar), loaded through onnxruntime-web
+with its wasm binaries served from `public/ort/`.

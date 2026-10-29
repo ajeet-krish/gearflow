@@ -388,6 +388,22 @@ export function decodeV2Output(
     };
 }
 
+/** ORT wasm binary prefix derived from the document base, so the runtime
+ *  fetches its .mjs plus .wasm from public/ort under both root hosting and
+ *  a project subpath. Null when no document base exists (node tests), in
+ *  which case the caller keeps the ORT default path inference. */
+function ortWasmPrefix(): string | null {
+    try {
+        const base = (globalThis as unknown as { document?: { baseURI?: unknown } }).document?.baseURI;
+        if (typeof base === "string" && base.length > 0) {
+            return new URL("ort/", base).href;
+        }
+    } catch {
+        // No document base: fall through to the ORT default.
+    }
+    return null;
+}
+
 /** Default ORT session factory: dynamic import keeps the wasm backend out of the sync path. */
 async function defaultCreateSession(modelBytes: ArrayBuffer): Promise<V2Session> {
     let ort: typeof import("onnxruntime-web");
@@ -395,6 +411,15 @@ async function defaultCreateSession(modelBytes: ArrayBuffer): Promise<V2Session>
         ort = await import("onnxruntime-web");
     } catch (e) {
         fail(`onnxruntime-web import failed (${e instanceof Error ? e.message : String(e)})`);
+    }
+    // Without an explicit prefix ORT infers the binary URL from the Vite
+    // rewritten module URL and 404s on the app shell, so session creation
+    // fails in the browser even though the model bundle validates cleanly.
+    try {
+        const prefix = ortWasmPrefix();
+        if (prefix !== null) ort.env.wasm.wasmPaths = prefix;
+    } catch {
+        // Keep the ORT default path inference when the prefix cannot be set.
     }
     try {
         const sess = await ort.InferenceSession.create(modelBytes, { executionProviders: ["wasm"] });

@@ -450,6 +450,10 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
 }
 
 export default defineConfig({
+    // Relative asset URLs so the built app serves from both a domain root
+    // and a project subpath (owner.github.io/repo/). Surrogate fetches and
+    // the ORT wasm prefix stay relative to the document base by construction.
+    base: "./",
     plugins: [react(), metaProxy(), basetenProxy()],
     worker: {
         format: "es",
