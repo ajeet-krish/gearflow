@@ -1194,10 +1194,13 @@ export default function App() {
     // Street gate, evaluated during render so the effect and the display
     // agree on one decision. True only for a served v3 street with valid
     // harmonics: LBM, fixture, held analytic, and steady v3 frames never
-    // start the loop and keep the mean field.
-    const streetActive = neuralV3Keyed !== null && shouldAnimateStreet({
+    // start the loop and keep the mean field. A steady-only bundle
+    // (harmonicCapable false) never starts the loop either.
+    const v3HarmonicCapable = neuralV3AdapterRef.current?.harmonicCapable ?? true;
+    const streetActive = neuralV3Keyed !== null && v3HarmonicCapable && shouldAnimateStreet({
         path: fastDecision.path,
         harmonicValid: neuralV3Keyed.harmonicValid,
+        harmonicCapable: v3HarmonicCapable,
         lbmEffective,
         isFixture,
         solveError: isFixture || lbmEffective ? null : solved.error,
