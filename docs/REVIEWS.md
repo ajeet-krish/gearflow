@@ -1716,3 +1716,51 @@ Verdict: PASS
 - [x] Phase security integrates with prior phases
 
 Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). The .env file content was deliberately not read. Note recurring pattern: build time env values are treated as trusted deployer input across phases; allowlist validation at the resolver seam would close the remaining prompt redirection edge before any third party deployment template ships.
+
+## 2026-10-29 - Phase 2: Vercel Review
+
+Date: 2026-10-29
+Reviewer: code-reviewer
+Scope: Phase 2 Vercel (src/agent/basetenServerHandler.ts factory, api/baseten/chat/completions.ts adapter, vercel.json, tsconfig include, basetenClient isSafe validation, handler tests)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major | src/agent/basetenServerHandler.ts:252-258 | SSE backpressure can deadlock: when res.write returns false the loop awaits res.once("drain") with no res close or destroyed race, so a client disconnect during backpressure never resolves the drain promise; total and idle aborts cancel the reader but cannot release this await, and finish and res.end are never reached. | backend-dev: race the drain wait against res close (and req close), abort and cancel the reader and call finish on close; add a server handler test whose write returns false and then emits close. Delegate to backend-dev, coverage to tester. |
+| Minor | src/agent/basetenServerHandler.test.ts:40,66-78,390-512 | SSE drain and idle are unpinned for the new handler: the harness onWrite hook is never used, there is no write returns false drain case and no stalled stream idle deadline case (the vite suite has the stall case at basetenProxy.test.ts:326-353); only incremental delivery and req close cancel are pinned. | tester: port the idle stall case and add drain backpressure plus disconnect during drain cases. |
+| Minor | api/baseten/chat/completions.ts:7-11 | The prod requireOrigin pin itself is untested: handler tests pin the factory flag at basetenServerHandler.test.ts:222-256, but no test imports the adapter default export, so flipping requireOrigin to false in prod would stay green. | tester: import the adapter with a stubbed fetch path or extract and assert its deps, pin requireOrigin true and maxDuration 60. |
+
+Checks detail: gate order parity PASS except the documented requireOrigin insertion (handler path, same origin, requireOrigin, disabled, limiter, key at basetenServerHandler.ts:95-134 vs vite.config.ts:188-219); IP keying PASS (x-forwarded-for first entry, then x-real-ip, then socket at basetenServerHandler.ts:37-58, pinned at test 272-305); caps PASS (64 KiB body at 141-147, declared and accumulated 1 MiB non stream at 278-340); forceModel PASS (162, pinned test 140-163); generic errors PASS (70-80, 219-227, 347-354, leak pinned test 343-388); no vite import PASS (handler imports only basetenGate and proxyGate at 9-22); zero live calls PASS (all tests inject fetchFn); isSafe validation PASS with prior hostile cases pinned at test 515-546; tsconfig includes api (tsconfig.json:25) and vercel.json is a valid vite preset. Conventions PASS (4 space indent, no em dashes).
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer).
+
+---
+
+## 2026-10-29 - Phase 2: Vercel Re-review After Fixes
+
+Date: 2026-10-29
+Reviewer: code-reviewer
+Scope: Phase 2 Vercel re-review of prior FAIL fixes (SSE drain deadlock Major in src/agent/basetenServerHandler.ts, drain and idle coverage Minor in src/agent/basetenServerHandler.test.ts, prod adapter pin Minor in api/baseten/chat/completions.ts)
+Verdict: PASS
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| None | n/a | No Critical, Major, or Minor blocking findings remain. The prior Major and both Minors are verified fixed in source and pinned by tests. | None |
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| SSE drain deadlock (prior Major) | PASS | src/agent/basetenServerHandler.ts:171-190,276-305: the drain wait now races drain against close via pendingDrainCloses and notifyDrainClosed inside abortUpstream; res close (lines 198-202, 205) and req close (lines 194-197, 203) both abort, cancel the reader, notify pending drains, and finish, so a disconnect during backpressure resolves the drain promise false, breaks the loop, and reaches finish instead of hanging. Total and idle aborts share the same notify path (lines 191-193, 222-227). The done guard and cleanup at lines 277-302 prevent double resolve and remove the drain listener and pending entry on either outcome. |
+| Drain success path | PASS | src/agent/basetenServerHandler.ts:273-305: a false write still waits for drain and resumes delivery when drain wins, and the post drain destroyed and streamClosed check at line 306 stops delivery after a close. |
+| Drain and idle coverage (prior Minor) | PASS | src/agent/basetenServerHandler.test.ts:563-600 pins write returns false then drain then all chunks; lines 602-648 pin disconnect during backpressure with an always false write, a 30 ms close, a 5 s drain, and a 1 s race that fails on deadlock, plus reader cancel; lines 534-561 pin a stalled SSE stream ending instead of hanging. Note: timeoutMs drives both total and idle deadlines, so the stall case pins the observable end of stream behavior rather than isolating idle from total. |
+| Prod adapter pin (prior Minor) | PASS | src/agent/basetenServerHandler.test.ts:651-685 imports the real adapter at api/baseten/chat/completions.ts:7-11 with a stubbed global fetch, asserts config maxDuration 60, rejects a no Origin request with 403 and no upstream call, and allows a same origin request through to the stubbed upstream; flipping requireOrigin to false in the adapter would turn the 403 case to 200 and fail this test. |
+| No new issues | PASS | Drain listener and pending entry cleanup on both outcomes (basetenServerHandler.ts:278-302), reader cancel on abort (lines 181-190), finish idempotence and timer cleanup (lines 209-220), and res.end after a closed stream stays inside the guarded try at lines 313-323. No em dashes in the reviewed handler or adapter. |
+| Prior PASS items unchanged | PASS | Gate order, IP keying, body and response caps, forceModel, generic errors, and zero live calls in tests are unchanged in structure and still pinned by basetenServerHandler.test.ts:141-532. |
+
+### Verification Checklist
+- [x] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: none new. The handler now treats drain, close, total, and idle as one abort contract, and the prod adapter is pinned through its real default export instead of only through the factory flag.

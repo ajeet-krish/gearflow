@@ -179,22 +179,62 @@ export function isBasetenOffline(explicit?: boolean): boolean {
 }
 
 /**
+ * Validate a Baseten proxy base URL. Allows same origin relative paths
+ * (single leading slash, no query, fragment, or dot segments) and http or
+ * https absolute URLs without credentials, query, or fragment. Anything
+ * else (other schemes, protocol relative URLs, hostile env values) is
+ * rejected so the caller falls back to the same origin default.
+ */
+export function isSafeBasetenBaseUrl(candidate: string): boolean {
+    if (candidate.length === 0 || candidate.length > 2048) return false;
+    if (/[\s\\]/.test(candidate)) return false;
+    if (candidate.includes("?") || candidate.includes("#")) return false;
+    if (candidate.startsWith("/")) {
+        if (candidate.startsWith("//")) return false;
+        if (candidate.split("/").some((seg) => seg === "." || seg === "..")) return false;
+        return true;
+    }
+    let parsed: URL;
+    try {
+        parsed = new URL(candidate);
+    } catch {
+        return false;
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+    if (parsed.username.length > 0 || parsed.password.length > 0) return false;
+    if (parsed.search.length > 0 || parsed.hash.length > 0) return false;
+    if (parsed.host.length === 0) return false;
+    // Check the raw path text too: URL normalizes dot segments away, so
+    // /../ in the input would otherwise vanish before the check below.
+    const rawPath = candidate.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/]*/, "");
+    if (rawPath.split("/").some((seg) => seg === "." || seg === "..")) return false;
+    if (parsed.pathname.split("/").some((seg) => seg === "." || seg === "..")) return false;
+    return true;
+}
+
+/**
  * Resolve the Baseten proxy base URL. Precedence is explicit constructor
  * input, then VITE_BASETEN_URL when trimmed non empty, then the same
  * origin default /api/baseten. A single trailing slash is stripped so
- * path appends never double up slashes. Public base only, never a key.
+ * path appends never double up slashes. Unsafe values (non http schemes,
+ * credentials, query, fragment, dot segments) fall back to the default.
+ * Public base only, never a key.
  */
 export function resolveBasetenBaseUrl(explicit?: string): string {
     const trimmedExplicit = explicit?.trim();
     if (trimmedExplicit !== undefined && trimmedExplicit.length > 0) {
         const stripped = trimmedExplicit.replace(/\/$/, "");
-        return stripped.length > 0 ? stripped : "/api/baseten";
+        if (stripped.length === 0) return "/api/baseten";
+        if (isSafeBasetenBaseUrl(stripped)) return stripped;
+        return "/api/baseten";
     }
     if (typeof import.meta !== "undefined" && typeof import.meta.env !== "undefined") {
         const fromEnv = ((import.meta.env as Record<string, string | undefined>).VITE_BASETEN_URL ?? "").trim();
         if (fromEnv.length > 0) {
             const stripped = fromEnv.replace(/\/$/, "");
-            return stripped.length > 0 ? stripped : "/api/baseten";
+            if (stripped.length > 0 && isSafeBasetenBaseUrl(stripped)) {
+                return stripped;
+            }
         }
     }
     return "/api/baseten";
