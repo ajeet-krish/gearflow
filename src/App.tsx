@@ -1018,8 +1018,13 @@ export default function App() {
         setNeuralV3Status(adapter.availability === "ready" ? "ready" : "loading");
         void adapter.ensureLoaded().then((status) => {
             if (!cancelled) setNeuralV3Status(status);
-        }).catch(() => {
-            if (!cancelled) setNeuralV3Status("failed");
+        }).catch((e) => {
+            if (!cancelled) {
+                try {
+                    console.error("[neural-v3] availability load failed:", e instanceof Error ? e.message : String(e));
+                } catch { /* never throws */ }
+                setNeuralV3Status("failed");
+            }
         });
         return () => {
             cancelled = true;

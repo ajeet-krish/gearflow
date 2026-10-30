@@ -138,7 +138,10 @@ export class NeuralV3Adapter {
         try {
             await this.predictor.load();
             this.status = this.predictor.loaded ? "ready" : "failed";
-        } catch {
+        } catch (e) {
+            try {
+                console.error("[neural-v3] availability load failed:", e instanceof Error ? e.message : String(e));
+            } catch { /* never throws */ }
             this.status = "failed";
         }
         return this.status;

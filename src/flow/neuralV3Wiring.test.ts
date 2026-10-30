@@ -4,7 +4,7 @@
 // the four honesty labels, and App wiring source pins. No network, no
 // workers, no live solves.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -220,9 +220,40 @@ describe("v3 adapter availability and failure paths", () => {
             predictFrame: async () => streetField(),
         };
         const adapter = new NeuralV3Adapter(predictor);
-        const status = await adapter.ensureLoaded();
-        expect(status).toBe("failed");
-        expect(adapter.availability).toBe("failed");
+        const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const status = await adapter.ensureLoaded();
+            expect(status).toBe("failed");
+            expect(adapter.availability).toBe("failed");
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it("ensureLoaded logs one prefixed message line on load rejection", async () => {
+        const predictor = {
+            get loaded() {
+                return false;
+            },
+            load: async () => {
+                throw new Error("bundle missing 404");
+            },
+            predictFrame: async () => streetField(),
+        };
+        const adapter = new NeuralV3Adapter(predictor);
+        const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const status = await adapter.ensureLoaded();
+            expect(status).toBe("failed");
+            expect(adapter.availability).toBe("failed");
+            expect(spy).toHaveBeenCalledTimes(1);
+            expect(spy).toHaveBeenCalledWith(
+                "[neural-v3] availability load failed:",
+                "bundle missing 404",
+            );
+        } finally {
+            spy.mockRestore();
+        }
     });
 
     it("exposes harmonic validity plus the reason and the aux scalars", async () => {
