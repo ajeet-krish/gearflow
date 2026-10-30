@@ -1,12 +1,13 @@
 // Baseten client tests. Fake fetch only, zero live calls.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import {
     BASETEN_RETRY_DEFAULT_MS,
     BasetenClient,
     BasetenError,
     estimateBasetenCost,
     extractActionJson,
+    resolveBasetenBaseUrl,
     retryDelayMs,
 } from "./basetenClient";
 import { BASETEN_MODEL_ID } from "./basetenGate";
@@ -291,5 +292,55 @@ describe("stream timeout and abort", () => {
         const pending = gen.next();
         controller.abort();
         await expect(pending).rejects.toMatchObject({ code: "abort" });
+    });
+});
+
+describe("resolveBasetenBaseUrl", () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
+    it("defaults to the same origin proxy when no override or env is set", () => {
+        vi.stubEnv("VITE_BASETEN_URL", "");
+        expect(resolveBasetenBaseUrl()).toBe("/api/baseten");
+        expect(new BasetenClient({ offline: false }).baseUrl).toBe("/api/baseten");
+    });
+
+    it("prefers an explicit override over the env value", () => {
+        vi.stubEnv("VITE_BASETEN_URL", "/api/baseten");
+        expect(resolveBasetenBaseUrl("https://proxy.example.com/baseten")).toBe("https://proxy.example.com/baseten");
+    });
+
+    it("reads the env base when no explicit value is given", () => {
+        vi.stubEnv("VITE_BASETEN_URL", "https://proxy.example.com/baseten");
+        expect(resolveBasetenBaseUrl()).toBe("https://proxy.example.com/baseten");
+        expect(new BasetenClient({ offline: false }).baseUrl).toBe("https://proxy.example.com/baseten");
+    });
+
+    it("strips a single trailing slash from explicit and env values", () => {
+        vi.stubEnv("VITE_BASETEN_URL", "/api/baseten/");
+        expect(resolveBasetenBaseUrl()).toBe("/api/baseten");
+        expect(resolveBasetenBaseUrl("/api/baseten/")).toBe("/api/baseten");
+        expect(new BasetenClient({ baseUrl: "/api/baseten/", offline: false }).baseUrl).toBe("/api/baseten");
+    });
+
+    it("falls back to the default on blank explicit or env values", () => {
+        vi.stubEnv("VITE_BASETEN_URL", "   ");
+        expect(resolveBasetenBaseUrl()).toBe("/api/baseten");
+        expect(resolveBasetenBaseUrl("   ")).toBe("/api/baseten");
+    });
+
+    it("appends the chat path exactly once with no double chat completions", async () => {
+        vi.stubEnv("VITE_BASETEN_URL", "");
+        const urls: string[] = [];
+        const fetchFn = vi.fn(async (url: unknown) => {
+            urls.push(String(url));
+            return jsonResponse(chatPayload('{"kind":"chat"}'));
+        });
+        const client = new BasetenClient({ baseUrl: "/api/baseten/", fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        await client.chat(MESSAGES);
+        expect(urls).toHaveLength(1);
+        expect(urls[0]).toBe("/api/baseten/chat/completions");
+        expect(urls[0]).not.toContain("chat/completions/chat/completions");
     });
 });

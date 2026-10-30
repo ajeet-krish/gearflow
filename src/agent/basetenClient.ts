@@ -178,6 +178,28 @@ export function isBasetenOffline(explicit?: boolean): boolean {
     return false;
 }
 
+/**
+ * Resolve the Baseten proxy base URL. Precedence is explicit constructor
+ * input, then VITE_BASETEN_URL when trimmed non empty, then the same
+ * origin default /api/baseten. A single trailing slash is stripped so
+ * path appends never double up slashes. Public base only, never a key.
+ */
+export function resolveBasetenBaseUrl(explicit?: string): string {
+    const trimmedExplicit = explicit?.trim();
+    if (trimmedExplicit !== undefined && trimmedExplicit.length > 0) {
+        const stripped = trimmedExplicit.replace(/\/$/, "");
+        return stripped.length > 0 ? stripped : "/api/baseten";
+    }
+    if (typeof import.meta !== "undefined" && typeof import.meta.env !== "undefined") {
+        const fromEnv = ((import.meta.env as Record<string, string | undefined>).VITE_BASETEN_URL ?? "").trim();
+        if (fromEnv.length > 0) {
+            const stripped = fromEnv.replace(/\/$/, "");
+            return stripped.length > 0 ? stripped : "/api/baseten";
+        }
+    }
+    return "/api/baseten";
+}
+
 function isAbortError(e: unknown): boolean {
     return (
         (e instanceof Error && e.name === "AbortError") ||
@@ -286,7 +308,7 @@ export class BasetenClient {
     onEval: ((payload: BasetenEvalPayload) => void) | null;
 
     constructor(opts: BasetenClientOptions = {}) {
-        this.baseUrl = (opts.baseUrl ?? "/api/baseten").replace(/\/$/, "");
+        this.baseUrl = resolveBasetenBaseUrl(opts.baseUrl);
         this.fetchFn = opts.fetchFn ?? fetch.bind(globalThis);
         this.offline = opts.offline;
         this.timeoutMs = opts.timeoutMs ?? BASETEN_TIMEOUT_MS;

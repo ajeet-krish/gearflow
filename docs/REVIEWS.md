@@ -1658,3 +1658,61 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: none new for this fix; the explicit field, live section code, and validator are now treated as authoritative at the local seam instead of being overridden by later generic staging.
+
+## 2026-10-29 - Phase 0+1: Vercel Review
+
+Date: 2026-10-29
+Reviewer: code-reviewer
+Scope: Phase 0+1 Vercel (.gitignore bare .env plus .vercel, .env.example safe defaults plus VITE_BASETEN_URL doc, src/agent/basetenClient.ts resolveBasetenBaseUrl plus constructor default, src/agent/basetenClient.test.ts)
+Verdict: PASS
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| .env hygiene | PASS | .gitignore:9-12 has bare .env, .env.*, !.env.example, and .vercel/; the git index contains only .env.example for env files, and no VITE_ key, token, or secret variable exists in src or .env.example |
+| .env.example defaults | PASS | .env.example:18-19 documents VITE_BASETEN_URL as a public base, never a key, with the safe same origin default /api/baseten; server keys at lines 3 and 6 remain unprefixed and empty |
+| Resolution precedence | PASS | src/agent/basetenClient.ts:187-201 resolves explicit input first, then trimmed non empty VITE_BASETEN_URL, then /api/baseten |
+| Trim and slash | PASS | Explicit and env values are trimmed at basetenClient.ts:188 and 194, a single trailing slash is stripped at lines 190 and 196, and a slash only value falls back to /api/baseten |
+| Constructor default | PASS | BasetenClient constructor at basetenClient.ts:310-311 stores resolveBasetenBaseUrl(opts.baseUrl), so bare construction inherits env or the same origin default |
+| Path append unchanged | PASS | Chat and stream still append BASETEN_PATH.slice("/api/baseten".length) at basetenClient.ts:389 and 477, yielding exactly one /chat/completions suffix from the pinned BASETEN_PATH at basetenGate.ts:9 |
+| Local dev unchanged | PASS | Default and example both stay on /api/baseten, matching the Vite proxy prefix at vite.config.ts:184; AgentConsole constructs the client with no baseUrl at AgentConsole.tsx:531, so existing local wiring is untouched |
+| Tests | PASS | basetenClient.test.ts:298-346 pins default, explicit over env, env read, trailing slash strip, blank fallback, constructor inheritance, and exactly once path append with fake fetch |
+| Conventions | PASS | 4 space indent, PascalCase types, camelCase locals, no em dashes in the reviewed surfaces |
+
+### Verification Checklist
+- [x] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: none new. The resolver treats the explicit input, env value, and same origin default as one trimmed contract, and the path append seam is pinned behaviorally rather than by source strings.
+
+## 2026-10-29 - Phase 0+1: Vercel Security Review
+
+Date: 2026-10-29
+Reviewer: security-engineer (05)
+Scope: Phase 0+1 Vercel (.gitignore and .env handling, .env.example, src/agent/basetenClient.ts resolveBasetenBaseUrl and constructor, vite.config.ts basetenProxy, dist bundle scan)
+Verdict: PASS
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Low | src/agent/basetenClient.ts:187-201 | resolveBasetenBaseUrl accepts any non blank string with only trim and single trailing slash strip, no scheme, host, credential, query, fragment, dot segment, or control character validation. A build time VITE_BASETEN_URL such as a protocol relative, data, javascript, credential bearing, or dot segment value would be concatenated with /chat/completions at basetenClient.ts:389,477 and could redirect chat prompts cross origin or to an unintended same origin path. Exploit requires the trusted deployer who already controls the bundle and Vercel env, and doFetch at basetenClient.ts:366-371 sends only content-type with no Authorization, so no key can leak this way. | backend-dev: parse with URL against a same origin base, allow only relative /api/baseten style paths or https absolute URLs without credentials, query, or fragment, reject dot segments and non http(s) schemes, add hostile env tests (javascript, data, protocol relative, credential bearing, ../, query, fragment) |
+| Low | .env (local file, no line) | A local .env exists in the worktree. It was not read by this review. .gitignore:9-11 covers .env and .env.* with !.env.example and the prior Phase 0+1 review at docs/REVIEWS.md:1671 records the git index contains only .env.example, so no committed secret was found, but worktree presence keeps accidental staging risk if ignore rules change. | backend-dev: keep .env untracked, rotate any key ever staged, and run a secret scan in CI on the tracked tree and dist |
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| No secrets in repo or bundle | PASS | .env.example:3,6 server keys empty and unprefixed; grep of src found no VITE_ key, token, or secret var and no key shaped literals; grep of dist found zero BASETEN_API_KEY, META_API_KEY, or VITE key names, consistent with docs/TESTS.md:682-683 |
+| No VITE key exfiltration | PASS | Only VITE_ reads in src are VITE_DEMO_OFFLINE and VITE_BASETEN_URL (src/agent/basetenClient.ts:176,194, src/App.tsx:407, src/meta/client.ts:91); client doFetch sends no Authorization header (basetenClient.ts:366-371); keys are read server side only at vite.config.ts:60 and 179,295 with the upstream URL pinned as a constant at src/agent/basetenGate.ts:10,292-300 in vite.config.ts |
+| VITE_BASETEN_URL public safe | PASS | .env.example:18-19 documents it as a public base, never a key, default /api/baseten; Vite inlines VITE_ vars by design, and this value is a URL only with no credential material in the example or code |
+| Path traversal or injection via env var | PASS with Low | No file system or shell use of the value; browser fetch normalizes dot segments and the same origin proxy rejects dot segments and allowlists the single pinned path at src/agent/basetenGate.ts:40-48; residual unvalidated scheme and host handling is the Low above |
+| Same origin default preserved | PASS | resolveBasetenBaseUrl falls back to /api/baseten on unset, blank, or slash only input (basetenClient.ts:187-201), the constructor inherits it (basetenClient.ts:310-311), path append yields exactly one /chat/completions (basetenClient.ts:389,477, basetenGate.ts:9), pinned by basetenClient.test.ts:303-345 |
+| .gitignore and .env handling | PASS | .gitignore:9-12 has .env, .env.*, !.env.example, .vercel/; .env.example:1-6 warns never commit real keys and keeps keys server only |
+
+### Verification Checklist
+- [x] No Critical findings
+- [x] No High findings
+- [x] All Medium findings have mitigations (none found)
+- [x] Low findings documented
+- [x] Phase security integrates with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). The .env file content was deliberately not read. Note recurring pattern: build time env values are treated as trusted deployer input across phases; allowlist validation at the resolver seam would close the remaining prompt redirection edge before any third party deployment template ships.
