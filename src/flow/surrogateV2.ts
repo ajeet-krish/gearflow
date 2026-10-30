@@ -494,7 +494,7 @@ export class SurrogateV2Provider implements FrameSource {
         this.U = U;
         this.Re = Re;
         this.baseUrl = (opts.baseUrl ?? SURROGATE_V2_DEFAULT_BASE_URL).replace(/\/$/, "");
-        const globalFetch = typeof fetch !== "undefined" ? (fetch as unknown as FetchLike) : null;
+        const globalFetch = typeof fetch !== "undefined" ? fetch.bind(globalThis) as unknown as FetchLike : null;
         this.fetchFn = (opts.fetchFn as FetchLike | undefined) ?? globalFetch;
         this.createSession = opts.createSession ?? defaultCreateSession;
         this.createTensor = opts.createTensor ?? defaultCreateTensor;

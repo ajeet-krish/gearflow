@@ -1766,3 +1766,16 @@ Verdict: PASS
 Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: none new. The handler now treats drain, close, total, and idle as one abort contract, and the prod adapter is pinned through its real default export instead of only through the factory flag.
 
 2026-10-30 code-reviewer App.tsx:1021 FAIL Minor unreachable log
+
+## 2026-10-30 - Fetch Bind Fix (surrogateV2, surrogateV3)
+
+Date: 2026-10-30
+Reviewer: code-reviewer
+Scope: src/flow/surrogateV3.ts:639, src/flow/surrogateV2.ts:497 (fetch.bind(globalThis)), regression tests in surrogateV3.test.ts:491-522 and surrogateV2.test.ts:612-643
+Verdict: PASS
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| None | src/flow/surrogateV3.ts:639, src/flow/surrogateV2.ts:497 | No issues found. Bind matches basetenClient.ts:352 and meta/client.ts:113 pattern, null fallback (typeof fetch guard, then null, load() fail at V3:672 and V2:525) intact, injected fetchFn identity untouched (pinned by tests), no secret or behavior change beyond receiver. Tests inspected, not executed (no shell tool in reviewer session). | None |
+
+Note recurring pattern: none new.

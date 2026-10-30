@@ -608,3 +608,36 @@ describe("SurrogateV2Provider failed predict retry and provenance reset", () => 
         expect(provider.getProvenance().label).toBe("surrogate v2 predicted, not validated");
     });
 });
+
+describe("SurrogateV2Provider global fetch binding", () => {
+    it("binds the global fetch so a detached stored call keeps a valid receiver", async () => {
+        const original = globalThis.fetch;
+        try {
+            let receivedThis: unknown = "unset";
+            let calledUrl: string | null = null;
+            function chromeLikeFetch(this: unknown, url: unknown): Promise<Response> {
+                receivedThis = this;
+                if (this === undefined || this === null) {
+                    throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+                }
+                calledUrl = url as string;
+                return Promise.resolve(new Response("{}", { status: 200 }));
+            }
+            globalThis.fetch = chromeLikeFetch as unknown as typeof fetch;
+            const provider = new SurrogateV2Provider({ grid: GRID, geom: GEOM, allowSynthetic: true });
+            const stored = (provider as unknown as { fetchFn: (url: string) => Promise<Response> }).fetchFn;
+            expect(typeof stored).toBe("function");
+            await stored("surrogate/v2/model.json");
+            expect(calledUrl).toBe("surrogate/v2/model.json");
+            expect(receivedThis).toBe(globalThis);
+        } finally {
+            globalThis.fetch = original;
+        }
+    });
+
+    it("keeps an injected fetchFn untouched", () => {
+        const injected = (async () => ({})) as unknown as typeof fetch;
+        const provider = new SurrogateV2Provider({ grid: GRID, geom: GEOM, fetchFn: injected, allowSynthetic: true });
+        expect((provider as unknown as { fetchFn: unknown }).fetchFn).toBe(injected);
+    });
+});
