@@ -12,18 +12,41 @@ import {
     BASETEN_MAX_BODY_BYTES,
     BASETEN_MAX_RESPONSE_BYTES,
     BASETEN_TIMEOUT_MS,
-    BASETEN_UPSTREAM_URL,
     forceModel,
     g_basetenRateLimiter,
+    isAllowedChatUpstreamUrl,
     isBasetenDisabled,
     isBasetenPath,
+    parseChatUpstreamKind,
+    resolveChatUpstream,
+    resolveChatUpstreamFromEnv,
     toGenericError,
 } from "./basetenGate";
+import type { ChatUpstreamKind } from "./basetenGate";
 import { isSameOriginRequest } from "../meta/proxyGate";
 
 export interface BasetenServerHandlerDeps {
     fetchFn?: typeof fetch;
     getKey?: () => string | undefined;
+    /** Override the Authorization headers (Modal Bearer proxy token route).
+     *  When omitted, baseten uses getKey Bearer and modal uses the server
+     *  only MODAL_PROXY_TOKEN Bearer. Never bundled, never logged.
+     *  Server-trusted test-only override: tests inject a fake Bearer so no
+     *  live token is needed; production passes no override. */
+    getAuthHeaders?: () => Record<string, string> | undefined;
+    /** Override the resolved upstream URL (fake upstreams in tests). When
+     *  omitted, the shared resolveChatUpstreamFromEnv helper picks the URL
+     *  from CHAT_UPSTREAM plus MODAL_CHAT_URL with a Baseten fallback.
+     *  Server-trusted test-only override: validated against the effective
+     *  kind allowlist before use, hostile values fall back to the resolved
+     *  URL. Production passes no override (api route passes none). */
+    upstreamUrl?: string;
+    /** Kind override for tests; defaults to process.env.CHAT_UPSTREAM.
+     *  Server-trusted test-only; production reads the env. */
+    chatKind?: unknown;
+    /** Modal URL override for tests; defaults to process.env.MODAL_CHAT_URL.
+     *  Server-trusted test-only; production reads the env. */
+    modalUrl?: unknown;
     limiter?: { allow: (ip: string) => boolean };
     timeoutMs?: number;
     maxResponseBytes?: number;
@@ -125,8 +148,42 @@ export function createBasetenServerHandler(
             res.end(JSON.stringify({ error: "rate limited, retry later" }));
             return;
         }
-        const key = getKey();
-        if (!key) {
+        // Env driven default through the shared helper so the handler and
+        // the Vite proxy cannot diverge. Dep overrides are server-trusted
+        // test-only inputs layered on top for the kind and modal URL.
+        const kindInput = deps.chatKind ?? process.env.CHAT_UPSTREAM;
+        const modalUrlInput = deps.modalUrl ?? process.env.MODAL_CHAT_URL;
+        const resolved =
+            deps.chatKind === undefined && deps.modalUrl === undefined
+                ? resolveChatUpstreamFromEnv()
+                : resolveChatUpstream(kindInput, modalUrlInput);
+        // Validate a test-only upstreamUrl override against the effective
+        // kind allowlist; hostile values fall back to the resolved URL.
+        let effectiveKind: ChatUpstreamKind = resolved.kind;
+        let upstreamUrl = resolved.url;
+        if (deps.upstreamUrl !== undefined) {
+            const candidateKind = parseChatUpstreamKind(kindInput);
+            if (isAllowedChatUpstreamUrl(candidateKind, deps.upstreamUrl)) {
+                effectiveKind = candidateKind;
+                upstreamUrl = deps.upstreamUrl.trim();
+            }
+        }
+        const buildDefaultAuthHeaders = (): Record<string, string> | undefined => {
+            if (effectiveKind === "modal") {
+                const token = process.env.MODAL_PROXY_TOKEN;
+                if (!token) return undefined;
+                return { authorization: `Bearer ${token}` };
+            }
+            const key = getKey();
+            if (!key) return undefined;
+            return { authorization: `Bearer ${key}` };
+        };
+        const authHeaders = deps.getAuthHeaders !== undefined ? deps.getAuthHeaders() : buildDefaultAuthHeaders();
+        if (
+            authHeaders === undefined ||
+            typeof authHeaders.authorization !== "string" ||
+            authHeaders.authorization.length === 0
+        ) {
             res.statusCode = 503;
             res.setHeader("content-type", "application/json");
             res.end(JSON.stringify({ error: "Baseten service unavailable" }));
@@ -159,7 +216,7 @@ export function createBasetenServerHandler(
                 res.end(JSON.stringify({ error: "invalid request" }));
                 return;
             }
-            const forced = forceModel(payload);
+            const forced = forceModel(payload, effectiveKind);
             const requestedStream =
                 typeof payload === "object" &&
                 payload !== null &&
@@ -225,10 +282,10 @@ export function createBasetenServerHandler(
                     abortUpstream();
                 }, timeoutMs);
             };
-            fetchFn(BASETEN_UPSTREAM_URL, {
+            fetchFn(upstreamUrl, {
                 method: "POST",
                 headers: {
-                    authorization: `Bearer ${key}`,
+                    ...authHeaders,
                     "content-type": "application/json",
                 },
                 body: JSON.stringify(forced),

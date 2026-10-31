@@ -16,6 +16,84 @@ export const BASETEN_RATE_LIMIT_MAX = 10;
 export const BASETEN_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 export const BASETEN_RATE_LIMIT_MAX_ENTRIES = 5000;
 
+/** Modal Shared Endpoint model id for Muse Spark Open. Used only when the
+ *  chat upstream kind resolves to modal; Baseten stays the default. */
+export const MODAL_MODEL_ID = "meta-models/Muse-Spark-Open-816B-A42B";
+
+/** Chat upstream selector. baseten is the default and the rollback path;
+ *  modal selects the Modal Shared Endpoint proxy token route. */
+export type ChatUpstreamKind = "modal" | "baseten";
+
+export interface ResolvedChatUpstream {
+    kind: ChatUpstreamKind;
+    url: string;
+}
+
+/** Normalize any input to a known upstream kind. Only the exact string
+ *  "modal" selects Modal; everything else (unset, empty, bogus) is baseten. */
+export function parseChatUpstreamKind(value: unknown): ChatUpstreamKind {
+    return value === "modal" ? "modal" : "baseten";
+}
+
+/** Host allowlist per upstream kind. Baseten pins the single inference host;
+ *  Modal pins Modal serving hosts (modal.run) only, never arbitrary,
+ *  credentialed, or query and fragment carrying URLs. */
+export function isAllowedChatUpstreamHost(kind: ChatUpstreamKind, hostname: unknown): boolean {
+    if (typeof hostname !== "string" || hostname.length === 0) return false;
+    const host = hostname.toLowerCase();
+    if (kind === "modal") {
+        return host === "modal.run" || host.endsWith(".modal.run");
+    }
+    return host === "inference.baseten.co";
+}
+
+/** True when the string is an https URL on the kind allowlist with no
+ *  embedded credentials and no query or fragment. Query and fragment are
+ *  rejected (fail closed to Baseten) so operator URLs cannot smuggle
+ *  secrets or tracking state. Shared by the resolver and tests. */
+export function isAllowedChatUpstreamUrl(kind: ChatUpstreamKind, value: unknown): boolean {
+    if (typeof value !== "string") return false;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return false;
+    let parsed: URL;
+    try {
+        parsed = new URL(trimmed);
+    } catch {
+        return false;
+    }
+    if (parsed.protocol !== "https:") return false;
+    if (parsed.username.length > 0 || parsed.password.length > 0) return false;
+    if (parsed.search.length > 0 || parsed.hash.length > 0) return false;
+    return isAllowedChatUpstreamHost(kind, parsed.hostname);
+}
+
+/**
+ * Resolve the chat completions upstream. Modal is selected only when kind
+ * is "modal" and modalUrl is an https URL on the Modal allowlist; every
+ * other case (unset kind, invalid kind, missing or hostile URL) falls back
+ * to the pinned Baseten upstream. Pure and never throws.
+ */
+export function resolveChatUpstream(kindInput: unknown, modalUrl: unknown): ResolvedChatUpstream {
+    if (parseChatUpstreamKind(kindInput) !== "modal") {
+        return { kind: "baseten", url: BASETEN_UPSTREAM_URL };
+    }
+    if (!isAllowedChatUpstreamUrl("modal", modalUrl)) {
+        return { kind: "baseten", url: BASETEN_UPSTREAM_URL };
+    }
+    return { kind: "modal", url: (modalUrl as string).trim() };
+}
+
+/**
+ * Env driven resolver so the Vite dev proxy and the server handler cannot
+ * diverge: both read CHAT_UPSTREAM plus MODAL_CHAT_URL through this helper.
+ * Pure with an injectable env map for tests.
+ */
+export function resolveChatUpstreamFromEnv(
+    env: Record<string, string | undefined> = process.env as Record<string, string | undefined>
+): ResolvedChatUpstream {
+    return resolveChatUpstream(env.CHAT_UPSTREAM, env.MODAL_CHAT_URL);
+}
+
 /** Proxy 503 message when the kill switch is set. The client maps any 503
  *  to offline local mode through toHttpError, so this string only names the
  *  cause for proxy logs and tests, never for browser error detail. */
@@ -61,17 +139,21 @@ function clampTokens(value: unknown): number {
 }
 
 /**
- * Overwrite any client supplied model with the pinned id, force n to 1,
- * and cap max_tokens at 700. Returns a new object, never mutates input.
+ * Overwrite any client supplied model with the pinned id for the effective
+ * upstream kind, force n to 1, and cap max_tokens at 700. Returns a new
+ * object, never mutates input. The kind defaults to baseten so existing
+ * single argument callers keep the Baseten pin; pass "modal" to pin the
+ * Modal Shared Endpoint id instead.
  */
-export function forceModel(body: unknown): unknown {
+export function forceModel(body: unknown, kind: unknown = undefined): unknown {
+    const model = parseChatUpstreamKind(kind) === "modal" ? MODAL_MODEL_ID : BASETEN_MODEL_ID;
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
-        return { model: BASETEN_MODEL_ID, n: 1, max_tokens: BASETEN_MAX_TOKENS };
+        return { model, n: 1, max_tokens: BASETEN_MAX_TOKENS };
     }
     const src = body as Record<string, unknown>;
     return {
         ...src,
-        model: BASETEN_MODEL_ID,
+        model,
         n: 1,
         max_tokens: clampTokens(src.max_tokens),
     };
