@@ -2013,3 +2013,8 @@ Checks detail: Baseten default and rollback PASS (parseChatUpstreamKind at baset
 - [x] Phase code integrates cleanly with prior phases
 
 Note recurring pattern: injected-dep tests pin the happy Modal path while the default env-driven seam (token read, resolver fallback at handler level) stays unpinned, the isolated-pass pattern flagged in earlier phases. The implementation itself fails closed to Baseten or 503 in every untested branch by inspection.
+## 2026-10-31 - Modal Endpoint-Name Pin Review
+Reviewer: code-reviewer
+Scope: MODAL_MODEL_ID gearflow-chat default, MODAL_MODEL_ID env override, kind-aware forceModel env parameter, and chatUpstreamModal tests.
+Verdict: PASS
+Findings: Default pin, trimmed non-empty env handling, Baseten immunity, caller compatibility, and secret handling all pass. Minor non-blocking gaps: .env.example does not document MODAL_MODEL_ID, and tests do not assert a padded non-empty override.

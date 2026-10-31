@@ -13,6 +13,7 @@ import {
     isAllowedChatUpstreamUrl,
     resolveChatUpstream,
     resolveChatUpstreamFromEnv,
+    resolveModalModelId,
 } from "./basetenGate";
 import { createBasetenServerHandler } from "./basetenServerHandler";
 import { basetenProxy } from "../../vite.config";
@@ -24,6 +25,7 @@ const MODAL_TOKEN = "wk-testworkspace.ws-testsecret";
 beforeEach(() => {
     delete process.env.CHAT_UPSTREAM;
     delete process.env.MODAL_CHAT_URL;
+    delete process.env.MODAL_MODEL_ID;
     delete process.env.MODAL_PROXY_TOKEN;
     delete process.env.BASETEN_API_KEY;
     delete process.env.BASETEN_DISABLED;
@@ -32,6 +34,7 @@ beforeEach(() => {
 afterEach(() => {
     delete process.env.CHAT_UPSTREAM;
     delete process.env.MODAL_CHAT_URL;
+    delete process.env.MODAL_MODEL_ID;
     delete process.env.MODAL_PROXY_TOKEN;
     delete process.env.BASETEN_API_KEY;
     delete process.env.BASETEN_DISABLED;
@@ -193,12 +196,35 @@ describe("forceModel upstream kind", () => {
         expect((forceModel({ model: "x" }, "bogus") as Record<string, unknown>).model).toBe(BASETEN_MODEL_ID);
     });
 
-    it("pins the Modal id when kind is modal", () => {
+    it("pins the Modal endpoint name by default when kind is modal", () => {
         const out = forceModel({ model: "attacker", n: 9, max_tokens: 4096 }, "modal") as Record<string, unknown>;
         expect(out.model).toBe(MODAL_MODEL_ID);
-        expect(MODAL_MODEL_ID).toBe("meta-models/Muse-Spark-Open-816B-A42B");
+        expect(MODAL_MODEL_ID).toBe("gearflow-chat");
         expect(out.n).toBe(1);
         expect(out.max_tokens).toBe(700);
+    });
+
+    it("resolves the Modal default from the pinned constant without env", () => {
+        expect(resolveModalModelId({})).toBe("gearflow-chat");
+        expect(resolveModalModelId({ MODAL_MODEL_ID: "" })).toBe("gearflow-chat");
+        expect(resolveModalModelId({ MODAL_MODEL_ID: "   " })).toBe("gearflow-chat");
+    });
+
+    it("overrides the Modal model from MODAL_MODEL_ID env for renames", () => {
+        vi.stubEnv("MODAL_MODEL_ID", "custom-endpoint");
+        const out = forceModel({ model: "attacker", n: 9, max_tokens: 4096 }, "modal") as Record<string, unknown>;
+        expect(out.model).toBe("custom-endpoint");
+        expect(resolveModalModelId()).toBe("custom-endpoint");
+        vi.unstubAllEnvs();
+        const backToDefault = forceModel({ model: "attacker" }, "modal") as Record<string, unknown>;
+        expect(backToDefault.model).toBe("gearflow-chat");
+    });
+
+    it("keeps the Baseten pin when MODAL_MODEL_ID env is set", () => {
+        vi.stubEnv("MODAL_MODEL_ID", "custom-endpoint");
+        expect((forceModel({ model: "x" }) as Record<string, unknown>).model).toBe(BASETEN_MODEL_ID);
+        expect((forceModel({ model: "x" }, "bogus") as Record<string, unknown>).model).toBe(BASETEN_MODEL_ID);
+        expect(BASETEN_MODEL_ID).toBe("meta-models/muse-spark-open-1026");
     });
 });
 

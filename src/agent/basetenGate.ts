@@ -16,9 +16,27 @@ export const BASETEN_RATE_LIMIT_MAX = 10;
 export const BASETEN_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 export const BASETEN_RATE_LIMIT_MAX_ENTRIES = 5000;
 
-/** Modal Shared Endpoint model id for Muse Spark Open. Used only when the
- *  chat upstream kind resolves to modal; Baseten stays the default. */
-export const MODAL_MODEL_ID = "meta-models/Muse-Spark-Open-816B-A42B";
+/** Modal dedicated endpoint model name for Muse Spark Open. The Modal
+ *  dedicated endpoint expects the endpoint name, not the Hugging Face id,
+ *  so kind modal pins this name by default. Used only when the chat
+ *  upstream kind resolves to modal; Baseten stays the default. Overridable
+ *  via the server only MODAL_MODEL_ID env for endpoint renames. */
+export const MODAL_MODEL_ID = "gearflow-chat";
+
+/** Resolve the Modal model name: trimmed non empty MODAL_MODEL_ID env wins
+ *  (endpoint renames), otherwise the pinned gearflow-chat default. Pure
+ *  with an injectable env map for tests; never throws. */
+export function resolveModalModelId(
+    env: Record<string, string | undefined> = process.env as Record<string, string | undefined>
+): string {
+    try {
+        const raw = env.MODAL_MODEL_ID;
+        if (typeof raw === "string" && raw.trim().length > 0) return raw.trim();
+    } catch {
+        // Env read failed, fall through to the pinned default.
+    }
+    return MODAL_MODEL_ID;
+}
 
 /** Chat upstream selector. baseten is the default and the rollback path;
  *  modal selects the Modal Shared Endpoint proxy token route. */
@@ -143,10 +161,17 @@ function clampTokens(value: unknown): number {
  * upstream kind, force n to 1, and cap max_tokens at 700. Returns a new
  * object, never mutates input. The kind defaults to baseten so existing
  * single argument callers keep the Baseten pin; pass "modal" to pin the
- * Modal Shared Endpoint id instead.
+ * Modal dedicated endpoint name (gearflow-chat by default, overridable via
+ * the server only MODAL_MODEL_ID env for endpoint renames). The optional
+ * env map keeps the override pure and testable; production callers omit it
+ * so process.env is read. Baseten pinning is unchanged.
  */
-export function forceModel(body: unknown, kind: unknown = undefined): unknown {
-    const model = parseChatUpstreamKind(kind) === "modal" ? MODAL_MODEL_ID : BASETEN_MODEL_ID;
+export function forceModel(
+    body: unknown,
+    kind: unknown = undefined,
+    env: Record<string, string | undefined> = process.env as Record<string, string | undefined>
+): unknown {
+    const model = parseChatUpstreamKind(kind) === "modal" ? resolveModalModelId(env) : BASETEN_MODEL_ID;
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
         return { model, n: 1, max_tokens: BASETEN_MAX_TOKENS };
     }
