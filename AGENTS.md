@@ -46,6 +46,10 @@ Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKAT
 | Phase 18 | Backend unification, auto router | Complete |
 | Phase 19 | Display coupling, navbar trim | Complete |
 | Phase 20 | Agent case setup presets | Complete |
+| Phase 21 | Agent-first P1: simplification, forced analytic | Complete |
+| Phase 22 | Agent-first P2: velocity slider, Re coupling | Complete |
+| Phase 23 | Agent-first P3: live alpha sweep | Complete |
+| Phase 24 | Agent-first P4: misconceptions, curriculum, caption | Complete |
 
 ## Deep Docs
 * Rules: docs/HACKATHON_RULES.md
