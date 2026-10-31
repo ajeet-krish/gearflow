@@ -24,6 +24,7 @@ import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/a
 import { expandCasePreset } from "@/agent/casePresets";
 import { cachedChat } from "@/agent/agentCache";
 import { localReply } from "@/agent/localAssistant";
+import { describeSweepResult, isAlphaSweepIntent, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
 import { PROVISIONAL_NEURAL_ENVELOPE } from "@/flow/neuralDomain";
 import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
 import { appendTurns, loadTurns, saveTurns } from "@/agent/chatStore";
@@ -57,6 +58,14 @@ export interface AgentConsoleProps {
     offlineCases?: unknown;
     agentContext?: AgentContext | null;
     onAgentAction?: (action: AgentAction) => void;
+    /** Live what-if sweep stepper. App implements with the analytic path,
+     *  returning Cl, CpMin, and solveMs for one alpha. Absent means the
+     *  sweep still morphs the canvas through onAgentAction with n/a cells. */
+    onWhatIfSweep?: (alphaDeg: number) => { cl: number | null; cpMin: number | null; solveMs: number | null } | Promise<{ cl: number | null; cpMin: number | null; solveMs: number | null }>;
+    /** Immediate sweep apply that bypasses the App canvas debounce so each
+     *  intermediate alpha paints in order. Falls back to onAgentAction
+     *  set_alpha when absent. */
+    onSweepAlpha?: (alphaDeg: number) => void | Promise<void>;
     chatClient?: BasetenChatPort | null;
     evalSink?: ((payload: { feature: string; model: string }) => void) | null;
     spendCapUsd?: number;
@@ -108,6 +117,12 @@ export interface TurnExtra {
     applied: string[];
     rejections: string[];
     pendingRuns: AgentAction[];
+    /** Live sweep per-point samples for Apply chips on the summary turn. */
+    sweepPoints?: Array<{ alphaDeg: number; cl: number | null; cpMin: number | null }>;
+    /** True when the sweep summary ended early via Stop. */
+    sweepCancelled?: boolean;
+    /** Live sweep progress marker on the running turn. */
+    sweepProgress?: { done: number; total: number; current: number } | null;
 }
 
 export interface SpendTotals {
@@ -317,6 +332,7 @@ export function buildBasetenMessages(
         "For NACA codes outside 0012, 2412, and 4412, set_body cannot carry them: send one set_spec with the full parametric geometry plus reynolds plus rationale instead.",
         "Tutor voice: when a NACA section is valid but unrealistically thick or cambered (outside 6 to 18% thickness or 0 to 9% camber), add one physics explainer sentence naming the draggy unvalidated coefficients and pointing at 12 to 15% thickness with 2 to 4% camber, then keep the applied case.",
         "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [1000, 1000000].",
+        "Alpha sweep: when the user asks for an alpha sweep, staircase, or what if across alpha, answer with no action fence and name the live analytic staircase (-4 to 12 step 2, 9 points), the console runs it locally with Stop plus per-point Apply chips.",
         "set_engine accepts analytic or lbm only. set_field k needs TKE ready, recirc needs the mask ready. run_lbm needs LBM live and renders as a confirm chip, never auto runs.",
     ];
     if (agentFirst) {
@@ -495,6 +511,8 @@ export default function AgentConsole({
     offlineCases = undefined,
     agentContext = null,
     onAgentAction = undefined,
+    onWhatIfSweep = undefined,
+    onSweepAlpha = undefined,
     chatClient = null,
     evalSink = undefined,
     spendCapUsd = SPEND_SOFT_STOP_USD,
@@ -525,6 +543,13 @@ export default function AgentConsole({
     // records manual field changes that cancel the auto set_field.
     const [pendingTutor, setPendingTutor] = useState<PendingTutor | null>(null);
     const pendingRef = useRef<PendingTutor | null>(null);
+    // P3 sweep gate: while a live staircase runs, per-step set_alpha applies
+    // morph the canvas but must not arm per-step tutor turns. One summary
+    // turn lands at the end, and its Apply chips fire tutors normally.
+    const sweepingRef = useRef(false);
+    const sweepCancelRef = useRef(false);
+    const [sweeping, setSweeping] = useState(false);
+    const [sweepProgress, setSweepProgress] = useState<{ done: number; total: number; current: number } | null>(null);
     const firedKeysRef = useRef<Set<string>>(new Set());
     const suppressedKeysRef = useRef<Set<string>>(new Set());
     const lastVariableRef = useRef<string | null>(null);
@@ -624,8 +649,9 @@ export default function AgentConsole({
         // Phase T2 tutor capture: run-only envelopes stay on the confirm
         // chip with zero tutor, auto applied envelopes arm the pending hook.
         // Applied plus rejection lines stay on this action turn, the tutor
-        // renders later as its own assistant turn.
-        if (appliedActions.length > 0) {
+        // renders later as its own assistant turn. P3 sweep gate: while the
+        // live staircase runs, per-step applies never arm the hook.
+        if (appliedActions.length > 0 && !sweepingRef.current) {
             try {
                 const before = snapshotLiteFor(agentContext ?? null);
                 const next: PendingTutor = {
@@ -712,6 +738,12 @@ export default function AgentConsole({
      *  payload, and rides at most one primary set_field through the same
      *  validated settle path. Secondary stays chip data. Never throws. */
     async function fireTutor(capture: PendingTutor, after: TutorSnapshotLite, timedOut: boolean): Promise<void> {
+        // P3 sweep gate: per-step canvas moves never render a tutor turn.
+        if (sweepingRef.current) {
+            pendingRef.current = null;
+            setPendingTutor(null);
+            return;
+        }
         const key = after.caseKey;
         if (firedKeysRef.current.has(key)) {
             pendingRef.current = null;
@@ -860,6 +892,9 @@ export default function AgentConsole({
     // applied key, or after TUTOR_TIMEOUT_MS with the loading line. Dedupes
     // by after caseKey, never refires on rerender with the same key.
     useSafeEffect(() => {
+        // P3 sweep gate: per-step canvas moves during the staircase never
+        // fire the tutor, the single sweep summary covers the run.
+        if (sweepingRef.current) return;
         const capture = pendingRef.current;
         if (capture === null) return;
         const ctx = ctxRef.current;
@@ -1062,6 +1097,140 @@ export default function AgentConsole({
         settleEnvelope(id, fullText, userText);
     }
 
+    /** P3 live what-if sweep. Analytic only, zero network: steps the
+     *  staircase through the injected onWhatIfSweep stepper, morphs the
+     *  canvas per point through onAgentAction set_alpha, suppresses
+     *  per-step tutor turns, then lands one summary with the delta table
+     *  plus per-point Apply chips. Stop leaves the last applied alpha in
+     *  place with an honest note. Never throws. */
+    async function runSweepFlow(userText: string): Promise<void> {
+        const bodyLabel = (() => {
+            try {
+                const label = agentContext?.bodyLabel;
+                if (typeof label === "string" && label.trim().length > 0) return label.trim().slice(0, 80);
+            } catch {
+                // Body label faults fall back below.
+            }
+            return "current body";
+        })();
+        sweepingRef.current = true;
+        sweepCancelRef.current = false;
+        setSweeping(true);
+        setSweepProgress({ done: 0, total: SWEEP_ALPHAS.length, current: SWEEP_ALPHAS[0] });
+        try {
+            try {
+                pendingRef.current = null;
+                setPendingTutor(null);
+            } catch {
+                // Pending reset faults never break the sweep.
+            }
+            const runId = nextId();
+            pushTurn({ id: runId, role: "assistant", at: nowIso(), text: "Running the live alpha staircase, canvas stepping through -4 to 12 deg.", tool: "baseten", status: "offline" });
+            setExtra(runId, makeExtra({ streaming: true, sweepProgress: { done: 0, total: SWEEP_ALPHAS.length, current: SWEEP_ALPHAS[0] } }));
+            const startAlpha = (() => {
+                try {
+                    const v = agentContext?.alphaDeg;
+                    return typeof v === "number" && Number.isFinite(v) ? v : null;
+                } catch {
+                    return null;
+                }
+            })();
+            let result: { points: Array<{ alphaDeg: number; cl: number | null; cpMin: number | null; solveMs: number | null; dClVsPrev: number | null; dCpVsPrev: number | null }>; cancelled: boolean; startedFrom: number | null; finalAlpha: number | null };
+            try {
+                result = await runAlphaSweep({
+                    stepAlpha: async (alphaDeg: number) => {
+                        try {
+                            if (typeof onWhatIfSweep === "function") return await onWhatIfSweep(alphaDeg);
+                        } catch {
+                            // Stepper faults land as n/a cells below.
+                        }
+                        return { cl: null, cpMin: null, solveMs: null };
+                    },
+                    onApply: async (alphaDeg: number) => {
+                        try {
+                            if (typeof onSweepAlpha === "function") {
+                                await onSweepAlpha(alphaDeg);
+                            } else {
+                                onAgentAction?.({ kind: "set_alpha", alphaDeg });
+                            }
+                        } catch {
+                            // Canvas faults stay local, samples still recorded.
+                        }
+                    },
+                    isCancelled: () => sweepCancelRef.current,
+                    onProgress: (done: number, total: number, current: number) => {
+                        try {
+                            setSweepProgress({ done, total, current });
+                            setExtra(runId, { sweepProgress: { done, total, current } });
+                        } catch {
+                            // Progress faults never break the sweep.
+                        }
+                    },
+                    yieldPaint: () => defaultSweepYield(),
+                    startAlpha,
+                });
+            } catch {
+                result = { points: [], cancelled: true, startedFrom: startAlpha, finalAlpha: null };
+            }
+            let narration = "";
+            try {
+                narration = describeSweepResult(result);
+            } catch {
+                narration = "Local sweep note, local only. The sweep summary is unavailable, canvas unchanged.";
+            }
+            let rows: Array<{ metric: string; before: string; after: string; delta: string }> = [];
+            try {
+                rows = sweepToTutorRows(result, bodyLabel);
+            } catch {
+                rows = [];
+            }
+            const summaryId = nextId();
+            const caseKey = `sweep|a${SWEEP_ALPHAS[0]}-a${SWEEP_ALPHAS[SWEEP_ALPHAS.length - 1]}|n${result.points.length}${result.cancelled ? "|stopped" : ""}`;
+            pushTurn({
+                id: summaryId,
+                role: "assistant",
+                at: nowIso(),
+                text: narration,
+                tool: "baseten",
+                status: "offline",
+                tutor: {
+                    concept: "general",
+                    primary: "speed",
+                    secondary: "cp",
+                    rows: rows.slice(0, 12).map((row) => ({
+                        metric: String(row.metric).slice(0, 80),
+                        before: String(row.before).slice(0, 80),
+                        after: String(row.after).slice(0, 80),
+                        delta: String(row.delta).slice(0, 80),
+                    })),
+                    caseKey: caseKey.slice(0, 80),
+                },
+            });
+            setExtra(summaryId, makeExtra({
+                streaming: false,
+                sweepPoints: result.points.map((p) => ({ alphaDeg: p.alphaDeg, cl: p.cl, cpMin: p.cpMin })),
+                sweepCancelled: result.cancelled,
+            }));
+            setTurns((prev) => {
+                const merged = prev.map((t) => (t.id === runId
+                    ? { ...t, text: result.cancelled ? `Sweep stopped at ${result.points.length} of ${SWEEP_ALPHAS.length} points, leaving the last applied alpha in place. Summary follows.` : `Sweep complete, ${result.points.length} of ${SWEEP_ALPHAS.length} points. Summary follows.` }
+                    : t));
+                try {
+                    saveTurns(merged.slice(-TRANSCRIPT_CAP));
+                } catch {
+                    // Persist faults never break the sweep.
+                }
+                return merged.slice(-TRANSCRIPT_CAP);
+            });
+            setExtra(runId, { streaming: false });
+            void userText;
+        } finally {
+            sweepingRef.current = false;
+            setSweeping(false);
+            setSweepProgress(null);
+        }
+    }
+
     async function onSubmit(raw: string): Promise<void> {
         const text = raw.trim();
         if (text.length === 0 || busyRef.current) return;
@@ -1071,6 +1240,20 @@ export default function AgentConsole({
         const userTurn: ChatTurn = { id: nextId(), role: "user", text: text.slice(0, 2000), at: nowIso() };
         pushTurn(userTurn);
         setInput("");
+        // P3 sweep fast path: live analytic staircase with canvas morph,
+        // zero network in offline and live modes alike.
+        if (isAlphaSweepIntent(text)) {
+            try {
+                await runSweepFlow(text);
+            } catch {
+                // Sweep faults never break the console.
+            } finally {
+                busyRef.current = false;
+                setBusy(false);
+                setStopping(false);
+            }
+            return;
+        }
         if (forcedLocal) {
             pushOfflineAssistant(text);
             busyRef.current = false;
@@ -1117,11 +1300,48 @@ export default function AgentConsole({
     }
 
     function onStop(): void {
+        // P3 sweep Stop: the staircase polls this flag between points.
+        if (sweepingRef.current) sweepCancelRef.current = true;
         try {
             abortRef.current?.abort();
             setStopping(true);
         } catch {
             // Abort faults never break the Stop control.
+        }
+    }
+
+    /** P3 sweep Stop button on the progress row. Leaves the last applied
+     *  alpha in place, the summary notes the early stop honestly. */
+    function onStopSweep(): void {
+        try {
+            sweepCancelRef.current = true;
+            setStopping(true);
+        } catch {
+            // Stop faults never break the sweep control.
+        }
+    }
+
+    /** P3 per-point Apply chip. Rides the validated settle path so the tutor
+     *  hook arms normally and rejections surface on a chip turn. Faults stay
+     *  local to the chip control. */
+    function onApplySweepAlpha(alphaDeg: number): void {
+        try {
+            const checked = validateAgentAction({ kind: "set_alpha", alphaDeg }, validationCtx);
+            if (!checked.ok || checked.action === null) {
+                const reason = typeof checked.reason === "string" && checked.reason.length > 0
+                    ? checked.reason
+                    : `set_alpha alphaDeg ${String(alphaDeg)} rejected`;
+                const id = nextId();
+                pushTurn({ id, role: "assistant", at: nowIso(), text: `Sweep apply for alpha ${alphaDeg} deg rejected: ${reason}`, tool: "baseten", status: "offline" });
+                setExtra(id, makeExtra({ streaming: false, rejections: [reason] }));
+                return;
+            }
+            const id = nextId();
+            pushTurn({ id, role: "assistant", at: nowIso(), text: `Applying alpha ${alphaDeg} deg from the sweep.`, tool: "baseten", status: "offline" });
+            setExtra(id, makeExtra({ streaming: false }));
+            settleParsedEnvelope(id, { reply: "", actions: [checked.action], rejections: [] });
+        } catch {
+            // Validation faults never break the chip control.
         }
     }
 
@@ -1294,6 +1514,29 @@ export default function AgentConsole({
                                     )}
                                 </div>
                             )}
+                            {(extra?.sweepPoints !== undefined && extra.sweepPoints !== null && extra.sweepPoints.length > 0) && (
+                                <div className="sweepPoints" role="group" aria-label="Sweep per-point apply chips">
+                                    {extra.sweepCancelled === true && (
+                                        <p className="mSub mono" role="note">Stopped early, leaving the last applied alpha in place.</p>
+                                    )}
+                                    {extra.sweepPoints.map((point) => (
+                                        <button
+                                            key={`sweep-apply-${point.alphaDeg}`}
+                                            type="button"
+                                            className="chip sweepChip"
+                                            onClick={() => onApplySweepAlpha(point.alphaDeg)}
+                                            aria-label={`Apply alpha ${point.alphaDeg} degrees`}
+                                        >
+                                            Apply {point.alphaDeg} deg
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            {(extra?.sweepProgress !== undefined && extra.sweepProgress !== null) && (
+                                <p className="mSub mono" role="status">
+                                    Sweep {extra.sweepProgress.done} of {extra.sweepProgress.total}, alpha {extra.sweepProgress.current} deg.
+                                </p>
+                            )}
                         </div>
                     );
                 })}
@@ -1305,6 +1548,16 @@ export default function AgentConsole({
                     </button>
                 ))}
             </div>
+            {sweeping && sweepProgress !== null && (
+                <div className="sweepProgress" role="status" aria-label="Alpha sweep progress">
+                    <p className="mSub mono">
+                        Sweep {sweepProgress.done} of {sweepProgress.total}, alpha {sweepProgress.current} deg, canvas stepping live.
+                    </p>
+                    <button type="button" className="mBtn chatSend" onClick={onStopSweep} aria-label="Stop the alpha sweep">
+                        Stop
+                    </button>
+                </div>
+            )}
             <form
                 className="composer"
                 onSubmit={(e) => {

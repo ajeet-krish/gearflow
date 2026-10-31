@@ -22,6 +22,7 @@ import {
     type AgentValidationContext,
 } from "./agentActions";
 import { parseAirfoilIntent, parseAlphaDeg, parseReynolds } from "./airfoilIntent";
+import { isAlphaSweepIntent } from "./alphaSweep";
 import { isSchemaValidCode, nearestValidCode, parseNacaLoose } from "./nacaParse";
 import { resolveAgentFirst } from "@/config/agentFirst";
 import { localTutorReply } from "./tutorPolicy";
@@ -339,6 +340,13 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         const bodyLabel = safe === null ? "current body" : cleanText(safe.bodyLabel, "current body");
         if (lower.trim().length === 0) {
             return { reply: buildGeneric(vctx.agentFirst === true), actions: [], rejections: [] };
+        }
+        if (isAlphaSweepIntent(raw)) {
+            return {
+                reply: "Local sweep note, no network. Running the live alpha staircase -4 to 12 deg in 2 deg steps (9 points) on the analytic path, the canvas morphs as each alpha applies. Cancel with Stop, per-point Apply chips land after the run. Canvas updates on apply.",
+                actions: [],
+                rejections: [],
+            };
         }
         if (CANNOT_3D_RE.test(lower)) {
             return {

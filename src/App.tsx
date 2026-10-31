@@ -1662,6 +1662,20 @@ export default function App() {
         if (!Number.isFinite(next)) return;
         setSpec((s) => ({ ...s, alphaDeg: Math.min(ALPHA_HARD_MAX, Math.max(ALPHA_HARD_MIN, next)) }));
     };
+    /** P3 sweep immediate apply: bypasses the 120 ms canvas debounce by
+     *  writing both spec and debouncedSpec in the same tick, so each
+     *  intermediate alpha paints in order. The pending debounce timer then
+     *  rewrites the same value harmlessly. Never throws. */
+    const applySweepAlpha = useCallback((next: number): void => {
+        try {
+            if (!Number.isFinite(next)) return;
+            const clamped = Math.min(ALPHA_HARD_MAX, Math.max(ALPHA_HARD_MIN, next));
+            setSpec((s) => ({ ...s, alphaDeg: clamped }));
+            setDebouncedSpec((s) => ({ ...s, alphaDeg: clamped }));
+        } catch {
+            // Sweep applies never break the canvas.
+        }
+    }, []);
     const commitReynolds = useCallback((raw: unknown) => {
         // Single Re funnel: every committable value (clamp, LBM cap, LES band)
         // surfaces its note in the notice stack, the capped flag stays for
@@ -1834,6 +1848,25 @@ export default function App() {
                     ? "NACA 4412"
                     : bodySelectValue.toUpperCase();
 
+    // P3 live what-if sweep stepper. Analytic only, zero network: solves
+    // one alpha on a throwaway AnalyticFlowProvider with the live geometry
+    // plus Re, mirroring the displayed analytic frame. Faults land as n/a
+    // cells, never throw. The console morphs the canvas separately through
+    // the set_alpha executor, this stepper only supplies the numbers.
+    const whatIfSweepStep = useCallback(async (alphaDeg: number): Promise<{ cl: number | null; cpMin: number | null; solveMs: number | null }> => {
+        try {
+            const stepped = { ...debouncedSpec, alphaDeg };
+            const provider = new AnalyticFlowProvider(solveGrid, stepped, { Re: debouncedRe });
+            const res = provider.getResult();
+            const cl = typeof res.cl === "number" && Number.isFinite(res.cl) ? res.cl : null;
+            const cpMin = typeof res.cpMin === "number" && Number.isFinite(res.cpMin) ? res.cpMin : null;
+            const solveMs = typeof res.solveMs === "number" && Number.isFinite(res.solveMs) ? res.solveMs : null;
+            return { cl, cpMin, solveMs };
+        } catch {
+            return { cl: null, cpMin: null, solveMs: null };
+        }
+    }, [debouncedSpec, debouncedRe, solveGrid]);
+
     // Phase B2 agent snapshot. Built from solved state only, no new data
     // plumbing. Passed as props toward AgentConsole, no styling here.
     // Neural availability mirrors the served neural frame, the envelope
@@ -1985,6 +2018,8 @@ export default function App() {
                                 offlineCases={offlineCases}
                                 agentContext={agentContextValue}
                                 onAgentAction={applyAgentAction}
+                                onWhatIfSweep={whatIfSweepStep}
+                                onSweepAlpha={applySweepAlpha}
                             />
                         </ErrorBoundary>
                     </div>
