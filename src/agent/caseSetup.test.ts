@@ -10,8 +10,8 @@ import { buildAgentContext, type AppSnapshot } from "./agentContext";
 import { localReply } from "./localAssistant";
 import type { AgentContext } from "./agentContext";
 
-const ANALYTIC: AgentValidationContext = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
-const NEURAL: AgentValidationContext = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false, neuralAvailable: true };
+const ANALYTIC: AgentValidationContext = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false, agentFirst: false };
+const NEURAL: AgentValidationContext = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false, neuralAvailable: true, agentFirst: false };
 
 function makeCtx(over: Partial<AgentContext> = {}): AgentContext {
     return {
@@ -214,6 +214,7 @@ describe("local honest cannot do replies", () => {
 describe("local run confirm and offline caps", () => {
     it("returns run_lbm for the confirm chip and never auto runs", () => {
         const live = makeCtx({
+            agentFirst: false,
             lbm: {
                 status: "live",
                 hasSnapshot: true,
@@ -229,6 +230,7 @@ describe("local run confirm and offline caps", () => {
 
     it("caps combined intents at five actions with a rejection note", () => {
         const live = makeCtx({
+            agentFirst: false,
             lbm: {
                 status: "live",
                 hasSnapshot: true,

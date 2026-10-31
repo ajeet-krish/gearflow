@@ -33,9 +33,17 @@ interface ManifestRow {
     expect: ManifestExpect;
 }
 
-const CONTEXTS: Record<string, { lbmEffective: boolean; statsReady: boolean; hasTke: boolean; hasRecirc: boolean }> = {
+const CONTEXTS: Record<string, { lbmEffective: boolean; statsReady: boolean; hasTke: boolean; hasRecirc: boolean; agentFirst?: boolean }> = {
     ...(manifest as unknown as { contexts: Record<string, { lbmEffective: boolean; statsReady: boolean; hasTke: boolean; hasRecirc: boolean }> }).contexts,
 };
+
+// Agent-first pins analytic-only validation by default, so the replayed
+// legacy rows (which never touch LBM-only actions) run with the legacy
+// flag pinned off, keeping the zero-network replay deterministic.
+for (const key of Object.keys(CONTEXTS)) {
+    const entry = CONTEXTS[key];
+    if (entry !== undefined) entry.agentFirst = false;
+}
 
 const ROWS = (manifest as unknown as { rows: ManifestRow[] }).rows;
 
@@ -47,7 +55,7 @@ function readEnvelope(file: string): string {
     return readFileSync(join(envelopeDir(), file), "utf8");
 }
 
-const LIVE = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true };
+const LIVE = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true, agentFirst: false };
 
 beforeEach(() => {
     vi.stubGlobal("fetch", () => {

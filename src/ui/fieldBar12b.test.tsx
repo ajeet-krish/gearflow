@@ -71,6 +71,29 @@ describe("FieldBar TKE and RECIRC gating", () => {
     });
 });
 
+describe("FieldBar agent-first simplification", () => {
+    it("hides TKE and RECIRC outright under the flag", () => {
+        const html = renderToStaticMarkup(
+            <FieldBar variable="speed" onVariable={noop} hasTke={false} hasRecirc={false} agentFirst={true} />,
+        );
+        for (const label of ["VELOCITY", "PRESSURE", "VORTICITY"]) {
+            expect(html).toContain(label);
+        }
+        expect(html).not.toContain("TKE");
+        expect(html).not.toContain("RECIRC");
+        expect(html).not.toContain("LBM statistics sample");
+    });
+
+    it("keeps the legacy gated chips when the flag is off", () => {
+        const html = renderToStaticMarkup(
+            <FieldBar variable="speed" onVariable={noop} hasTke={true} hasRecirc={true} agentFirst={false} />,
+        );
+        for (const label of ["VELOCITY", "PRESSURE", "VORTICITY", "TKE", "RECIRC"]) {
+            expect(html).toContain(label);
+        }
+    });
+});
+
 describe("fallbackVariableFor", () => {
     it("returns k to speed when the frame has no k channel", () => {
         expect(fallbackVariableFor("k", {})).toBe("speed");

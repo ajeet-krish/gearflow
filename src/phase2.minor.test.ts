@@ -221,7 +221,7 @@ describe("stale neural commit with deferred out of order resolution", () => {
 
 describe("App executor set_engine narrowing across all four tokens", () => {
     it("envelope validator accepts analytic and lbm, rejects wasm and surrogate with a pointer copy", () => {
-        const live = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true };
+        const live = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true, agentFirst: false };
         for (const token of ["analytic", "lbm"]) {
             const checked = validateAgentAction({ kind: "set_engine", engine: token }, live);
             expect(checked.ok).toBe(true);

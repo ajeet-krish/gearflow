@@ -612,8 +612,14 @@ describe("App wiring source pins", () => {
         expect(src).toContain("shouldAnimateStreet");
     });
 
-    it("names the neural-v3 path in the instrument rack", async () => {
+    it("no longer names solver paths in the instrument rack, the readout owns the honest analytic note", async () => {
+        // P1 agent-first simplification: the Solver Path field is gone
+        // outright, the path is forced analytic and named once in the
+        // readout note. The agent console is the control surface.
         const src = await readFile(simPath, "utf8");
-        expect(src).toContain("neural-v3 phase averaged, modeled");
+        expect(src).not.toContain("neural-v3 phase averaged, modeled");
+        expect(src).not.toContain("neural-v2 predicted, not validated");
+        expect(src).not.toContain("simPathCurrent");
+        expect(src).toContain("Analytic potential flow, not validated. Run controls live in the agent console.");
     });
 });

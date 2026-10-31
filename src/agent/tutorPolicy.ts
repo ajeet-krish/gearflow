@@ -160,9 +160,9 @@ function explanationFor(concept: TutorConcept, rows: TutorTableRow[]): string {
 function experimentFor(concept: TutorConcept): string {
     if (concept === "attached-lift") return "Raise alpha by 1 deg and watch Cl and CpMin.";
     if (concept === "suction-peak") return "Raise alpha by 1 deg and watch the suction peak on the cp view.";
-    if (concept === "stall-separation") return "Press Run for the viscous LBM solve to see the separated wake, then compare omega.";
+    if (concept === "stall-separation") return "Compare the omega view with the cp view, noting the potential model omits separation, so stall reads as a proxy here, not a solved wake.";
     if (concept === "karman-shedding") return "Switch to the omega view and watch the alternating street.";
-    if (concept === "turbulent-wake") return "Press Run for the viscous solve, then check recirculation and TKE.";
+    if (concept === "turbulent-wake") return "Check the analytic speed and omega views, noting TKE and recirculation need a viscous solve the agent-first build does not run.";
     if (concept === "stagnation") return "Check the cp view at the nose for the high pressure zone.";
     return "Nudge alpha by 1 deg and compare Cl.";
 }

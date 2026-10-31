@@ -9,23 +9,20 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { buildPolygons } from "@/geometry/parametric";
-import { parseCustomGrid } from "@/flow/gridController";
 import { preflightLbm } from "@/flow/lbmRunConfig";
 import { alphaOutOfBandNote } from "@/contracts/schema";
 import { DEFAULT_DOMAIN } from "@/contracts/types";
 import type { GeometrySpec } from "@/contracts/types";
 import {
     SimulationSectionView,
-    decideCustomGridCommit,
     decideReCommit,
     type SimulationSectionViewProps,
 } from "./SimulationSection";
 import {
     GeometrySectionView,
     clampBodyDim,
-    commitAlphaValue,
     resolveLegacyDuct,
-    type GeometrySectionViewProps,
+    type GeometrySectionProps,
 } from "./GeometrySection";
 import SettingsModal, { decideSettingsCustomCommit } from "./SettingsModal";
 
@@ -88,22 +85,12 @@ const ORIFICE_SPEC: GeometrySpec = {
 
 function simProps(over: Partial<SimulationSectionViewProps> = {}): SimulationSectionViewProps {
     return {
-        gridMode: "auto",
-        customSize: 128,
-        activeGrid: 256,
-        gridNotice: null,
-        onGridMode: noop,
-        onClearGridNotice: noop,
-        customText: "128",
-        onCustomText: noop,
-        customError: null,
-        onCustomError: noop,
-        solverPath: "analytic",
-        neuralStatus: "unavailable",
-        neuralNote: "weights unavailable",
-        domainIn: true,
-        domainReason: null,
+        agentFirst: true,
+        bodyLabel: "NACA 2412",
+        alphaDeg: 6,
         reynolds: 50000,
+        cl: 0.412,
+        regime: "laminar wake",
         lbmActive: false,
         onCommitReynolds: noop,
         reText: "50000",
@@ -132,33 +119,42 @@ function simProps(over: Partial<SimulationSectionViewProps> = {}): SimulationSec
     };
 }
 
-function geoProps(over: Partial<GeometrySectionViewProps> = {}): GeometrySectionViewProps {
+function geoProps(over: Partial<GeometrySectionProps> = {}): GeometrySectionProps {
     return {
         spec: NACA_SPEC,
         onSpec: noop,
         blockageWarning: null,
         orificeResolutionWarning: null,
-        alphaText: "6",
-        onAlphaText: noop,
-        alphaPopup: null,
-        onAlphaPopup: noop,
         ...over,
     };
 }
 
 describe("SIMULATION section", () => {
-    it("renders every control: grid presets, solver status, Re, and the LBM run block", () => {
-        const html = renderToStaticMarkup(SimulationSectionView(simProps({ gridMode: "custom" })) as never);
-        for (const label of ["64", "128", "256", "Custom"]) {
-            expect(html).toContain(`>${label}</button>`);
+    it("renders the honest readout plus Re, with no grid, solver path, or LBM block under the flag", () => {
+        const html = renderToStaticMarkup(SimulationSectionView(simProps()) as never);
+        for (const label of ["BODY", "ALPHA", "CL", "REGIME"]) {
+            expect(html).toContain(`<dt>${label}</dt>`);
         }
-        expect(html).toContain('id="simCustomGrid"');
-        expect(html).toContain('id="simPathCurrent"');
-        expect(html).toContain('id="simNeuralLine"');
-        expect(html).toContain('id="simDomainLine"');
-        expect(html).not.toContain('id="simBackend"');
+        expect(html).toContain("NACA 2412");
+        expect(html).toContain("6.0 deg");
+        expect(html).toContain("0.412");
+        expect(html).toContain("laminar wake");
+        expect(html).toContain("Analytic potential flow, not validated. Run controls live in the agent console.");
         expect(html).toContain('id="simRey"');
         expect(html).toContain('id="simReNumber"');
+        expect(html).not.toContain('id="simCustomGrid"');
+        expect(html).not.toContain('id="simPathCurrent"');
+        expect(html).not.toContain('id="simNeuralLine"');
+        expect(html).not.toContain('id="simDomainLine"');
+        expect(html).not.toContain('aria-label="Run LBM solve"');
+        expect(html).not.toContain('aria-label="Cancel LBM solve"');
+        expect(html).not.toContain('id="simLbmU"');
+        expect(html).not.toContain('id="simLbmSteps"');
+        expect(html).not.toContain("LES auto above Re 500");
+    });
+
+    it("renders the legacy LBM run block when the flag is off", () => {
+        const html = renderToStaticMarkup(SimulationSectionView(simProps({ agentFirst: false })) as never);
         expect(html).toContain('aria-label="Run LBM solve"');
         expect(html).toContain('aria-label="Cancel LBM solve"');
         expect(html).toContain('id="simLbmU"');
@@ -169,73 +165,9 @@ describe("SIMULATION section", () => {
         expect(html).toContain("LES modeled above Re 500.");
     });
 
-    it("hides the custom grid input unless the Custom preset is active", () => {
-        const auto = renderToStaticMarkup(SimulationSectionView(simProps({ gridMode: "auto" })) as never);
-        expect(auto).not.toContain('id="simCustomGrid"');
-    });
-
-    it("grid Custom invalid keeps the last good size and shows the reason", () => {
-        const onGridMode = vi.fn();
-        const onCustomError = vi.fn();
-        const tree = SimulationSectionView(
-            simProps({ gridMode: "custom", customText: "abc", onGridMode, onCustomError })
-        ) as unknown;
-        const [input] = byId(tree, "simCustomGrid");
-        expect(input).toBeDefined();
-        (input.props.onBlur as () => void)();
-        expect(onGridMode).not.toHaveBeenCalled();
-        expect(onCustomError).toHaveBeenCalledTimes(1);
-        expect(String(onCustomError.mock.calls[0][0])).toContain("32");
-    });
-
-    it("grid Custom valid commits through parseCustomGrid", () => {
-        const onGridMode = vi.fn();
-        const onCustomError = vi.fn();
-        const tree = SimulationSectionView(
-            simProps({ gridMode: "custom", customText: "96", onGridMode, onCustomError })
-        ) as unknown;
-        const [input] = byId(tree, "simCustomGrid");
-        (input.props.onBlur as () => void)();
-        expect(onGridMode).toHaveBeenCalledWith("custom", 96);
-        expect(onCustomError).toHaveBeenCalledWith(null);
-        expect(decideCustomGridCommit("7", 128)).toEqual({ fire: false, size: 128, message: expect.stringContaining("32") });
-        expect(parseCustomGrid(513).ok).toBe(false);
-    });
-
-    it("Escape in the custom grid field reverts to the last good size", () => {
-        const onCustomText = vi.fn();
-        const onCustomError = vi.fn();
-        const tree = SimulationSectionView(
-            simProps({ gridMode: "custom", customSize: 96, customText: "abc", onCustomText, onCustomError })
-        ) as unknown;
-        const [input] = byId(tree, "simCustomGrid");
-        (input.props.onKeyDown as (e: unknown) => void)({ key: "Escape" });
-        expect(onCustomText).toHaveBeenCalledWith("96");
-        expect(onCustomError).toHaveBeenCalledWith(null);
-    });
-
-    it("status block names the current path plus neural and domain lines", () => {
-        const neural = renderToStaticMarkup(SimulationSectionView(simProps({
-            solverPath: "neural-v2",
-            neuralStatus: "ready",
-            neuralNote: "weights v2, 3.0 ms",
-            domainIn: true,
-            domainReason: null,
-        })) as never);
-        expect(neural).toContain("Current path");
-        expect(neural).toContain("neural-v2 predicted, not validated");
-        expect(neural).toContain("Neural ready");
-        expect(neural).toContain("inside the provisional envelope");
-        const out = renderToStaticMarkup(SimulationSectionView(simProps({
-            solverPath: "analytic",
-            neuralStatus: "ready",
-            neuralNote: "weights ready",
-            domainIn: false,
-            domainReason: "alpha 30 deg is outside the provisional envelope [-4, 12] deg",
-        })) as never);
-        expect(out).toContain("analytic potential flow, not validated");
-        expect(out).toContain("outside the provisional envelope");
-        expect(out).toContain("alpha 30 deg is outside");
+    it("names Cl n/a when the frame carries no finite lift", () => {
+        const html = renderToStaticMarkup(SimulationSectionView(simProps({ cl: null })) as never);
+        expect(html).toContain("n/a");
     });
 
     it("Re invalid typing shows a popup and fires no setter", () => {
@@ -289,8 +221,9 @@ describe("SIMULATION section", () => {
         expect(gate.blockReasons.join(" ")).toContain("floor");
         // The section Run button only calls the App handler, which owns the
         // pre-flight gate. No Worker is constructed anywhere in this file.
+        // The block renders in legacy mode only, under the flag it is hidden.
         const onLbmRun = vi.fn();
-        const tree = SimulationSectionView(simProps({ onLbmRun })) as unknown;
+        const tree = SimulationSectionView(simProps({ agentFirst: false, onLbmRun })) as unknown;
         const run = findAll(tree, (el) => el.props["aria-label"] === "Run LBM solve");
         expect(run).toHaveLength(1);
         (run[0].props.onClick as () => void)();
@@ -298,10 +231,10 @@ describe("SIMULATION section", () => {
         expect(typeof Worker).toBe("undefined");
     });
 
-    it("renders the fault lamp with Recover and the entry notice", () => {
+    it("renders the fault lamp with Recover and the entry notice in legacy mode", () => {
         const html = renderToStaticMarkup(
             SimulationSectionView(
-                simProps({ lbmFailed: "LBM tau fault", lbmNotice: "LBM needs low Re" })
+                simProps({ agentFirst: false, lbmFailed: "LBM tau fault", lbmNotice: "LBM needs low Re" })
             ) as never
         );
         expect(html).toContain("lbmFault");
@@ -310,10 +243,11 @@ describe("SIMULATION section", () => {
         expect(html).toContain("Dismiss");
     });
 
-    it("renders pre-flight warnings and the blockage warning", () => {
+    it("renders pre-flight warnings and the blockage warning in legacy mode", () => {
         const html = renderToStaticMarkup(
             SimulationSectionView(
                 simProps({
+                    agentFirst: false,
                     preflightWarnings: ["LBM pre-flight: blockage 20 percent above 13 percent"],
                     blockageWarning: "blockage 20.0 percent exceeds 5 percent reference limit",
                 })
@@ -341,37 +275,39 @@ describe("GEOMETRY section", () => {
         expect(html).not.toContain('value="duct"');
     });
 
-    it("renders the full rotation AoA slider plus numeric entry", () => {
+    it("renders the full rotation AoA slider with its exact output readout and no numeric entry", () => {
         const html = renderToStaticMarkup(GeometrySectionView(geoProps()) as never);
         expect(html).toContain('id="geoAlpha"');
         expect(html).toContain('min="-180"');
         expect(html).toContain('max="180"');
-        expect(html).toContain('id="geoAlphaNumber"');
+        expect(html).toContain('step="0.5"');
+        expect(html).not.toContain('id="geoAlphaNumber"');
         expect(html).toContain("6.0 deg");
     });
 
-    it("AoA 90 is accepted with the out of band note, 181 is rejected", () => {
-        expect(commitAlphaValue(90, 6)).toEqual({ ok: true, value: 90 });
+    it("AoA 90 renders with the out of band note at the hard envelope edge", () => {
+        // The hard envelope contract lives in schema tests now
+        // (validateGeometrySpec accepts 90, rejects 181 and -181). The rail
+        // slider covers the same range, this pins the view side.
+        const html = renderToStaticMarkup(
+            GeometrySectionView(geoProps({ spec: { ...NACA_SPEC, alphaDeg: 90 } })) as never
+        );
+        expect(html).toContain("outside the characterized band");
         expect(alphaOutOfBandNote(90)).toContain("outside the characterized band");
-        expect(commitAlphaValue(181, 6)).toEqual({ ok: false, value: 6 });
-        expect(commitAlphaValue(-181, 6).ok).toBe(false);
-        expect(commitAlphaValue("abc", 6).ok).toBe(false);
+    });
+
+    it("the slider commits the exact 0.5 deg step through onSpec", () => {
         const onSpec = vi.fn();
-        const onAlphaPopup = vi.fn();
-        const bad = GeometrySectionView(geoProps({ alphaText: "181", onSpec, onAlphaPopup })) as unknown;
-        const [badInput] = byId(bad, "geoAlphaNumber");
-        (badInput.props.onBlur as () => void)();
-        expect(onSpec).not.toHaveBeenCalled();
-        expect(onAlphaPopup).toHaveBeenCalledTimes(1);
-        const good = GeometrySectionView(geoProps({ alphaText: "90", onSpec, onAlphaPopup })) as unknown;
-        const [goodInput] = byId(good, "geoAlphaNumber");
-        (goodInput.props.onKeyDown as (e: unknown) => void)({ key: "Enter" });
+        const tree = GeometrySectionView(geoProps({ onSpec })) as unknown;
+        const [slider] = byId(tree, "geoAlpha");
+        expect(slider).toBeDefined();
+        (slider.props.onChange as (e: unknown) => void)({ target: { value: "90" } });
         expect(onSpec).toHaveBeenCalledWith(expect.objectContaining({ alphaDeg: 90 }));
     });
 
     it("shows the out of band note for extended alpha", () => {
         const html = renderToStaticMarkup(
-            GeometrySectionView(geoProps({ spec: { ...NACA_SPEC, alphaDeg: 90 }, alphaText: "90" })) as never
+            GeometrySectionView(geoProps({ spec: { ...NACA_SPEC, alphaDeg: 90 } })) as never
         );
         expect(html).toContain("outside the characterized band");
     });
@@ -382,7 +318,7 @@ describe("GEOMETRY section", () => {
             GeometrySectionView(geoProps({ spec: { ...NACA_SPEC, kind: "cylinder", radius: 0.25 } })) as never
         );
         expect(cyl).toContain(hint);
-        const ori = renderToStaticMarkup(GeometrySectionView(geoProps({ spec: ORIFICE_SPEC, alphaText: "0" })) as never);
+        const ori = renderToStaticMarkup(GeometrySectionView(geoProps({ spec: ORIFICE_SPEC })) as never);
         expect(ori).toContain(hint);
         const naca = renderToStaticMarkup(GeometrySectionView(geoProps()) as never);
         expect(naca).not.toContain(hint);
@@ -400,7 +336,7 @@ describe("GEOMETRY section", () => {
         );
         expect(block).toContain('id="geoLength"');
         expect(block).toContain('id="geoHeight"');
-        const ori = renderToStaticMarkup(GeometrySectionView(geoProps({ spec: ORIFICE_SPEC, alphaText: "0" })) as never);
+        const ori = renderToStaticMarkup(GeometrySectionView(geoProps({ spec: ORIFICE_SPEC })) as never);
         expect(ori).toContain('id="geoGap"');
         expect(ori).toContain('id="geoThickPlate"');
         expect(ori).toContain('min="0.05"');
@@ -414,7 +350,6 @@ describe("GEOMETRY section", () => {
             GeometrySectionView(
                 geoProps({
                     spec: ORIFICE_SPEC,
-                    alphaText: "0",
                     orificeResolutionWarning: "Orifice plate spans about 1.2 cells at 64",
                 })
             ) as never
@@ -425,7 +360,7 @@ describe("GEOMETRY section", () => {
     it("orifice gap control updates the built polygons", () => {
         const seen: GeometrySpec[] = [];
         const tree = GeometrySectionView(
-            geoProps({ spec: ORIFICE_SPEC, alphaText: "0", onSpec: (next) => seen.push(next) })
+            geoProps({ spec: ORIFICE_SPEC, onSpec: (next) => seen.push(next) })
         ) as unknown;
         const [gap] = byId(tree, "geoGap");
         (gap.props.onChange as (e: unknown) => void)({ target: { value: "0.6" } });
@@ -459,7 +394,7 @@ describe("GEOMETRY section", () => {
         expect(next.kind).toBe("orifice");
         expect(next.height).toBeCloseTo(0.9, 12);
         const html = renderToStaticMarkup(
-            GeometrySectionView(geoProps({ spec: duct, alphaText: "0" })) as never
+            GeometrySectionView(geoProps({ spec: duct })) as never
         );
         expect(html).toContain('value="orifice"');
         expect(html).toContain("Legacy duct spec resolved as an orifice plate.");
@@ -526,12 +461,15 @@ describe("Settings grid extension", () => {
 });
 
 describe("panel rework leftovers", () => {
-    it("App drops the unused LBM_MAX_RE import and collapses no grid label", async () => {
+    it("App SIMULATION panel is a readout with no grid or solver path fields", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).not.toMatch(/LBM_MAX_RE,/);
         expect(src).not.toContain("LBM_MAX_RE");
         expect(src).not.toContain("solveGrid.nx === 256 ? 256 : 128");
-        expect(src).toContain("activeGrid={flow.nx}");
+        expect(src).not.toContain("activeGrid={flow.nx}");
+        expect(src).toContain("agentFirst={agentFirst.agentFirst}");
+        expect(src).toContain("bodyLabel={bodyRowLabel}");
+        expect(src).toContain("regime={regime}");
     });
 
     it("App mounts SIMULATION plus GEOMETRY sections with the new components", async () => {

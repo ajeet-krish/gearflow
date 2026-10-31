@@ -193,6 +193,7 @@ function pendingSnapshot(): Record<string, unknown> {
         validation: { pass: 0, warn: 0, fail: 0, info: 0 },
         provenanceLabel: "lbm pending placeholder",
         offline: false,
+        agentFirst: false,
     };
 }
 

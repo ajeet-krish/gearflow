@@ -10,8 +10,8 @@ import { buildAgentContext } from "./agentContext";
 import { readEngineMode, type EngineMode } from "@/flow/engineMode";
 import { validationContextFor } from "@/ui/AgentConsole";
 
-const LIVE = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true };
-const GATED = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
+const LIVE = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true, agentFirst: false };
+const GATED = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false, agentFirst: false };
 
 const VALID_PARAMETRIC = {
     geometry: {
@@ -116,7 +116,7 @@ describe("agent App wiring", () => {
         expect(ctx.honesty.join(" ")).toContain("pending");
         const validation = validationContextFor(ctx);
         expect(validation.lbmEffective).toBe(true);
-        const run = parseAgentEnvelope(fence({ kind: "run_lbm" }), validation);
+        const run = parseAgentEnvelope(fence({ kind: "run_lbm" }), { ...validation, agentFirst: false });
         expect(run.actions).toEqual([{ kind: "run_lbm" }]);
         expect(run.rejections).toEqual([]);
     });

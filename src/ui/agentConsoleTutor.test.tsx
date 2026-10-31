@@ -430,7 +430,7 @@ describe("agent console tutor hook (T2)", () => {
     it("keeps run envelopes on the confirm chip with zero tutor", async () => {
         const RUN_ENVELOPE = "Ready to solve. The viscous run is staged.\n```action-json\n{\"kind\":\"run_lbm\"}\n```";
         const pending = buildAgentContext(
-            settledSnapshot({ engine: "lbm", lbmEffective: true, caseKey: "case-run-before", frameSettled: true }) as never
+            settledSnapshot({ engine: "lbm", lbmEffective: true, caseKey: "case-run-before", frameSettled: true, agentFirst: false }) as never
         );
         const log = { chats: 0, streams: 0 };
         const onAgentAction = vi.fn();
@@ -475,7 +475,7 @@ describe("agent console tutor hook (T2)", () => {
             expect(onAgentAction).not.toHaveBeenCalled();
             expect(buttonsByLabel(m.tree(), "Confirm Run LBM solve")).toHaveLength(1);
             const after = buildAgentContext(
-                settledSnapshot({ engine: "lbm", lbmEffective: true, caseKey: "case-run-after", frameSettled: true }) as never
+                settledSnapshot({ engine: "lbm", lbmEffective: true, caseKey: "case-run-after", frameSettled: true, agentFirst: false }) as never
             );
             m.setProps({ ...base, agentContext: after });
             await flush();

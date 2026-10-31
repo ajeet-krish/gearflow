@@ -303,7 +303,7 @@ describe("baseten console B2 fixes", () => {
         expect(ctx.lbm.effective).toBe(true);
         const validation = validationContextFor(ctx);
         expect(validation.lbmEffective).toBe(true);
-        const run = parseAgentEnvelope('Ready to solve.\n```action-json\n{"kind":"run_lbm"}\n```', validation);
+        const run = parseAgentEnvelope('Ready to solve.\n```action-json\n{"kind":"run_lbm"}\n```', { ...validation, agentFirst: false });
         expect(run.actions).toEqual([{ kind: "run_lbm" }]);
         expect(run.rejections).toEqual([]);
         const html = renderToStaticMarkup(
@@ -359,5 +359,74 @@ describe("baseten console B2 fixes", () => {
         expect(legacyHtml).toContain("Agent");
         expect(legacyHtml).toContain("legacy");
         expect(legacyHtml).not.toContain(">baseten<");
+    });
+});
+
+describe("baseten console agent-first prompt", () => {
+    function agentFirstCtx() {
+        return buildAgentContext({
+            spec: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 },
+            reynolds: 50000,
+            regime: "laminar, attached",
+            bodyLabel: "NACA 2412",
+            backend: "analytic",
+            engine: "analytic",
+            gridLabel: "128x128",
+            cl: 0.6,
+            cpMin: -1.2,
+            lbmStatus: "idle",
+            lbmHasSnapshot: false,
+            lbmEffective: false,
+            lbmStatsReady: false,
+            lbmStats: null,
+            variable: "speed",
+            effectiveVariable: "speed",
+            hasTke: false,
+            hasRecirc: false,
+            validation: { pass: 0, warn: 0, fail: 0, info: 0 },
+            provenanceLabel: "analytic",
+            offline: false,
+            agentFirst: true,
+        } as never);
+    }
+
+    function legacyCtx() {
+        return buildAgentContext({
+            spec: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 },
+            reynolds: 50000,
+            regime: "laminar, attached",
+            bodyLabel: "NACA 2412",
+            backend: "analytic",
+            engine: "analytic",
+            gridLabel: "128x128",
+            cl: 0.6,
+            cpMin: -1.2,
+            lbmStatus: "idle",
+            lbmHasSnapshot: false,
+            lbmEffective: false,
+            lbmStatsReady: false,
+            lbmStats: null,
+            variable: "speed",
+            effectiveVariable: "speed",
+            hasTke: false,
+            hasRecirc: false,
+            validation: { pass: 0, warn: 0, fail: 0, info: 0 },
+            provenanceLabel: "analytic",
+            offline: false,
+            agentFirst: false,
+        } as never);
+    }
+
+    it("appends the analytic-only line when the snapshot carries agentFirst true", () => {
+        const messages = buildBasetenMessages("Explain this run", agentFirstCtx(), []);
+        expect(messages[0].role).toBe("system");
+        expect(messages[0].content).toContain("Agent-first analytic mode");
+        expect(messages[0].content).toContain("serve the analytic frame only");
+        expect(messages[messages.length - 1]).toEqual({ role: "user", content: "Explain this run" });
+    });
+
+    it("omits the analytic-only line for legacy snapshots", () => {
+        const messages = buildBasetenMessages("Explain this run", legacyCtx(), []);
+        expect(messages[0].content).not.toContain("Agent-first analytic mode");
     });
 });

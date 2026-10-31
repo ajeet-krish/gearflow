@@ -165,4 +165,62 @@ describe("localTutorReply", () => {
         expect(reply).toContain("Suction");
         expect(reply).toContain("suction peak on the cp view");
     });
+
+    it("keeps stall and turbulence experiments analytic-safe with no Run references", () => {
+        const stall = localTutorReply(
+            {
+                caseKey: "a",
+                bodyLabel: "NACA 2412",
+                alpha: 14,
+                reynolds: 50000,
+                cl: 0.9,
+                cpMin: -1.2,
+                regime: "stall, separated",
+                pathLabel: "analytic potential flow, not validated",
+                strouhal: null,
+            },
+            {
+                caseKey: "b",
+                bodyLabel: "NACA 2412",
+                alpha: 14,
+                reynolds: 50000,
+                cl: 0.9,
+                cpMin: -1.2,
+                regime: "stall, separated",
+                pathLabel: "analytic potential flow, not validated",
+                strouhal: null,
+            },
+        );
+        expect(stall).toContain("Try next:");
+        expect(stall).not.toContain("Press Run");
+        expect(stall).not.toContain("LBM");
+        const wake = localTutorReply(
+            {
+                caseKey: "a",
+                bodyLabel: "cylinder",
+                alpha: 0,
+                reynolds: 700,
+                cl: 0.1,
+                cpMin: -1.2,
+                regime: "turbulent wake",
+                pathLabel: "analytic potential flow, not validated",
+                strouhal: null,
+            },
+            {
+                caseKey: "b",
+                bodyLabel: "cylinder",
+                alpha: 0,
+                reynolds: 700,
+                cl: 0.1,
+                cpMin: -1.2,
+                regime: "turbulent wake",
+                pathLabel: "analytic potential flow, not validated",
+                strouhal: null,
+            },
+        );
+        expect(wake).toContain("Try next:");
+        expect(wake).not.toContain("Press Run");
+        expect(wake).not.toContain("LBM");
+        expect(wake).toContain("analytic");
+    });
 });
