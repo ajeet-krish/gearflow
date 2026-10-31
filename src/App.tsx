@@ -64,6 +64,7 @@ import { DEFAULT_DOMAIN, DEFAULT_GRID, type EvalLogEntry, type FlowField, type G
 import { ORIFICE_THICKNESS_DEFAULT } from "@/contracts/types";
 import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, alphaOutOfBandNote } from "@/contracts/schema";
 import { commitReynoldsValue } from "@/flow/reynoldsField";
+import { advectionScaleForRe, combineVelocity, VELOCITY_MULT_DEFAULT, VELOCITY_MULT_MAX, VELOCITY_MULT_MIN } from "@/render/advectionScale";
 import type { ColormapName } from "@/flow/colormap";
 import type { Point } from "@/geometry/parametric";
 
@@ -328,6 +329,32 @@ export function isLegacyEngineAuto(search: string): boolean {
 export default function App() {
     const [spec, setSpec] = useState<GeometrySpec>(DEFAULT_SPEC);
     const [reynolds, setReynolds] = useState(50_000);
+
+    // Explicit velocity multiplier, visual only (0.5x to 2x, default 1.0).
+    // No display prefs field exists, so this persists to its own localStorage
+    // key with session fallback. Never feeds physics or provenance.
+    const [velocity, setVelocity] = useState<number>(() => {
+        try {
+            const raw = window.localStorage.getItem("gearflow:velocity");
+            if (raw === null) return VELOCITY_MULT_DEFAULT;
+            const n = Number(raw);
+            if (!Number.isFinite(n)) return VELOCITY_MULT_DEFAULT;
+            return Math.min(VELOCITY_MULT_MAX, Math.max(VELOCITY_MULT_MIN, n));
+        } catch {
+            return VELOCITY_MULT_DEFAULT;
+        }
+    });
+    useEffect(() => {
+        try {
+            window.localStorage.setItem("gearflow:velocity", String(velocity));
+        } catch {
+            // Private mode: velocity still applies to this session.
+        }
+    }, [velocity]);
+    const onVelocity = useCallback((next: number) => {
+        if (!Number.isFinite(next)) return;
+        setVelocity(Math.min(VELOCITY_MULT_MAX, Math.max(VELOCITY_MULT_MIN, next)));
+    }, []);
 
     const [debouncedSpec, setDebouncedSpec] = useState<GeometrySpec>(DEFAULT_SPEC);
     const [debouncedRe, setDebouncedRe] = useState(50_000);
@@ -1525,6 +1552,13 @@ export default function App() {
     const effectiveVariable = fallbackVariableFor(prefs.variable, flow);
     const effectiveOverlays = resolveOverlays(effectiveVariable, prefs);
 
+    // P2 visual coupling: Re scale (log, clamped) times the explicit
+    // velocity multiplier. Display only, never physics.
+    const advectionScale = useMemo(
+        () => combineVelocity(advectionScaleForRe(debouncedRe), velocity),
+        [debouncedRe, velocity]
+    );
+
     // LBM run controls. Run starts the worker loop, Cancel latches the
     // current state and keeps the last snapshot on screen. Run first passes
     // the pre-flight gate: a hard block never starts the worker and lands
@@ -2022,6 +2056,7 @@ export default function App() {
                                 showContours={effectiveOverlays.contours}
                                 showStreamlines={effectiveOverlays.showStreamlines}
                                 streamlineColormap={prefs.colormap}
+                                advectionScale={advectionScale}
                             />
                         </ErrorBoundary>
                         <div className="noticeStack" aria-label="Solver notices">
@@ -2159,6 +2194,8 @@ export default function App() {
                                             lbmFailed={lbmFailedActive ? lbmFailed : null}
                                             onLbmRecover={onLbmRecoverRe}
                                             blockageWarning={lbmBlockage.warning}
+                                            velocity={velocity}
+                                            onVelocity={onVelocity}
                                         />
                                     ),
                                 },

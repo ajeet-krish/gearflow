@@ -1826,3 +1826,35 @@ Verdict: PASS
 | 6 Hygiene (Minor) | PASS | commitAlphaValue and the empty view props alias removed from src/ui/GeometrySection.tsx; envelope pin at src/contracts/schema.test.ts:309-322 |
 
 Residual non-blocking Minors: buildGeneric and buildHelp at src/agent/localAssistant.ts:226-239 are not flag branched (discovery copy only, validator still refuses); the flag-on prompt line and the executor primitive recheck have no behavioral pin.
+
+## 2026-10-30 - P2 Re/Velocity Coupling Review
+
+Date: 2026-10-30
+Reviewer: code-reviewer
+Scope: P2 Re/Velocity coupling (src/render/advectionScale.ts and test, FlowCanvas advectionScale prop and dt multiply, App velocity state, memo and wiring, SimulationSection velocity slider)
+Verdict: PASS
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| Helpers pure, never throw, clamped | PASS | advectionScale.ts:15-60 has no state or I/O, unknown inputs are type and finiteness guarded inside try/catch, Re scale is clamped to 0.6 to 2.4, velocity is clamped to 0.5 to 2.0, and non-finite scale falls back to 1.0 |
+| dt cap preserved | PASS | FlowCanvas.tsx:667 keeps dt at Math.min(0.033, dtms / 1000) before the display multiplier is applied at FlowCanvas.tsx:686-688 |
+| Cl, Cp, and fields untouched, display only | PASS | App velocity reaches only the advectionScale memo at App.tsx:1555-1560, FlowCanvas at App.tsx:2059, and the SimulationSection slider props at App.tsx:2197-2198. No velocity or advection term feeds a solver, field, Cl, Cp, or provenance path |
+| Slider labeled visual only | PASS | SimulationSection.tsx:78-80 documents visual only, the aria label at line 192 says visual only, and the hint at line 194 says it scales particle speed and never forces or provenance |
+| Quantitative tests real | PASS | advectionScale.test.ts:35-55 pins monotonic log scaling, endpoints, clamps, and garbage input; lines 59-95 pin multiplier clamps and a real advectParticles 2x displacement ratio within 5 percent; lines 99-130 generate analytic fields and field textures at four Re values and require byte differences |
+| Conventions | PASS | Scoped code uses 4-space indent, PascalCase types, camelCase and snake_case naming as applicable, SCREAMING_SNAKE constants, and no em dashes in the scoped prose |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Minor | src/render/FlowCanvas.tsx:686-688 | The canvas guard accepts any finite positive direct prop, with no upper clamp. App is safe because it passes only the bounded combineVelocity result (maximum 4.8), but a future direct caller could pass an extreme scale and weaken the half-cell substep guarantee in particles.ts:88-94. | frontend-dev: clamp the ref value to the documented combined band (0.3 to 4.8) at the canvas seam, or document the prop band at FlowCanvas.tsx:35. Delegate via orchestrator. |
+| Minor | src/ui/SimulationSection.tsx:180-195, src/render/advectionScale.test.ts:75-95 | The velocity slider and App-to-canvas wiring have no behavioral test; quantitative coverage stops at the helper and advectParticles level. | tester: add a SimulationSectionView slider test asserting the visual-only label, displayed clamping, and onVelocity payload, plus an App-level source or rendered pin if composition coverage improves. Delegate via orchestrator. |
+
+### Verification Checklist
+- [x] All checks passed (two Minor findings, neither blocking)
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this review session (no shell tool available to the reviewer). Note recurring pattern: none new for physics honesty; the remaining gap is the familiar UI wiring test seam, while the pure helper and particle displacement contracts are pinned quantitatively.

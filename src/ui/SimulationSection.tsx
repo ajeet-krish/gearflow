@@ -75,6 +75,9 @@ export interface SimulationSectionProps {
     lbmFailed: string | null;
     onLbmRecover: () => void;
     blockageWarning: string | null;
+    /** Explicit velocity multiplier, visual only (0.5x to 2x). Never feeds physics. */
+    velocity?: number;
+    onVelocity?: (next: number) => void;
 }
 
 export interface SimulationSectionViewProps extends SimulationSectionProps {
@@ -99,9 +102,13 @@ export function SimulationSectionView(props: SimulationSectionViewProps): JSX.El
         lbmStatus, lbmProgressText, onLbmRun, onLbmCancel,
         preflightWarnings, lbmNotice, onDismissLbmNotice,
         lbmFailed, onLbmRecover, blockageWarning,
+        velocity, onVelocity,
     } = props;
     const running = lbmStatus === "running";
     const logRe = Math.min(LOG_RE_MAX, Math.max(LOG_RE_MIN, Math.log10(Math.max(1, reynolds))));
+    const velShown = typeof velocity === "number" && Number.isFinite(velocity)
+        ? Math.min(2, Math.max(0.5, velocity))
+        : 1;
 
     const commitRe = () => {
         const decision = decideReCommit(reText, lbmActive);
@@ -168,6 +175,23 @@ export function SimulationSectionView(props: SimulationSectionViewProps): JSX.El
                     <p className="mError" role="alert">{rePopup}</p>
                 )}
                 <p className="hint">Log scale. Re shades the wake deficit only, the potential core stays inviscid. Invalid typing holds the last good solve.</p>
+            </div>
+
+            <div className="field">
+                <label htmlFor="simVel">
+                    Velocity <output htmlFor="simVel" className="mono">{velShown.toFixed(2)}x</output>
+                </label>
+                <input
+                    id="simVel"
+                    type="range"
+                    min={0.5}
+                    max={2}
+                    step={0.05}
+                    value={velShown}
+                    onChange={(e) => onVelocity?.(Number(e.target.value))}
+                    aria-label="Velocity multiplier, visual only, 0.5x to 2x"
+                />
+                <p className="hint">Visual only. Scales particle speed, never forces or provenance.</p>
             </div>
 
             {!agentFirst && (

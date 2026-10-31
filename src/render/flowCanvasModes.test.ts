@@ -9,6 +9,9 @@ import {
     kDisplayScaleFor,
     normalizeKDisplay,
     normalizeRecircDisplay,
+    clampAdvectionScale,
+    ADVECTION_COMBINED_MIN,
+    ADVECTION_COMBINED_MAX,
 } from "./FlowCanvas";
 import { createFieldTextures, disposeFieldTextures } from "./fieldTexture";
 import type { FlowField } from "@/contracts/types";
@@ -105,6 +108,32 @@ describe("recirculation mapping", () => {
         const t = normalizeRecircDisplay(flow.recirc[2]);
         expect(t).toBe(1);
         expect(flow.obstacle[2]).toBe(1);
+    });
+});
+
+describe("advection scale seam clamp", () => {
+    it("pins the documented combined band endpoints", () => {
+        expect(ADVECTION_COMBINED_MIN).toBe(0.3);
+        expect(ADVECTION_COMBINED_MAX).toBe(4.8);
+    });
+
+    it("passes band interior values through untouched", () => {
+        expect(clampAdvectionScale(1)).toBe(1);
+        expect(clampAdvectionScale(4.8)).toBe(4.8);
+        expect(clampAdvectionScale(0.3)).toBe(0.3);
+    });
+
+    it("clamps extreme direct props into the combined band", () => {
+        expect(clampAdvectionScale(100)).toBe(4.8);
+        expect(clampAdvectionScale(0.05)).toBe(0.3);
+    });
+
+    it("falls back to neutral on non-finite or non-positive input", () => {
+        expect(clampAdvectionScale(Number.NaN)).toBe(1);
+        expect(clampAdvectionScale(Number.POSITIVE_INFINITY)).toBe(1);
+        expect(clampAdvectionScale(0)).toBe(1);
+        expect(clampAdvectionScale(-2)).toBe(1);
+        expect(clampAdvectionScale("fast")).toBe(1);
     });
 });
 

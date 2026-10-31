@@ -210,6 +210,39 @@ describe("SIMULATION section", () => {
         expect(onRePopup).toHaveBeenCalledWith(null);
     });
 
+    it("velocity slider is labeled visual only and never touches physics", () => {
+        const html = renderToStaticMarkup(SimulationSectionView(simProps({ velocity: 1 })) as never);
+        expect(html).toContain('id="simVel"');
+        expect(html).toContain('aria-label="Velocity multiplier, visual only, 0.5x to 2x"');
+        expect(html).toContain("1.00x");
+        expect(html).toContain("Visual only. Scales particle speed, never forces or provenance.");
+    });
+
+    it("velocity readout clamps outside the 0.5x to 2x band", () => {
+        const hi = renderToStaticMarkup(SimulationSectionView(simProps({ velocity: 10 })) as never);
+        expect(hi).toContain("2.00x");
+        const lo = renderToStaticMarkup(SimulationSectionView(simProps({ velocity: -3 })) as never);
+        expect(lo).toContain("0.50x");
+        const nan = renderToStaticMarkup(SimulationSectionView(simProps({ velocity: Number.NaN })) as never);
+        expect(nan).toContain("1.00x");
+        const hiTree = SimulationSectionView(simProps({ velocity: 10 })) as unknown;
+        const [hiSlider] = byId(hiTree, "simVel");
+        expect(hiSlider.props.value).toBe(2);
+        const loTree = SimulationSectionView(simProps({ velocity: -3 })) as unknown;
+        const [loSlider] = byId(loTree, "simVel");
+        expect(loSlider.props.value).toBe(0.5);
+    });
+
+    it("velocity slider forwards the numeric payload through onVelocity", () => {
+        const onVelocity = vi.fn();
+        const tree = SimulationSectionView(simProps({ velocity: 1, onVelocity })) as unknown;
+        const [slider] = byId(tree, "simVel");
+        expect(slider.props.min).toBe(0.5);
+        expect(slider.props.max).toBe(2);
+        (slider.props.onChange as (e: unknown) => void)({ target: { value: "1.75" } });
+        expect(onVelocity).toHaveBeenCalledWith(1.75);
+    });
+
     it("LBM Run is hard blocked by pre-flight without a worker start", () => {
         const gate = preflightLbm(
             NACA_SPEC,

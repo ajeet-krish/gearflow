@@ -32,6 +32,33 @@ interface Props {
     showContours?: boolean;
     showStreamlines?: boolean;
     streamlineColormap?: ColormapName;
+    /**
+     * Combined display-only advection multiplier (Re scale times the
+     * explicit velocity multiplier). Valid band is 0.3 to 4.8, which is
+     * the product of the Re scale band [0.6, 2.4] and the velocity band
+     * [0.5, 2.0] from combineVelocity in advectionScale.ts. Values
+     * outside the band are clamped at the canvas seam, non-finite or
+     * non-positive values fall back to 1. Never feeds solvers, Cl, Cp,
+     * fields, or provenance.
+     */
+    advectionScale?: number;
+}
+
+// Combined display advection band: the product of the Re scale band
+// [0.6, 2.4] and the velocity multiplier band [0.5, 2.0] from
+// combineVelocity in advectionScale.ts. The canvas seam clamps every
+// direct prop into this band so a future caller cannot pass an extreme
+// scale and weaken the half-cell substep guarantee in particles.ts.
+export const ADVECTION_COMBINED_MIN = 0.3;
+export const ADVECTION_COMBINED_MAX = 4.8;
+
+/** Clamp a direct advectionScale prop into [0.3, 4.8]. Non-finite or
+ *  non-positive input falls back to 1 (neutral). Never throws. */
+export function clampAdvectionScale(raw: unknown): number {
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return 1;
+    if (raw < ADVECTION_COMBINED_MIN) return ADVECTION_COMBINED_MIN;
+    if (raw > ADVECTION_COMBINED_MAX) return ADVECTION_COMBINED_MAX;
+    return raw;
 }
 
 export interface FlowCanvasHandle {
@@ -144,6 +171,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         showContours = false,
         showStreamlines = false,
         streamlineColormap,
+        advectionScale = 1,
     },
     ref
 ) {
@@ -164,6 +192,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     const showContoursRef = useRef(showContours);
     const showStreamlinesRef = useRef(showStreamlines);
     const streamlineColormapRef = useRef<ColormapName>(streamlineColormap ?? colormap);
+    const advectionScaleRef = useRef(advectionScale);
     flowRef.current = flow;
     airfoilRef.current = airfoil;
     colormapRef.current = colormap;
@@ -178,6 +207,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     showContoursRef.current = showContours;
     showStreamlinesRef.current = showStreamlines;
     streamlineColormapRef.current = streamlineColormap ?? colormap;
+    advectionScaleRef.current = clampAdvectionScale(advectionScale);
 
     const sceneRef = useRef<THREE.Scene | null>(null);
     const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
@@ -678,7 +708,11 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
                     slowFrames = 0;
                 }
                 const store = psRef.current;
-                if (store) advectParticles(store, flowRef.current, dt, respawnRand);
+                if (store) {
+                    const raw = advectionScaleRef.current;
+                    const mult = clampAdvectionScale(raw);
+                    advectParticles(store, flowRef.current, dt * mult, respawnRand);
+                }
                 updatePoints();
                 renderer.render(scene, camera);
             }
