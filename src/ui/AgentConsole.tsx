@@ -30,6 +30,7 @@ import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionS
 import { appendTurns, loadTurns, saveTurns } from "@/agent/chatStore";
 import { resolveAgentFirst } from "@/config/agentFirst";
 import { g_evalLog } from "@/meta/evalLog";
+import { CURRICULUM_CHIPS } from "@/agent/curriculum";
 
 /** Minimal chat port so tests inject a fake with zero live calls. */
 export interface BasetenChatPort {
@@ -1545,6 +1546,13 @@ export default function AgentConsole({
                 {PRESET_CHIPS.map((chip) => (
                     <button key={chip} type="button" className="chip" disabled={busy} onClick={() => void onSubmit(chip)}>
                         {chip}
+                    </button>
+                ))}
+            </div>
+            <div className="chipRow" role="group" aria-label="Curriculum lessons">
+                {CURRICULUM_CHIPS.map((chip) => (
+                    <button key={chip.id} type="button" className="chip curriculumChip" disabled={busy} onClick={() => void onSubmit(chip.prompt)} aria-label={`${chip.label} lesson`}>
+                        {chip.label}
                     </button>
                 ))}
             </div>

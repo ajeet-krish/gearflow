@@ -157,7 +157,10 @@ function explanationFor(concept: TutorConcept, rows: TutorTableRow[]): string {
     return `The run reads Cl ${cl} with CpMin ${cp} at alpha ${alpha} and Re ${re}.`;
 }
 
-function experimentFor(concept: TutorConcept): string {
+/** One Try next experiment for a concept. Analytic only, never an LBM run:
+ *  every branch names a field view or an alpha nudge, never run_lbm,
+ *  cancel_lbm, or a viscous solve. Never throws. */
+export function experimentFor(concept: TutorConcept): string {
     if (concept === "attached-lift") return "Raise alpha by 1 deg and watch Cl and CpMin.";
     if (concept === "suction-peak") return "Raise alpha by 1 deg and watch the suction peak on the cp view.";
     if (concept === "stall-separation") return "Compare the omega view with the cp view, noting the potential model omits separation, so stall reads as a proxy here, not a solved wake.";

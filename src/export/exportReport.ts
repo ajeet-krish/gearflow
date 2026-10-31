@@ -1,6 +1,8 @@
 // GearFlow Phase 5 export report. Pure report logic plus browser download helpers.
 // Text stays plain ASCII with commas and colons only, so PNG, PDF, and print agree.
 
+import { tutorSourceFamily } from "@/agent/tutorTable";
+
 export interface ValidationCounts {
     pass: number;
     warn: number;
@@ -21,6 +23,10 @@ export interface ExportData {
     gridLabel: string;
     validation: ValidationCounts;
     generatedAt: string;
+    /** P4 teaching caption. Optional deterministic tutor line, capped to
+     *  TUTOR_CAPTION_MAX with the provenance family caveat, rendered as the
+     *  Tutor row when non-empty. PNG and PDF inherit through buildReportData. */
+    tutorCaption?: string;
 }
 
 export interface ReportData {
@@ -60,6 +66,88 @@ function reToken(reynolds: number): string {
     return `re${Math.round(reynolds)}`;
 }
 
+/** P4 tutor caption cap. The sheet stays one page, so the Tutor row never
+ *  exceeds this length. */
+export const TUTOR_CAPTION_MAX = 240;
+/** Analytic honesty tail. Every non-empty caption ends here so exports
+ *  never promise a validated solve. Plain ASCII, commas and colons only. */
+export const TUTOR_CAPTION_CAVEAT = "Caveat: analytic estimate, not validated.";
+/** Neural tail. Predicted frames are not validated physics. */
+export const TUTOR_CAPTION_CAVEAT_NEURAL = "Caveat: predicted, not validated.";
+/** LBM tail. A served worker frame is one instantaneous snapshot. Matches
+ *  the offline tutor LBM wording so sheet and console agree. */
+export const TUTOR_CAPTION_CAVEAT_LBM = "Caveat: LBM solved, instantaneous snapshot (viscous D2Q9, not time averaged).";
+/** Pending tail. No clean frame exists yet for this case. */
+export const TUTOR_CAPTION_CAVEAT_PENDING = "Caveat: pending, press Run for a clean solve.";
+
+/** Every tail capTutorCaption recognizes, so a cross family caption can be
+ *  retipped instead of stacking a second tail. */
+const KNOWN_CAPTION_CAVEATS: ReadonlyArray<string> = [
+    TUTOR_CAPTION_CAVEAT,
+    TUTOR_CAPTION_CAVEAT_NEURAL,
+    TUTOR_CAPTION_CAVEAT_LBM,
+    TUTOR_CAPTION_CAVEAT_PENDING,
+];
+
+/**
+ * Pick the caption tail for a provenance path label. LBM wins on any lbm
+ * token, neural on any neural token, analytic on analytic or potential
+ * flow tokens, pending otherwise. Pure, never throws.
+ */
+export function caveatForCaption(pathLabel: unknown): string {
+    try {
+        const family = tutorSourceFamily(pathLabel);
+        if (family === "lbm") return TUTOR_CAPTION_CAVEAT_LBM;
+        if (family === "neural") return TUTOR_CAPTION_CAVEAT_NEURAL;
+        if (family === "analytic") return TUTOR_CAPTION_CAVEAT;
+        return TUTOR_CAPTION_CAVEAT_PENDING;
+    } catch {
+        return TUTOR_CAPTION_CAVEAT;
+    }
+}
+
+/**
+ * Cap raw tutor prose to TUTOR_CAPTION_MAX, always ending with the caveat
+ * for the given provenance path label (analytic when omitted, keeping the
+ * legacy single argument behavior). Collapses whitespace, trims, truncates
+ * with room for the tail, then appends the tail when missing. A tail from
+ * another family is retipped to the expected one so the Tutor row agrees
+ * with the Provenance row on the same sheet. Empty input stays empty so
+ * buildReportData renders no Tutor row. Pure, never throws.
+ */
+export function capTutorCaption(raw: unknown, pathLabel?: unknown): string {
+    try {
+        const expected = pathLabel === undefined ? TUTOR_CAPTION_CAVEAT : caveatForCaption(pathLabel);
+        if (typeof raw !== "string") return "";
+        const flat = raw.replace(/\s+/g, " ").trim();
+        if (flat.length === 0) return "";
+        if (flat.length <= TUTOR_CAPTION_MAX && flat.endsWith(expected)) return flat;
+        for (const known of KNOWN_CAPTION_CAVEATS) {
+            if (known === expected) continue;
+            if (flat.endsWith(known)) {
+                const head = flat.slice(0, flat.length - known.length).trimEnd();
+                const retipped = head.length > 0 ? `${head} ${expected}` : expected;
+                if (retipped.length <= TUTOR_CAPTION_MAX) return retipped;
+                break;
+            }
+        }
+        if (flat.includes("Caveat:") && flat.length <= TUTOR_CAPTION_MAX) {
+            const idx = flat.lastIndexOf("Caveat:");
+            const head = flat.slice(0, idx).trim();
+            const room = TUTOR_CAPTION_MAX - expected.length - 1;
+            if (head.length <= room) return `${head} ${expected}`;
+        }
+        if (flat.length + 1 + expected.length <= TUTOR_CAPTION_MAX) {
+            return `${flat} ${expected}`;
+        }
+        const room = TUTOR_CAPTION_MAX - expected.length - 1;
+        const head = flat.slice(0, Math.max(0, room)).trimEnd();
+        return `${head} ${expected}`;
+    } catch {
+        return "";
+    }
+}
+
 /** Stable download name with single hyphens only, for example gearflow-naca2412-a6-re50000.png. */
 export function exportFilename(d: ExportData, ext: string): string {
     const clean = ext.toLowerCase().replace(/^\./, "").replace(/[^a-z0-9]+/g, "");
@@ -91,6 +179,15 @@ export function buildReportData(d: ExportData): ReportData {
         ["Validation", `${pass} pass, ${warn} warn, ${fail} fail, ${info} info`],
         ["Generated", d.generatedAt],
     ];
+    // P4 teaching caption: optional Tutor row, capped with the provenance
+    // family caveat. Empty or whitespace only captions render no row, keeping
+    // the legacy twelve row sheet byte identical.
+    try {
+        const capped = capTutorCaption((d as { tutorCaption?: unknown }).tutorCaption, d.provenance);
+        if (capped.length > 0) rows.push(["Tutor", capped]);
+    } catch {
+        // Caption faults never break the sheet.
+    }
     const footer = "GearFlow 1.0.0, Phase 5 export. Offline capable, analytic core.";
     return { title, rows, footer };
 }
@@ -131,6 +228,75 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
     });
 }
 
+/** Monospace width estimate for the 13px PNG sheet font, px per char.
+ *  Used to wrap the Tutor row into width bounded lines before canvas
+ *  allocation, so the caveat tail never clips off the right edge. */
+export const TUTOR_PNG_CHAR_PX = 7.82;
+
+/**
+ * Wrap a Tutor caption into width bounded lines on word boundaries.
+ * Pure, never throws. Long words split hard so every line fits maxChars.
+ * A trailing honesty caveat stays intact on the final line when it fits,
+ * so the rendered sheet never splits the mandated tail from its ending.
+ */
+export function wrapTutorLinesForPng(caption: string, maxChars: number): Array<string> {
+    try {
+        const limit = Number.isFinite(maxChars) ? Math.max(20, Math.floor(maxChars)) : 70;
+        const text = String(caption);
+        let head = text;
+        let tail = "";
+        for (const known of KNOWN_CAPTION_CAVEATS) {
+            if (text.endsWith(known)) {
+                head = text.slice(0, text.length - known.length).trimEnd();
+                tail = known;
+                break;
+            }
+        }
+        const wrapWords = (input: string): Array<string> => {
+            const words = input.split(/\s+/).filter((w) => w.length > 0);
+            if (words.length === 0) return [];
+            const lines: Array<string> = [];
+            let cur = "";
+            const pushWord = (word: string): void => {
+                let rest = word;
+                while (rest.length > limit) {
+                    if (cur.length > 0) {
+                        lines.push(cur);
+                        cur = "";
+                    }
+                    lines.push(rest.slice(0, limit));
+                    rest = rest.slice(limit);
+                }
+                const next = cur.length > 0 ? `${cur} ${rest}` : rest;
+                if (next.length <= limit) {
+                    cur = next;
+                } else {
+                    lines.push(cur);
+                    cur = rest;
+                }
+            };
+            for (const word of words) pushWord(word);
+            if (cur.length > 0) lines.push(cur);
+            return lines;
+        };
+        if (tail.length === 0) return wrapWords(text);
+        if (head.length === 0) {
+            if (tail.length <= limit) return [tail];
+            return wrapWords(tail);
+        }
+        const headLines = wrapWords(head);
+        const last = headLines[headLines.length - 1] ?? "";
+        if (`${last} ${tail}`.length <= limit) {
+            headLines[headLines.length - 1] = `${last} ${tail}`;
+            return headLines;
+        }
+        if (tail.length <= limit) return [...headLines, tail];
+        return [...headLines, ...wrapWords(tail)];
+    } catch {
+        return [String(caption)];
+    }
+}
+
 /** Compose the live snapshot plus header and report rows onto one PNG. Browser only. */
 export async function composePng(snapshot: Blob, d: ExportData): Promise<Blob> {
     if (snapshot === null || snapshot === undefined) throw new TypeError("snapshot is null, canvas not ready yet");
@@ -152,7 +318,21 @@ export async function composePng(snapshot: Blob, d: ExportData): Promise<Blob> {
         const imgW = Math.max(1, rawW);
         const imgH = Math.max(1, rawH);
         const width = Math.max(imgW + PAD * 2, 760);
-        const rowsH = report.rows.length * ROW_H;
+        // Wrap the Tutor row into width bounded lines before allocating the
+        // canvas, so row height accounts for every drawn segment. Other rows
+        // stay single line, truncated to the PNG cell width.
+        const valueX = PAD + 150;
+        const availW = Math.max(100, width - valueX - PAD);
+        const maxChars = Math.max(20, Math.floor(availW / TUTOR_PNG_CHAR_PX));
+        const displayRows: Array<{ label: string; lines: Array<string> }> = report.rows.map(([label, value]) => {
+            if (label === "Tutor") {
+                const lines = wrapTutorLinesForPng(value, maxChars);
+                return { label, lines: lines.length > 0 ? lines : [value] };
+            }
+            const cell = value.length <= 160 ? value : `${value.slice(0, 157)}...`;
+            return { label, lines: [cell] };
+        });
+        const rowsH = displayRows.reduce((sum, r) => sum + r.lines.length * ROW_H, 0);
         const height = HEADER_H + PAD + imgH + PAD + rowsH + FOOTER_H;
         if (width > MAX_EXPORT_DIM || height > MAX_EXPORT_DIM || width * height > MAX_EXPORT_PIXELS) {
             throw new Error("composed sheet too large, reduce the canvas size and retry");
@@ -175,13 +355,14 @@ export async function composePng(snapshot: Blob, d: ExportData): Promise<Blob> {
         ctx.drawImage(img, PAD, HEADER_H + PAD, imgW, imgH);
         let y = HEADER_H + PAD + imgH + PAD + 18;
         ctx.font = "13px ui-monospace, monospace";
-        for (const [label, value] of report.rows) {
-            const cell = value.length > 160 ? `${value.slice(0, 157)}...` : value;
-            ctx.fillStyle = "#5a6b7a";
-            ctx.fillText(label, PAD, y);
-            ctx.fillStyle = "#0e141b";
-            ctx.fillText(cell, PAD + 150, y);
-            y += ROW_H;
+        for (const row of displayRows) {
+            for (const line of row.lines) {
+                ctx.fillStyle = "#5a6b7a";
+                ctx.fillText(row.label, PAD, y);
+                ctx.fillStyle = "#0e141b";
+                ctx.fillText(line, valueX, y);
+                y += ROW_H;
+            }
         }
         ctx.fillStyle = "#5a6b7a";
         ctx.fillText(report.footer, PAD, height - 18);

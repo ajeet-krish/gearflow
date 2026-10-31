@@ -25,7 +25,8 @@ import { parseAirfoilIntent, parseAlphaDeg, parseReynolds } from "./airfoilInten
 import { isAlphaSweepIntent } from "./alphaSweep";
 import { isSchemaValidCode, nearestValidCode, parseNacaLoose } from "./nacaParse";
 import { resolveAgentFirst } from "@/config/agentFirst";
-import { localTutorReply } from "./tutorPolicy";
+import { experimentFor, localTutorReply } from "./tutorPolicy";
+import { detectMisconception } from "./misconceptions";
 import type { TutorSnapshotLite } from "./tutorTable";
 import type { AgentAction, BodyToken } from "@/contracts/types";
 
@@ -275,6 +276,21 @@ function anyAirfoilSpec(code: string, m: number, p: number, t: number, alpha: nu
     };
 }
 
+/** P4 misconception concept map. Each flow id lands one tutor concept so
+ *  the Try next line can reuse the analytic-only tutorPolicy experiment.
+ *  Never throws. */
+function conceptForMisconception(id: string): "attached-lift" | "suction-peak" | "stall-separation" | "general" {
+    try {
+        if (id === "stall-potential") return "stall-separation";
+        if (id === "re-no-effect") return "suction-peak";
+        if (id === "cl-forever") return "attached-lift";
+        if (id === "cpmin-measured") return "suction-peak";
+        return "general";
+    } catch {
+        return "general";
+    }
+}
+
 /** Plain physics definitions with current case numbers when the context
  *  carries them. Zero actions, questions never auto-apply. Never throws. */
 function buildGlossary(lower: string, ctx: AgentContext | null): string | null {
@@ -347,6 +363,44 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 actions: [],
                 rejections: [],
             };
+        }
+        // P4 teaching layer: misconception correction before every other
+        // branch (still before the generic fallback). One claim plus why it
+        // tempts plus what the model shows plus one analytic-only
+        // experiment. The experiment rides one existing validated action
+        // kind, never an LBM run, so the console stages it on apply.
+        const mis = detectMisconception(raw, safe);
+        if (mis !== null) {
+            try {
+                const concept = conceptForMisconception(mis.id);
+                let tutorTry = "";
+                try {
+                    tutorTry = experimentFor(concept);
+                } catch {
+                    tutorTry = "";
+                }
+                if (typeof tutorTry !== "string" || /lbm|press run|run_lbm/i.test(tutorTry)) tutorTry = "";
+                const checked = validateAgentAction(mis.experimentAction, vctx);
+                const misActions = checked.ok && checked.action !== null ? [checked.action] : [];
+                const misRejections: string[] = checked.ok ? [] : [checked.reason ?? "experiment gated, canvas unchanged"];
+                const extraTry = tutorTry.length > 0 && !mis.experimentText.includes(tutorTry.slice(0, 24))
+                    ? ` Tutor try next: ${tutorTry}`
+                    : "";
+                const teaching = (
+                    `Teaching note, local only. Claim: ${mis.claim} ` +
+                    `Why it tempts: ${mis.whyTempting} ` +
+                    `What the model shows: ${mis.whatModelShows} ` +
+                    `Try next: ${mis.experimentText}${extraTry} ` +
+                    (misActions.length > 0 ? "Canvas updates on apply." : "Canvas unchanged.")
+                );
+                return {
+                    reply: teaching.length > REPLY_MAX ? teaching.slice(0, REPLY_MAX) : teaching,
+                    actions: misActions,
+                    rejections: misRejections,
+                };
+            } catch {
+                // Teaching faults fall through to the normal branches below.
+            }
         }
         if (CANNOT_3D_RE.test(lower)) {
             return {

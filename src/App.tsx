@@ -49,7 +49,8 @@ import { RailShell, SceneBars, resolveShellShortcut, shouldCloseTerminalOnEscape
 import { applyTheme, storeTheme } from "@/ui/theme";
 import ValidationPanel, { type ValidationSummary } from "@/ui/ValidationPanel";
 import ExportBar from "@/ui/ExportBar";
-import { asFixtureExport, type ExportData } from "@/export/exportReport";
+import { asFixtureExport, capTutorCaption, type ExportData } from "@/export/exportReport";
+import { localTutorReply } from "@/agent/tutorPolicy";
 import { loadOfflinePack } from "@/meta/offlinePack";
 import { buildAgentContext, type AppSnapshot } from "@/agent/agentContext";
 import { expandCasePreset } from "@/agent/casePresets";
@@ -1625,7 +1626,36 @@ export default function App() {
     // counts, so PNG and PDF carry the same numbers as the live UI. Fixture
     // mode carries no solved numbers, so it exports pack provenance with
     // cl, cpMin, and solveMs as NaN and the sheet renders n/a.
+    // P4 teaching caption: deterministic tutor line from the latest snapshot
+    // via the offline localTutorReply template, no chat history needed. The
+    // cap helper keeps it to 240 chars ending with the provenance family
+    // caveat, and fixture mode carries no caption so the sheet cannot quote
+    // stale words.
     const exportData = useMemo<ExportData>(() => {
+        let tutorCaption = "";
+        try {
+            if (!isFixture) {
+                const finiteOrNull = (v: unknown): number | null =>
+                    typeof v === "number" && Number.isFinite(v) ? v : null;
+                const fieldToken = typeof prefs.variable === "string" && prefs.variable.trim().length > 0
+                    ? prefs.variable.trim()
+                    : "speed";
+                const snap = {
+                    caseKey: `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${provenanceLabel}|f${fieldToken}`,
+                    bodyLabel: specLabelFor(debouncedSpec),
+                    alpha: finiteOrNull(debouncedSpec.alphaDeg),
+                    reynolds: finiteOrNull(debouncedRe),
+                    cl: finiteOrNull(frame.cl),
+                    cpMin: finiteOrNull(frame.cpMin),
+                    regime,
+                    pathLabel: provenanceLabel,
+                    strouhal: null as number | null,
+                };
+                tutorCaption = capTutorCaption(localTutorReply(snap, snap), provenanceLabel);
+            }
+        } catch {
+            tutorCaption = "";
+        }
         const base: ExportData = {
             specLabel: specLabelFor(debouncedSpec),
             alphaDeg: debouncedSpec.alphaDeg,
@@ -1639,9 +1669,10 @@ export default function App() {
             gridLabel: `${flow.nx}x${flow.ny}`,
             validation: { pass: valSummary.pass, warn: valSummary.warn, fail: valSummary.fail, info: valSummary.info },
             generatedAt: frame.provenance.generatedAt,
+            tutorCaption,
         };
         return buildAppExportData(base, isFixture, isFixture && pack ? pack.provenance : null);
-    }, [debouncedSpec, debouncedRe, regime, frame, backendName, provenanceLabel, flow, valSummary, isFixture, pack]);
+    }, [debouncedSpec, debouncedRe, regime, frame, backendName, provenanceLabel, flow, valSummary, isFixture, pack, prefs.variable]);
 
     // Single field funnel: a chip click recouple the overlays to the next
     // field default and clears any pin, so stale manual flags never leak

@@ -1909,3 +1909,82 @@ Checks detail: Major live stepping PASS, fixed twice over (SWEEP_YIELD_MS 150 ex
 - [x] Phase code integrates cleanly with prior phases
 
 Note recurring pattern: the prior isolated pass gap for this feature is closed at the console level (real component tests now pin order, Stop, chips, gate reset); the remaining seam is the App render level, where the debounce effect itself still has no harness, the same App wiring seam flagged since Phase 2.
+
+## 2026-10-31 - P4 Teaching Layer Review
+
+Date: 2026-10-31
+Reviewer: code-reviewer
+Scope: P4 teaching layer (src/agent/misconceptions.ts and test, src/agent/curriculum.ts and test, localAssistant teaching block in src/agent/localAssistant.ts, tutorPolicy experimentFor export in src/agent/tutorPolicy.ts, AgentConsole curriculum chips in src/ui/AgentConsole.tsx, App tutorCaption plus exportReport tutor row in src/App.tsx and src/export/exportReport.ts and src/export/tutorCaption.test.ts)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major | src/export/exportReport.ts:69,228 | Tutor caption is capped at 240 chars so it can carry the caveat, but composePng truncates every row value at 160 chars, so the PNG sheet cuts the Tutor row before its mandated caveat tail and the exported PNG loses the honesty caveat the cap exists to preserve. tutorCaption.test.ts only checks buildReportData rows, never the PNG cell path. | frontend-dev/backend-dev: exempt the Tutor row from the 160 char PNG cell truncation or cap captions to the PNG cell limit, and add a composePng level test asserting the rendered Tutor text ends with TUTOR_CAPTION_CAVEAT. Delegate via orchestrator. |
+| Major | src/export/exportReport.ts:86-91, src/App.tsx:1650-1653 | capTutorCaption rewrites any existing Caveat tail to the analytic caveat regardless of provenance. App feeds pathLabel from provenanceLabel, so on the legacy flag off path an LBM solved or neural frame caption is relabeled as an analytic estimate, contradicting the Provenance row on the same sheet. Correct only while agentFirst forces analytic. | backend-dev: select the caveat from the snapshot source family (analytic, neural predicted, LBM solved snapshot, pending) instead of always forcing the analytic text, and add caption tests for lbm and neural pathLabels. Delegate via orchestrator. |
+| Minor | src/agent/misconceptions.ts:33-34,55-56,66-67 | Experiment text promises multi step work the single staged action does not perform: stall and Cl forever texts say run the alpha sweep but stage only set_field omega and set_alpha 12, and the CpMin text says switch view plus raise alpha but stages only set_field cp. Applying the chip does less than the Try next text instructs. | backend-dev: align each experimentText with the one staged action (name it as the first step), or stage the full sequence where the envelope allows; add a text versus action coherence assertion per flow. Delegate via orchestrator. |
+| Minor | src/agent/misconceptions.ts:103 | The CpMin trigger fires on definitional questions such as what is CpMin in this run, so a plain glossary question is answered as if the user claimed CpMin is a measured pascal value, preempting the glossary branch in localAssistant. | backend-dev: require a measurement claim token (measured, pascal, sensor, tap, reading) for the cpmin-measured flow and add a negative test for the plain definition question. Delegate via orchestrator. |
+| Minor | src/ui/AgentConsole.tsx:1552-1558, src/agent/curriculum.test.ts:50-59 | Curriculum chips reuse onSubmit correctly by inspection, but no AgentConsole level test pins chip rendering, busy disabling, or dispatch of chip.prompt as a normal turn, so the streaming, offline, and spend integration is unpinned at the wiring seam. | tester: add an AgentConsole test rendering the four curriculum chips, clicking one offline and one while busy, asserting a normal user turn lands and busy chips stay disabled. Delegate via orchestrator. |
+
+Checks detail: Flows honest PASS with Minor text coherence note above (no flow proposes run_lbm or cancel_lbm at misconceptions.ts:34,45,56,67; stall honesty preserved in whatModelShows at misconceptions.ts:32, the tutor Try next at tutorPolicy.ts:166, and the sweep narration caveat). Experiments validate under flag PASS (misconceptions.test.ts:65-77 validates every experimentAction with agentFirst true; localAssistant revalidates before staging at localAssistant.ts:383-385 and only then prints Canvas updates on apply). Teaching precedence PASS (misconception block at localAssistant.ts:367-404 runs before cannot do, explain, separation, and glossary branches, falls through on fault, and caps the reply). Chips send normal turns PASS by inspection (AgentConsole.tsx:1554 calls the same onSubmit as preset chips at 1547 with disabled busy, so the sweep fast path, forcedLocal offline path, streaming, and spend recording at AgentConsole.tsx:1235-1301 stay intact; stall demo prompt reaches the honest sweep narration). Caption deterministic offline PASS in buildReportData (App.tsx:1633-1657 builds the snapshot from frame state only, no chat history, date, or random input; capTutorCaption at exportReport.ts:80-101 is pure, collapses whitespace, and ends non empty captions with the caveat), FAIL at the PNG render and provenance seams per Major rows. Legacy sheet unchanged PASS (exportReport.ts:137-142 pushes the Tutor row only for a non empty capped caption; tutorCaption.test.ts:61-64 pins twelve rows for missing and whitespace captions). Tutor experimentFor PASS (tutorPolicy.ts:163-171 analytic only, turbulent wake branch honestly states TKE and recirculation need a viscous solve the agent first build does not run; pinned at misconceptions.test.ts:85-96). Conventions PASS (4 space indent, PascalCase types, camelCase functions, SCREAMING_SNAKE constants in the new modules, no em dashes or double hyphens in the scoped sources, never throws discipline with try and catch fallbacks throughout). Tests inspected, not executed (reviewer has no shell tool in this session).
+
+### Verification Checklist
+- [ ] All checks passed
+- [ ] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases
+
+Note recurring pattern: unit tests pin the pure cap and row logic while the rendered PNG cell truncation and the cross mode provenance of the caption stay unpinned, the isolated pass pattern flagged in earlier phases. Delegate fixes: PNG truncation and caveat family selection to backend-dev/frontend-dev via orchestrator, misconception text coherence and trigger narrowing to backend-dev, chip wiring test to tester.
+
+## 2026-10-31 - P4 Teaching Layer Re-review After Fixes
+
+Date: 2026-10-31
+Reviewer: code-reviewer
+Scope: P4 re-review verifying prior FAIL fixes (PNG Tutor truncation, forced analytic caveat, misconception experiment text coherence, CpMin trigger narrowing, curriculum chip wiring test), plus no-new-issues pass over buildReportData, composePng, exportPdf, and App export wiring
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major | src/export/exportReport.ts:186, src/App.tsx:1654,1668 | Forced analytic caveat NOT fixed end to end: App correctly caps with provenanceLabel and ExportData carries that label in provenance, but buildReportData re-caps the caption with no path label, so capTutorCaption defaults to analytic and retips LBM, neural, and pending tails back to analytic. PNG and PDF both inherit through buildReportData, so the Tutor row can still contradict the Provenance row on the same sheet. Direct cap tests in tutorCaption.test.ts:107-152 bypass buildReportData for LBM and neural, so the integration seam stays unpinned. | backend-dev: pass d.provenance (or an explicit caption path label) as the second argument at exportReport.ts:186, and add buildReportData tests whose provenance is LBM and neural asserting the Tutor row keeps the matching tail. Delegate via orchestrator. |
+| Major | src/export/exportReport.ts:275-284 | PNG truncation only fixed at string level, not raster level: the Tutor row is exempt from the 160 char slice, but composePng draws the full 240 char caption as one 13px monospace fillText line at x PAD+150 on a canvas only max(imgW+48, 760) wide, with no wrap, shrink, or width check. At about 7.8px per character the caption needs about 2048px, so on typical 800 to 1400px snapshots the caveat tail is clipped off the right edge of the actual PNG. exportReport.test.ts:180-192 uses a fake canvas that records fillText strings, so it cannot observe raster clipping. | backend-dev/frontend-dev: wrap the Tutor row into width bounded lines (with row height accounted before canvas creation), or shrink or cap to the computed fit, and add a composePng test with a small snapshot asserting every drawn Tutor segment fits the canvas width and the final segment ends with the caveat. Delegate via orchestrator. |
+| Minor | src/agent/misconceptions.ts:105 | CpMin trigger residual: plain definition questions now fall through, but the what-is trigger still fires on value and means tokens, so definitional phrasing such as asking what CpMin value means can still be answered as a measurement misconception instead of the glossary. | backend-dev: drop value and means from the what-is trigger (keep measured, measurement, reading, pascal, sensor, tap, physical), and add negative tests for those definitional phrasings. Delegate via orchestrator. |
+
+Checks detail: PNG string truncation PASS at code-slice level (exportReport.ts:279 exempts Tutor, pinned at exportReport.test.ts:180-192) but FAIL at raster level per Major above. Caveat family selection PASS in the pure helper (caveatForCaption via tutorSourceFamily at exportReport.ts:97-107, capTutorCaption retip at 118-149, tests tutorCaption.test.ts:94-152) and PASS in App (cap with provenanceLabel at App.tsx:1654), FAIL in buildReportData integration per Major above. Misconception text coherence PASS (each experimentText names the staged action as the first step at misconceptions.ts:33,44,55,66, pinned at misconceptions.test.ts:87-103). CpMin trigger PASS for the prior pinned cases (negative plain definitions and positive measured claim at misconceptions.test.ts:54-62) with the Minor residual above. Curriculum chips PASS (agentConsoleCurriculum.test.tsx:180-248 renders four chips, dispatches one as a normal offline turn with zero port calls, and pins busy disabled; production chip at AgentConsole.tsx:1553-1554 uses disabled busy and the same onSubmit). No new issues in conventions (4-space indent, plain ASCII commas and colons, no em dashes in reviewed fix surfaces) or in the legacy twelve row sheet (tutorCaption.test.ts:65-68). Tests inspected, not executed (reviewer has no shell tool in this session).
+
+### Verification Checklist
+- [ ] All checks passed
+- [ ] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases
+
+Note recurring pattern: the pure helper and App seams are each correct in isolation while buildReportData, the shared seam both PNG and PDF actually render through, reverts the family caveat, and the PNG test fake records strings instead of raster bounds; the isolated pass pattern flagged since Phase 1 recurs at the export seam. Delegate fixes via orchestrator.
+
+## 2026-10-31 - P4 Teaching Layer Seam Fixes Re-review
+
+Date: 2026-10-31
+Reviewer: code-reviewer
+Scope: Re-review of P4 seam fixes vs prior FAIL at the P4 Teaching Layer Re-review After Fixes (buildReportData re-cap retip Major, PNG Tutor raster clip Major, CpMin trigger Minor), plus no-new-issues spot checks on composePng, exportPdf, App export wiring, and misconception triggers
+Verdict: PASS
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| buildReportData re-cap retip (Major) | PASS | src/export/exportReport.ts:186 now passes d.provenance as the second argument to capTutorCaption, so the Tutor row inherits the LBM, neural, analytic, or pending family from the Provenance row instead of defaulting to analytic; pinned through the shared seam at src/export/tutorCaption.test.ts:154-181 (LBM tail kept, neural tail kept, stale analytic tail retipped to LBM via buildReportData provenance) |
+| PNG Tutor raster clip (Major) | PASS | src/export/exportReport.ts:231-242,300-369 adds TUTOR_PNG_CHAR_PX and wrapTutorLinesForPng, wraps the Tutor row into width bounded lines before canvas allocation at lines 324-335, accounts for every wrapped line in rowsH and canvas height at lines 335-336, and draws each segment at the value column at lines 358-365; pinned at src/export/exportReport.test.ts:161-245 (two composePng cases including a 200px snapshot forced to the 760px sheet floor, every segment asserted inside the canvas width, final segment ending with the analytic caveat, joined segments reproducing the caption) |
+| CpMin trigger (Minor) | PASS | src/agent/misconceptions.ts:99-107 what-is trigger now requires a measurement token (measured, measurement, reading, pascal, sensor, tap, physical) with value and means removed; pinned at src/agent/misconceptions.test.ts:59-68 (what is cpmin value, means, and value means all null, measured in pascal still detected) |
+| No new issues | PASS | App still caps with provenanceLabel at src/App.tsx:1654 and exportPdf inherits the fixed buildReportData at src/export/exportReport.ts:388 with its own splitLines wrapping, misconception experiment coherence and curriculum chips from the prior cycle are unchanged in the reviewed surfaces, legacy twelve row sheet unchanged for empty captions, no em dashes in the reviewed fix surfaces |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Minor (non-blocking) | src/export/exportReport.ts:287-294 | On the 760px sheet floor the LBM caveat (79 chars) exceeds maxChars (about 71), so wrapTutorLinesForPng splits the caveat across two lines instead of keeping it intact on one; the joined text still ends with the full caveat and nothing clips, only the intact-tail presentation differs for that family | backend-dev: optionally allow the caveat its own slightly wider line or reduce TUTOR_PNG_CHAR_PX headroom so the LBM tail fits one line, and add an LBM composePng width case. Delegate via orchestrator |
+
+### Verification Checklist
+- [x] All checks passed (three prior items closed, one non-blocking Minor above)
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: closed for the P4 export seam. The family caveat now flows through buildReportData, the shared seam both PNG and PDF render through, and the PNG wrap is accounted before canvas allocation rather than asserted only on recorded strings.

@@ -2,7 +2,7 @@
 // Copy assertions use escapes so the suite itself carries no decoration runs.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { asFixtureExport, buildReportData, composePng, downloadBlob, exportFilename, exportPdf, type ExportData } from "./exportReport";
+import { asFixtureExport, buildReportData, capTutorCaption, composePng, downloadBlob, exportFilename, exportPdf, TUTOR_CAPTION_CAVEAT, type ExportData } from "./exportReport";
 import { buildAppExportData } from "@/App";
 
 const { saveCalls } = vi.hoisted(() => ({ saveCalls: [] as Array<string> }));
@@ -128,8 +128,7 @@ describe("buildReportData", () => {
 });
 
 describe("composePng", () => {
-    it("draws header, image, and rows onto one canvas", async () => {
-        const texts: Array<string> = [];
+    it("draws header, image, and rows onto one canvas", async () => {        const texts: Array<string> = [];
         const fakeCtx = {
             fillStyle: "",
             font: "",
@@ -155,6 +154,91 @@ describe("composePng", () => {
             expect(texts.join(" ")).toContain("naca2412");
             expect(fakeCanvas.width).toBeGreaterThan(0);
             expect(fakeCanvas.height).toBeGreaterThan(0);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+    it("renders the Tutor row wrapped to the canvas width, keeping the honesty caveat tail", async () => {
+        const calls: Array<{ text: string; x: number }> = [];
+        const fakeCtx = {
+            fillStyle: "",
+            font: "",
+            fillRect(): void {},
+            fillText(t: string, x: number): void {
+                calls.push({ text: t, x });
+            },
+            drawImage(): void {},
+        };
+        const fakeCanvas = {
+            width: 0,
+            height: 0,
+            getContext: () => fakeCtx,
+            toBlob: (cb: (b: Blob | null) => void) => {
+                cb(new Blob(["pixels"], { type: "image/png" }));
+            },
+        };
+        const caption = capTutorCaption(`${"word ".repeat(100)}tail`);
+        expect(caption.length).toBeGreaterThan(160);
+        expect(caption.endsWith(TUTOR_CAPTION_CAVEAT)).toBe(true);
+        vi.stubGlobal("createImageBitmap", async () => ({ width: 320, height: 160, close(): void {} }));
+        vi.stubGlobal("document", { createElement: () => fakeCanvas });
+        try {
+            const out = await composePng(new Blob(["snap"]), demoData({ tutorCaption: caption }));
+            expect(out.type).toBe("image/png");
+            const { TUTOR_PNG_CHAR_PX, wrapTutorLinesForPng } = await import("./exportReport");
+            const valueCalls = calls.filter((c) => c.x === 24 + 150);
+            const maxChars = Math.max(20, Math.floor((fakeCanvas.width - (24 + 150) - 24) / TUTOR_PNG_CHAR_PX));
+            const expected = wrapTutorLinesForPng(caption, maxChars);
+            expect(expected.length).toBeGreaterThan(1);
+            expect(expected[expected.length - 1].endsWith(TUTOR_CAPTION_CAVEAT)).toBe(true);
+            const tail = valueCalls.slice(valueCalls.length - expected.length).map((c) => c.text);
+            expect(tail).toEqual(expected);
+            for (const seg of tail) {
+                expect(174 + seg.length * TUTOR_PNG_CHAR_PX).toBeLessThanOrEqual(fakeCanvas.width);
+            }
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+    it("wraps the Tutor row on a small snapshot with every segment inside the sheet", async () => {
+        const calls: Array<{ text: string; x: number }> = [];
+        const fakeCtx = {
+            fillStyle: "",
+            font: "",
+            fillRect(): void {},
+            fillText(t: string, x: number): void {
+                calls.push({ text: t, x });
+            },
+            drawImage(): void {},
+        };
+        const fakeCanvas = {
+            width: 0,
+            height: 0,
+            getContext: () => fakeCtx,
+            toBlob: (cb: (b: Blob | null) => void) => {
+                cb(new Blob(["pixels"], { type: "image/png" }));
+            },
+        };
+        const caption = capTutorCaption(`Cl 0.823 at alpha 6 with CpMin -1.420 plus ${"wake ".repeat(40)}tail`);
+        expect(caption.endsWith(TUTOR_CAPTION_CAVEAT)).toBe(true);
+        vi.stubGlobal("createImageBitmap", async () => ({ width: 200, height: 120, close(): void {} }));
+        vi.stubGlobal("document", { createElement: () => fakeCanvas });
+        try {
+            const out = await composePng(new Blob(["snap"]), demoData({ tutorCaption: caption }));
+            expect(out.type).toBe("image/png");
+            expect(fakeCanvas.width).toBe(760);
+            const { TUTOR_PNG_CHAR_PX, wrapTutorLinesForPng } = await import("./exportReport");
+            const valueCalls = calls.filter((c) => c.x === 24 + 150);
+            const maxChars = Math.max(20, Math.floor((fakeCanvas.width - (24 + 150) - 24) / TUTOR_PNG_CHAR_PX));
+            const expected = wrapTutorLinesForPng(caption, maxChars);
+            expect(expected.length).toBeGreaterThan(1);
+            expect(expected[expected.length - 1].endsWith(TUTOR_CAPTION_CAVEAT)).toBe(true);
+            const tail = valueCalls.slice(valueCalls.length - expected.length).map((c) => c.text);
+            expect(tail).toEqual(expected);
+            for (const seg of tail) {
+                expect(174 + seg.length * TUTOR_PNG_CHAR_PX).toBeLessThanOrEqual(fakeCanvas.width);
+            }
+            expect(tail.join(" ").replace(/\s+/g, " ").trim()).toBe(caption);
         } finally {
             vi.unstubAllGlobals();
         }
