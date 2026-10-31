@@ -19,7 +19,7 @@ describe("expandCasePreset shedding", () => {
     });
 
     it("carries a backend note naming LBM and solved", () => {
-        const result = expandCasePreset({ preset: "shedding" });
+        const result = expandCasePreset({ preset: "shedding" }, { agentFirst: false });
         expect(result.domainNote).not.toBeNull();
         expect(result.domainNote ?? "").toContain("LBM");
         expect(result.domainNote ?? "").toContain("solved");
@@ -65,7 +65,7 @@ describe("expandCasePreset high_re_wake", () => {
     });
 
     it("carries a backend note naming LBM and modeled coarse LES", () => {
-        const result = expandCasePreset({ preset: "high_re_wake" });
+        const result = expandCasePreset({ preset: "high_re_wake" }, { agentFirst: false });
         expect(result.domainNote ?? "").toContain("LBM");
         expect(result.domainNote ?? "").toContain("modeled");
         expect(result.domainNote ?? "").toContain("700");
@@ -74,7 +74,7 @@ describe("expandCasePreset high_re_wake", () => {
 
 describe("expandCasePreset airfoil", () => {
     it("defaults to 2412 at alpha 6 Re 1200 speed field", () => {
-        const result = expandCasePreset({ preset: "airfoil" });
+        const result = expandCasePreset({ preset: "airfoil" }, { agentFirst: false });
         expect(result.ok).toBe(true);
         expect(result.actions).toEqual([
             { kind: "set_body", body: "naca2412" },
@@ -119,5 +119,39 @@ describe("expandCasePreset airfoil", () => {
         expect(result.ok).toBe(false);
         expect(result.actions).toEqual([]);
         expect(result.reason).toContain("unknown case preset");
+    });
+});
+
+describe("expandCasePreset agent-first", () => {
+    it("reads analytic preview under the flag with identical actions", () => {
+        for (const preset of ["shedding", "high_re_wake", "airfoil"] as const) {
+            const result = expandCasePreset({ preset }, { agentFirst: true });
+            expect(result.ok).toBe(true);
+            expect(result.domainNote ?? "").toContain("analytic preview");
+            expect(result.domainNote ?? "").not.toContain("LBM backend");
+        }
+        const shedding = expandCasePreset({ preset: "shedding" }, { agentFirst: true });
+        expect(shedding.actions).toEqual([
+            { kind: "set_body", body: "cylinder" },
+            { kind: "set_alpha", alphaDeg: 0 },
+            { kind: "set_reynolds", reynolds: 100 },
+            { kind: "set_field", field: "speed" },
+        ]);
+    });
+
+    it("names the analytic preview alternative under the flag for retired high_pressure", () => {
+        const result = expandCasePreset({ preset: "high_pressure" }, { agentFirst: true });
+        expect(result.ok).toBe(false);
+        expect(result.actions).toEqual([]);
+        expect(result.reason ?? "").toContain("(cylinder alpha 0 Re 700, analytic preview)");
+        expect(result.reason ?? "").not.toContain("(cylinder alpha 0 Re 700, LBM served)");
+    });
+
+    it("names the LBM served alternative without the flag for retired high_pressure", () => {
+        const result = expandCasePreset({ preset: "high_pressure" }, { agentFirst: false });
+        expect(result.ok).toBe(false);
+        expect(result.actions).toEqual([]);
+        expect(result.reason ?? "").toContain("(cylinder alpha 0 Re 700, LBM served)");
+        expect(result.reason ?? "").not.toContain("(cylinder alpha 0 Re 700, analytic preview)");
     });
 });

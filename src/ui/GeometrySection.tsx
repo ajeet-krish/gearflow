@@ -1,11 +1,13 @@
 // GeometrySection: right rail GEOMETRY window. Owns the body preset
 // select (NACA 0012, 2412, 4412, cylinder, block, orifice), the full rotation
-// AoA slider plus numeric entry, and the per body fields. Legacy duct specs
-// resolve through migrateDuctToOrifice so the rail never shows a duct body.
-// Pure props plus small local alpha text state, same commit pattern as the
-// SIMULATION section.
+// AoA slider with its exact readout, and the per body fields. Legacy duct
+// specs resolve through migrateDuctToOrifice so the rail never shows a duct
+// body. P1 agent-first simplification: the AoA numeric entry is gone, the
+// slider at 0.5 deg steps plus the exact output readout is the whole angle
+// surface. The rail slider clamps through validateGeometrySpec, no numeric
+// commit helper remains here.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { GeometrySpec } from "@/contracts/types";
 import {
     ALPHA_HARD_MAX,
@@ -45,21 +47,6 @@ export function resolveLegacyDuct(spec: GeometrySpec): GeometrySpec {
 }
 
 /**
- * Commit decision for the AoA numeric entry. The hard envelope accepts full
- * rotation, anything outside holds the last good value with no setter.
- * Never throws.
- */
-export function commitAlphaValue(raw: unknown, fallback: number): {
-    ok: boolean;
-    value: number;
-} {
-    const n = typeof raw === "string" ? Number(raw.trim()) : typeof raw === "number" ? raw : Number.NaN;
-    if (!Number.isFinite(n)) return { ok: false, value: fallback };
-    if (n < ALPHA_HARD_MIN || n > ALPHA_HARD_MAX) return { ok: false, value: fallback };
-    return { ok: true, value: n };
-}
-
-/**
  * Clamp a body dimension to its envelope. Non-numeric input holds the
  * fallback, out of envelope input clamps. Never throws.
  */
@@ -76,21 +63,12 @@ export interface GeometrySectionProps {
     orificeResolutionWarning: string | null;
 }
 
-export interface GeometrySectionViewProps extends GeometrySectionProps {
-    alphaText: string;
-    onAlphaText: (next: string) => void;
-    alphaPopup: string | null;
-    onAlphaPopup: (next: string | null) => void;
-}
-
 /**
- * Pure view split: no hooks, so rail tests drive every commit path through
- * direct element calls with no worker threads. The default export owns the
- * alpha text state and passes it down.
+ * Pure view: no hooks, the slider at 0.5 deg steps plus the exact output
+ * readout is the whole angle surface.
  */
-export function GeometrySectionView(props: GeometrySectionViewProps): JSX.Element {
+export function GeometrySectionView(props: GeometrySectionProps): JSX.Element {
     const { spec: incoming, onSpec, blockageWarning, orificeResolutionWarning } = props;
-    const { alphaText, onAlphaText, alphaPopup, onAlphaPopup } = props;
     const legacyDuct = (incoming as unknown as { kind: string }).kind === "duct";
     const spec = legacyDuct ? migrateDuctToOrifice(incoming) : incoming;
     const isNaca = spec.kind === "naca4";
@@ -98,18 +76,6 @@ export function GeometrySectionView(props: GeometrySectionViewProps): JSX.Elemen
     const alphaNote = alphaOutOfBandNote(spec.alphaDeg);
     const bodyValue = bodySelectValue(spec);
     const isCustomNaca = isNaca && !CANONICAL_BODY_VALUES.has(bodyValue);
-
-    const commitAlpha = () => {
-        const decision = commitAlphaValue(alphaText, spec.alphaDeg);
-        if (decision.ok) {
-            onAlphaPopup(null);
-            onSpec({ ...spec, alphaDeg: decision.value });
-        } else {
-            onAlphaPopup(
-                `Alpha holds at ${spec.alphaDeg.toFixed(1)} deg, valid range is [${ALPHA_HARD_MIN}, ${ALPHA_HARD_MAX}].`
-            );
-        }
-    };
 
     return (
         <div className="controls">
@@ -157,28 +123,6 @@ export function GeometrySectionView(props: GeometrySectionViewProps): JSX.Elemen
                     onChange={(e) => onSpec({ ...spec, alphaDeg: Number(e.target.value) })}
                     aria-label="Angle of attack in degrees, minus 180 to 180"
                 />
-                <input
-                    id="geoAlphaNumber"
-                    className="barInput"
-                    type="number"
-                    min={ALPHA_HARD_MIN}
-                    max={ALPHA_HARD_MAX}
-                    step={0.5}
-                    value={alphaText}
-                    onChange={(e) => onAlphaText(e.target.value)}
-                    onBlur={commitAlpha}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter") commitAlpha();
-                        else if (e.key === "Escape") {
-                            onAlphaText(String(spec.alphaDeg));
-                            onAlphaPopup(null);
-                        }
-                    }}
-                    aria-label="Angle of attack value, commits on Enter"
-                />
-                {alphaPopup !== null && (
-                    <p className="mError" role="alert">{alphaPopup}</p>
-                )}
                 {alphaNote !== null && (
                     <p className="hint" role="note">{alphaNote}</p>
                 )}
@@ -337,13 +281,6 @@ export function GeometrySectionView(props: GeometrySectionViewProps): JSX.Elemen
 }
 
 export default function GeometrySection(props: GeometrySectionProps): JSX.Element {
-    const [alphaText, setAlphaText] = useState(String(props.spec.alphaDeg));
-    const [alphaPopup, setAlphaPopup] = useState<string | null>(null);
-
-    useEffect(() => {
-        setAlphaText(String(props.spec.alphaDeg));
-    }, [props.spec.alphaDeg]);
-
     // Commit a legacy duct spec to App state once: the view above only
     // resolves duct for display, this effect migrates the owned state so the
     // solver, intake, and persistence never see the retired kind again.
@@ -358,13 +295,5 @@ export default function GeometrySection(props: GeometrySectionProps): JSX.Elemen
         }
     }, [incomingKind, props.spec, props.onSpec]);
 
-    return (
-        <GeometrySectionView
-            {...props}
-            alphaText={alphaText}
-            onAlphaText={setAlphaText}
-            alphaPopup={alphaPopup}
-            onAlphaPopup={setAlphaPopup}
-        />
-    );
+    return <GeometrySectionView {...props} />;
 }

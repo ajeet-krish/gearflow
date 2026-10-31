@@ -33,6 +33,7 @@ function makeCtx(over: Partial<AgentContext> = {}): AgentContext {
 
 function liveLbmCtx(): AgentContext {
     return makeCtx({
+        agentFirst: false,
         lbm: {
             status: "live",
             hasSnapshot: true,
@@ -194,7 +195,7 @@ describe("localReply setup parsing", () => {
 
 describe("localReply engine, field, and run", () => {
     it("switches the engine on request", () => {
-        const out = localReply("switch engine to lbm", makeCtx());
+        const out = localReply("switch engine to lbm", makeCtx({ agentFirst: false }));
         expect(out.actions).toContainEqual({ kind: "set_engine", engine: "lbm" });
     });
 
@@ -308,5 +309,40 @@ describe("localReply offline review gates", () => {
         expect(bad25.reply).toContain("not a valid 4-digit section");
         expect(bad25.reply).toContain("Did you mean NACA 2510");
         expect(bad25.reply).toContain("Canvas unchanged");
+    });
+});
+
+describe("localReply agent-first analytic copy", () => {
+    it("explains with analytic-only wording and no Run promise under the flag", () => {
+        const out = localReply("please explain this run", makeCtx({ agentFirst: true }));
+        expect(out.actions).toEqual([]);
+        expect(out.reply).toContain("analytic");
+        expect(out.reply).toContain("agent-first mode");
+        expect(out.reply).not.toContain("press Run");
+        expect(out.reply).not.toContain("viscous solve");
+    });
+
+    it("answers separation with analytic-only wording and no Run promise under the flag", () => {
+        const out = localReply("show the flow separation bubble", makeCtx({ agentFirst: true }));
+        expect(out.actions).toEqual([]);
+        expect(out.reply).toContain("analytic estimate only");
+        expect(out.reply).not.toContain("press Run");
+        expect(out.reply).not.toContain("Press Run");
+    });
+
+    it("gates k with analytic-only wording and no LBM statistics promise under the flag", () => {
+        const out = localReply("show field k", makeCtx({ agentFirst: true }));
+        expect(out.actions).toEqual([]);
+        expect(out.reply).toContain("agent-first analytic mode");
+        expect(out.reply).toContain("no TKE channel");
+        expect(out.reply).not.toContain("first LBM statistics sample");
+    });
+
+    it("gates run with analytic-only wording and no LBM live promise under the flag", () => {
+        const out = localReply("run the lbm solve", makeCtx({ agentFirst: true }));
+        expect(out.actions).toEqual([]);
+        expect(out.reply).toContain("agent-first analytic mode");
+        expect(out.reply).toContain("analytic frame is served instead");
+        expect(out.reply).not.toContain("LBM engine is live");
     });
 });

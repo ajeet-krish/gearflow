@@ -100,6 +100,10 @@ export interface AppSnapshot {
     frameSettled?: boolean;
     /** Surrogate evidence for neural or comparison frames, optional for older callers. */
     surrogate?: AppSurrogateEvidence;
+    /** Agent-first analytic mode, optional for older callers. Explicit
+     *  true pins analytic-only validation, explicit false keeps legacy,
+     *  undefined falls back to the build-time flag default. */
+    agentFirst?: boolean;
 }
 
 export interface AgentLbmStats {
@@ -211,6 +215,9 @@ export interface AgentContext {
     frameSettled?: boolean;
     /** Cleaned surrogate evidence, null when the App omitted the block. */
     surrogate?: AgentSurrogateEvidence | null;
+    /** Agent-first analytic mode carried from the App snapshot, undefined
+     *  for older callers (resolvers fall back to the build-time default). */
+    agentFirst?: boolean;
 }
 
 /**
@@ -406,6 +413,7 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
             caseKey,
             frameSettled,
             surrogate,
+            agentFirst: typeof snap.agentFirst === "boolean" ? snap.agentFirst : undefined,
         };
         try {
             let size = JSON.stringify(ctx).length;

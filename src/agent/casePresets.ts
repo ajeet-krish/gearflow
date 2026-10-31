@@ -20,6 +20,7 @@
 import type { AgentAction, BodyToken, FieldMode } from "@/contracts/types";
 import { ALPHA_HARD_MAX, ALPHA_HARD_MIN } from "@/contracts/schema";
 import { classifyNeuralDomain } from "@/flow/neuralDomain";
+import { resolveAgentFirst } from "@/config/agentFirst";
 
 /** Preset the agent can expand. */
 export type CasePresetId = "shedding" | "high_pressure" | "airfoil" | "high_re_wake";
@@ -47,17 +48,30 @@ function fail(reason: string): CasePresetResult {
     return { ok: false, actions: [], reason, domainNote: null };
 }
 
-/** Backend honesty note: names the LBM backend and whether the case is solved or modeled. */
-function backendNote(body: string, reynolds: number): string {
+/** Expansion options. agentFirst pins the backend note: explicit true
+ *  reads analytic preview, explicit false keeps the legacy LBM note,
+ *  undefined falls back to the build-time agentFirstFlags default. */
+export interface CasePresetOptions {
+    agentFirst?: boolean | null;
+}
+
+/** Backend honesty note: names which backend serves the case. Under the
+ *  agent-first flag the case is an analytic preview (potential flow
+ *  estimate), otherwise it names the LBM backend and whether the case is
+ *  solved or modeled. */
+function backendNote(body: string, reynolds: number, agentFirst: boolean): string {
+    if (agentFirst) {
+        return `${body} Re ${reynolds} served by analytic preview (potential flow estimate, agent-first mode)`;
+    }
     if (reynolds > 500) {
         return `${body} Re ${reynolds} served by LBM backend, modeled coarse LES above Re 500 (provisional neural planned coverage, no weights landed)`;
     }
     return `${body} Re ${reynolds} served by LBM backend, solved (provisional neural planned coverage, no weights landed)`;
 }
 
-function succeed(actions: AgentAction[], body: string, alphaDeg: number, reynolds: number): CasePresetResult {
+function succeed(actions: AgentAction[], body: string, alphaDeg: number, reynolds: number, agentFirst: boolean): CasePresetResult {
     const verdict = classifyNeuralDomain(body, alphaDeg, reynolds);
-    const note = backendNote(body, reynolds);
+    const note = backendNote(body, reynolds, agentFirst);
     return {
         ok: true,
         actions,
@@ -85,10 +99,11 @@ function checkAlpha(alphaDeg: number, preset: CasePresetId): string | null {
  * and always fails: the orifice plate diverges at every tested gap and Re
  * in the LBM solver, so orifice stays selectable as analytic preview only.
  */
-export function expandCasePreset(request: CasePresetRequest): CasePresetResult {
+export function expandCasePreset(request: CasePresetRequest, opts?: CasePresetOptions | null): CasePresetResult {
     if (request === null || typeof request !== "object") {
         return fail("case preset needs a request object");
     }
+    const agentFirst = resolveAgentFirst(opts?.agentFirst ?? undefined);
     const { preset, body, alphaDeg } = request;
     if (preset === "shedding") {
         const actions: AgentAction[] = [
@@ -97,11 +112,14 @@ export function expandCasePreset(request: CasePresetRequest): CasePresetResult {
             { kind: "set_reynolds", reynolds: 100 },
             { kind: "set_field", field: "speed" as FieldMode },
         ];
-        return succeed(actions, "cylinder", 0, 100);
+        return succeed(actions, "cylinder", 0, 100, agentFirst);
     }
     if (preset === "high_pressure") {
+        const alternative = agentFirst
+            ? "Nearest alternative: setup_high_re_wake (cylinder alpha 0 Re 700, analytic preview)."
+            : "Nearest alternative: setup_high_re_wake (cylinder alpha 0 Re 700, LBM served).";
         return fail(
-            "high_pressure preset retired: the orifice plate diverges at every tested gap and Re in the LBM solver, so it has no LBM path (orifice stays selectable as analytic preview only). Nearest alternative: setup_high_re_wake (cylinder alpha 0 Re 700, LBM served).",
+            `high_pressure preset retired: the orifice plate diverges at every tested gap and Re in the LBM solver, so it has no LBM path (orifice stays selectable as analytic preview only). ${alternative}`,
         );
     }
     if (preset === "high_re_wake") {
@@ -111,7 +129,7 @@ export function expandCasePreset(request: CasePresetRequest): CasePresetResult {
             { kind: "set_reynolds", reynolds: 700 },
             { kind: "set_field", field: "speed" as FieldMode },
         ];
-        return succeed(actions, "cylinder", 0, 700);
+        return succeed(actions, "cylinder", 0, 700, agentFirst);
     }
     if (preset === "airfoil") {
         const resolved = body === undefined ? "naca2412" : body;
@@ -127,7 +145,7 @@ export function expandCasePreset(request: CasePresetRequest): CasePresetResult {
             { kind: "set_reynolds", reynolds: 1200 },
             { kind: "set_field", field: "speed" as FieldMode },
         ];
-        return succeed(actions, resolved, alpha, 1200);
+        return succeed(actions, resolved, alpha, 1200, agentFirst);
     }
     return fail(`unknown case preset ${String((request as { preset?: unknown }).preset)}`);
 }

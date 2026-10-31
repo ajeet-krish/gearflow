@@ -53,6 +53,8 @@ import { asFixtureExport, type ExportData } from "@/export/exportReport";
 import { loadOfflinePack } from "@/meta/offlinePack";
 import { buildAgentContext, type AppSnapshot } from "@/agent/agentContext";
 import { expandCasePreset } from "@/agent/casePresets";
+import { agentFirstRejectionFor } from "@/agent/agentActions";
+import { agentFirstFlags, lbmWorkerArmed, neuralLoadAllowed, resolveAgentFirstStartup } from "@/config/agentFirst";
 import type { AgentAction } from "@/contracts/types";
 import { loadDemoPack, type LoadedPack } from "@/meta/fixtures";
 import { HashCache } from "@/meta/cache";
@@ -354,9 +356,13 @@ export default function App() {
     // Unified engine: LBM is armed by ?engine=lbm, every other flag is auto.
     // Legacy ?engine=wasm and ?wasm=1 map to auto (analytic). Fixture debug
     // override lives in ?fixture=1 and never appears in controls.
+    // P1 agent-first: the build-time flag forces analytic only. lbmArmed
+    // starts false even with ?engine=lbm, and the ignored request lands in
+    // the terminal log below, never in a worker.
+    const agentFirst = useMemo(() => agentFirstFlags(), []);
     const [lbmArmed, setLbmArmed] = useState<boolean>(() => {
         try {
-            return readLbmArmed(window.location.search);
+            return resolveAgentFirstStartup(window.location.search).lbmArmed;
         } catch {
             return false;
         }
@@ -378,6 +384,9 @@ export default function App() {
         }
     });
     const setLbmArmedAndMirror = useCallback((next: boolean) => {
+        // Agent-first holds analytic: engine switching requests are dropped
+        // so no UI path can arm the worker.
+        if (agentFirst.agentFirst && next) return;
         setLbmArmed(next);
         try {
             const url = new URL(window.location.href);
@@ -391,7 +400,7 @@ export default function App() {
         } catch {
             // URL mirror must never break engine switching.
         }
-    }, []);
+    }, [agentFirst]);
     const lbmActive = lbmArmed;
 
     // Phase 4 Meta orchestration state. Offline persists across sessions so a
@@ -683,6 +692,23 @@ export default function App() {
     const clearTerminal = useCallback(() => {
         setRunLog([]);
     }, []);
+    // Agent-first startup honesty: a ?engine=lbm URL that the flag held off
+    // lands one terminal row, once, so the ignored request is visible. The
+    // worker stays uncreated and the frame selector stays analytic.
+    const agentFirstNoteRef = useRef(false);
+    useEffect(() => {
+        if (!agentFirst.agentFirst || agentFirstNoteRef.current) return;
+        let ignored = false;
+        try {
+            ignored = resolveAgentFirstStartup(window.location.search).ignoredLbmRequest;
+        } catch {
+            ignored = false;
+        }
+        if (!ignored) return;
+        agentFirstNoteRef.current = true;
+        setLbmNotice("Agent-first mode: analytic only, ?engine=lbm ignored.");
+        appendRunLog({ step: 0, message: "Agent-first mode: analytic only, ?engine=lbm ignored, serving the analytic frame.", level: "info" });
+    }, [agentFirst, appendRunLog]);
     const lbmLesEffective = lbmLesEnabled(lbmLesAuto, lbmLesManual, debouncedRe);
     // Last completed progress plus the configured target, mirrored in refs
     // so the failover notice can name the death step without stale closures.
@@ -780,7 +806,9 @@ export default function App() {
     }, []);
 
     useEffect(() => {
-        if (!lbmActive) return;
+        // Agent-first holds analytic: the worker constructor below is
+        // unreachable while the flag is on.
+        if (!lbmWorkerArmed(agentFirst, lbmActive)) return;
         // Fresh run: drop stale snapshot, progress, and status so a
         // placeholder is shown until the first snapshot of the new run.
         // Mirror the reset into the ref so a pre progress failover in a
@@ -901,7 +929,7 @@ export default function App() {
                 // Disposal must never break teardown.
             }
         };
-    }, [lbmActive, lbmGrid.nx, lbmGrid.ny, lbmGrid.reason, debouncedSpec, debouncedRe, lbmULattice, lbmTargetSteps, lbmLesEffective, lbmFailover]);
+    }, [agentFirst, lbmActive, lbmGrid.nx, lbmGrid.ny, lbmGrid.reason, debouncedSpec, debouncedRe, lbmULattice, lbmTargetSteps, lbmLesEffective, lbmFailover]);
 
     // Neural v2 retired, v3 is the only neural path. No v2 bundle ships:
     // public/surrogate/ root holds the superseded v1 weights.bin format
@@ -926,7 +954,7 @@ export default function App() {
     const neuralTrackerRef = useRef(createNeuralRequestTracker());
     const [neuralRetryTick, setNeuralRetryTick] = useState(0);
     const neuralRetriedKeyRef = useRef<string | null>(null);
-    if (neuralAdapterRef.current === null) {
+    if (neuralAdapterRef.current === null && neuralLoadAllowed(agentFirst)) {
         try {
             const provider = new SurrogateV2Provider({
                 grid: { nx: 128, ny: 128, domain: { ...SURROGATE_V2_DOMAIN } },
@@ -962,7 +990,7 @@ export default function App() {
     const neuralV3TrackerRef = useRef(createNeuralRequestTracker());
     const [neuralV3RetryTick, setNeuralV3RetryTick] = useState(0);
     const neuralV3RetriedKeyRef = useRef<string | null>(null);
-    if (neuralV3AdapterRef.current === null) {
+    if (neuralV3AdapterRef.current === null && neuralLoadAllowed(agentFirst)) {
         try {
             const provider = new SurrogateV3Provider({
                 grid: { nx: 128, ny: 128, domain: { ...SURROGATE_V3_DOMAIN } },
@@ -1009,6 +1037,12 @@ export default function App() {
     // failure latches so the router falls back to v2, then analytic, with
     // an honest reason.
     useEffect(() => {
+        // Agent-first holds analytic: no neural bundle is fetched, the
+        // status pins to unavailable so the router names analytic honestly.
+        if (!neuralLoadAllowed(agentFirst)) {
+            setNeuralV3Status("unavailable");
+            return;
+        }
         let cancelled = false;
         const adapter = neuralV3AdapterRef.current;
         if (adapter === null) {
@@ -1029,7 +1063,7 @@ export default function App() {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [agentFirst]);
 
     // Neural effect keyed on spec, Re, and availability. Monotonic request
     // id guards the async predict, latest only commits, stale keys never
@@ -1037,6 +1071,8 @@ export default function App() {
     // retry tick, then stays on the analytic frame underneath.
     useEffect(() => {
         void neuralRetryTick;
+        // Agent-first holds analytic: no neural predict runs.
+        if (!neuralLoadAllowed(agentFirst)) return;
         if (fastDecision.path !== "neural-v2") return;
         const adapter = neuralAdapterRef.current;
         if (adapter === null) return;
@@ -1078,6 +1114,8 @@ export default function App() {
     // underneath stays.
     useEffect(() => {
         void neuralV3RetryTick;
+        // Agent-first holds analytic: no neural predict runs.
+        if (!neuralLoadAllowed(agentFirst)) return;
         if (fastDecision.path !== "neural-v3") return;
         const adapter = neuralV3AdapterRef.current;
         if (adapter === null) return;
@@ -1341,9 +1379,11 @@ export default function App() {
             },
         }
         : null;
-    // Frame selector: fixture debug preview, then LBM, then v3 neural
-    // keyed, then v2 neural keyed, then analytic. Analytic always solves
-    // first, neural overlays when its key matches. v3 wins over v2.
+    // Frame selector: agent-first collapses to the solved analytic frame
+    // always, so no worker snapshot, fixture preview, or neural overlay can
+    // serve. Legacy mode keeps fixture debug preview, then LBM, then v3
+    // neural keyed, then v2 neural keyed, then analytic. Analytic always
+    // solves first, neural overlays when its key matches. v3 wins over v2.
     const fixtureSolved: SolvedFrame | null = isFixture && pack !== null
         ? {
             flow: pack.flow,
@@ -1354,16 +1394,15 @@ export default function App() {
             provenance: pack.provenance,
         }
         : null;
-    const frame = fixtureSolved ?? lbmSolved ?? neuralV3Solved ?? neuralSolved ?? solved.frame;
-    const solveError = isFixture ? null : lbmEffective ? null : solved.error;
-    const isNeuralActive = neuralSolved !== null && solveError === null;
-    const isNeuralPending = neuralStatus === "loading" && fastDecision.path === "neural-v2" && neuralSolved === null;
-    const isNeuralV3Active = neuralV3Solved !== null && solveError === null;
-    const isNeuralV3Pending = neuralV3Status === "loading" && fastDecision.path === "neural-v3" && neuralV3Solved === null;
+    const frame = agentFirst.agentFirst ? solved.frame : (fixtureSolved ?? lbmSolved ?? neuralV3Solved ?? neuralSolved ?? solved.frame);
+    const solveError = agentFirst.agentFirst ? solved.error : isFixture ? null : lbmEffective ? null : solved.error;
+    const isNeuralActive = !agentFirst.agentFirst && neuralSolved !== null && solveError === null;
+    const isNeuralPending = !agentFirst.agentFirst && neuralStatus === "loading" && fastDecision.path === "neural-v2" && neuralSolved === null;
+    const isNeuralV3Active = !agentFirst.agentFirst && neuralV3Solved !== null && solveError === null;
+    const isNeuralV3Pending = !agentFirst.agentFirst && neuralV3Status === "loading" && fastDecision.path === "neural-v3" && neuralV3Solved === null;
     const flow = frame.flow;
     const airfoil = frame.polygons;
-    const solverPath: SolverPath = neuralV3Keyed !== null ? "neural-v3" : neuralKeyed !== null ? "neural-v2" : "analytic";
-    const neuralNote = neuralStatus === "ready" && neuralKeyed !== null
+    const solverPath: SolverPath = agentFirst.agentFirst ? "analytic" : neuralV3Keyed !== null ? "neural-v3" : neuralKeyed !== null ? "neural-v2" : "analytic";    const neuralNote = neuralStatus === "ready" && neuralKeyed !== null
         ? `weights ${neuralKeyed.weightsVersion}, ${neuralKeyed.latencyMs.toFixed(1)} ms${neuralKeyed.cached ? ", cached" : ""}`
         : neuralStatus === "loading"
             ? "weights still loading"
@@ -1379,11 +1418,9 @@ export default function App() {
             : neuralV3Status === "failed"
                 ? "weights failed to load"
                 : "weights unavailable";
-    // v2 retired: the panel follows v3 whenever v3 has anything to say,
-    // and falls back to the pinned v2 unavailable note only when the v3
-    // adapter itself is missing.
-    const panelNeuralStatus = neuralV3Status !== "unavailable" ? neuralV3Status : neuralStatus;
-    const panelNeuralNote = neuralV3Status !== "unavailable" ? neuralV3Note : neuralNote;
+    // P1 agent-first: the SIMULATION panel no longer shows a solver path or
+    // neural line, so the panel specific status alias is gone. The snapshot
+    // and provenance label below still read neural state directly.
     const provenanceLabel = selectProvenanceLabel({
         isFixture,
         fixtureLabel: isFixture && fixtureSolved !== null ? fixtureSolved.provenance.label : null,
@@ -1406,7 +1443,20 @@ export default function App() {
         : isNeuralActive ? "surrogate"
         : isFixture ? "fixture"
         : "analytic";
-    const backendName = selectBackendName({
+    const backendName = agentFirst.agentFirst
+        ? selectBackendName({
+            isFixture: false,
+            lbmFailedActive: false,
+            lbmEffective: false,
+            lbmHasSnapshot: false,
+            solveError,
+            isNeuralPending: false,
+            isNeuralActive: false,
+            isNeuralV3Pending: false,
+            isNeuralV3Active: false,
+            solveGridNx: solveGrid.nx,
+        })
+        : selectBackendName({
         isFixture,
         lbmFailedActive,
         lbmEffective,
@@ -1596,6 +1646,10 @@ export default function App() {
     // Narrowed: set_engine accepts analytic or lbm only. Surrogate and wasm
     // tokens are rejected with this pointer copy (see ENGINE_TOKENS in
     // agent/agentActions.ts for the full envelope list).
+    // P1 agent-first defense in depth: the executor rechecks every action
+    // through agentFirstRejectionFor, so a non-analytic engine, an LBM run
+    // or cancel, or a gated k/recirc field lands in gated with the honest
+    // analytic-only reason even if it bypassed the envelope validator.
     // Trusted setup presets expand atomically through expandCasePreset and
     // apply the returned primitives directly (never re-validated through
     // the per-action envelope Re floor). Geometry, Re, and field flow
@@ -1612,6 +1666,10 @@ export default function App() {
             gated,
             summary: describeApplyReceipt(applied, gated),
         });
+        if (agentFirst.agentFirst) {
+            const blocked = agentFirstRejectionFor(action);
+            if (blocked !== null) return finish([], [blocked]);
+        }
         if (action.kind === "setup_shedding" || action.kind === "setup_high_pressure" || action.kind === "setup_high_re_wake" || action.kind === "setup_airfoil") {
             const request = action.kind === "setup_shedding"
                 ? { preset: "shedding" as const }
@@ -1620,7 +1678,7 @@ export default function App() {
                     : action.kind === "setup_high_re_wake"
                         ? { preset: "high_re_wake" as const }
                         : { preset: "airfoil" as const, body: action.body, alphaDeg: action.alphaDeg };
-            const expanded = expandCasePreset(request);
+            const expanded = expandCasePreset(request, { agentFirst: agentFirst.agentFirst });
             if (!expanded.ok) {
                 const reason = expanded.reason ?? "unknown reason";
                 console.warn(`setup preset rejected: ${reason}`);
@@ -1629,6 +1687,13 @@ export default function App() {
             const applied: AgentAction[] = [];
             const gated: string[] = [];
             for (const prim of expanded.actions) {
+                if (agentFirst.agentFirst) {
+                    const blocked = agentFirstRejectionFor(prim);
+                    if (blocked !== null) {
+                        gated.push(blocked);
+                        continue;
+                    }
+                }
                 if (prim.kind === "set_body") {
                     const next = applyBodyPreset(spec, prim.body);
                     if (next !== spec) setSpec(next);
@@ -1700,11 +1765,14 @@ export default function App() {
             return finish([action], []);
         }
         return finish([], ["unknown action kind, canvas unchanged"]);
-    }, [spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setLbmArmedAndMirror, applyParametric]);
+    }, [agentFirst, spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setLbmArmedAndMirror, applyParametric]);
 
     // Telemetry engine word. Short uppercase token for the status strip.
-    // v3 names first: the v3 street is tried before v2.
-    const engineLabel = lbmFailedActive
+    // v3 names first: the v3 street is tried before v2. Agent-first pins
+    // ANALYTIC so telemetry and export stay on the analytic label.
+    const engineLabel = agentFirst.agentFirst
+        ? "ANALYTIC"
+        : lbmFailedActive
         ? "ANALYTIC-FB"
         : lbmEffective
             ? "LBM"
@@ -1776,7 +1844,7 @@ export default function App() {
         regime,
         bodyLabel: bodyRowLabel,
         backend: backendName,
-        engine: lbmArmed ? "lbm" : "analytic",
+        engine: agentFirst.agentFirst ? "analytic" : lbmArmed ? "lbm" : "analytic",
         gridLabel: `${flow.nx}x${flow.ny}`,
         cl: frame.cl,
         cpMin: frame.cpMin,
@@ -1785,6 +1853,7 @@ export default function App() {
         lbmEffective,
         lbmStatsReady,
         lbmStats,
+        agentFirst: agentFirst.agentFirst,
         variable: prefs.variable,
         effectiveVariable,
         hasTke,
@@ -1821,7 +1890,7 @@ export default function App() {
             deltaCpMinVsAnalytic: aCp !== null && lCp !== null ? lCp - aCp : null,
         },
         };
-    }, [debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, lbmArmed, flow, frame, lbmStatus, lbmHasSnapshot, lbmEffective, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline, isNeuralActive, isNeuralV3Active, solverPath, nacaCode, bodySelectValue, solveError, isFixture, isNeuralPending, isNeuralV3Pending, neuralV3Keyed, domainVerdict, solved]);
+    }, [agentFirst, debouncedSpec, debouncedRe, regime, bodyRowLabel, backendName, lbmArmed, flow, frame, lbmStatus, lbmHasSnapshot, lbmEffective, lbmStatsReady, lbmStats, prefs.variable, effectiveVariable, hasTke, hasRecirc, valSummary, provenanceLabel, offline, isNeuralActive, isNeuralV3Active, solverPath, nacaCode, bodySelectValue, solveError, isFixture, isNeuralPending, isNeuralV3Pending, neuralV3Keyed, domainVerdict, solved]);
     const agentContextValue = useMemo(() => buildAgentContext(agentSnapshot), [agentSnapshot]);
 
     return (
@@ -1909,6 +1978,7 @@ export default function App() {
                             hasTke={hasTke}
                             hasRecirc={hasRecirc}
                             overlays={effectiveOverlays}
+                            agentFirst={agentFirst.agentFirst}
                         />
                     </SceneBars>
                     <TelemetryBar
@@ -1974,13 +2044,13 @@ export default function App() {
                             )}
                             {packError && fixtureDebug && <p className="error notice" role="alert">{packError}</p>}
                             {packLoading && fixtureDebug && !pack && <p className="loading notice" role="status">Loading fixture pack</p>}
-                            {isNeuralV3Pending && (
+                            {!agentFirst.agentFirst && isNeuralV3Pending && (
                                 <p className="loading notice" role="status">Neural v3 weights loading, showing analytic meanwhile. No action needed.</p>
                             )}
-                            {neuralV3Status === "failed" && (
+                            {!agentFirst.agentFirst && neuralV3Status === "failed" && (
                                 <p className="fallbackNote notice" role="status">Neural v3 weights failed to load, analytic fallback active.</p>
                             )}
-                            {neuralV3Status === "unavailable" && fastDecision.path === "analytic" && (
+                            {!agentFirst.agentFirst && neuralV3Status === "unavailable" && fastDecision.path === "analytic" && (
                                 <p className="fallbackNote notice" role="status">{fastDecision.reason}, analytic fallback active.</p>
                             )}
                             {gridState.notice !== null && (
@@ -2063,18 +2133,12 @@ export default function App() {
                                     label: "SIMULATION",
                                     content: (
                                         <SimulationSection
-                                            gridMode={gridState.mode}
-                                            customSize={gridState.customSize}
-                                            activeGrid={flow.nx}
-                                            gridNotice={gridState.notice}
-                                            onGridMode={setGridMode}
-                                            onClearGridNotice={clearNotice}
-                                            solverPath={solverPath}
-                                            neuralStatus={panelNeuralStatus}
-                                            neuralNote={panelNeuralNote}
-                                            domainIn={domainVerdict.inDomain}
-                                            domainReason={domainVerdict.reason}
+                                            agentFirst={agentFirst.agentFirst}
+                                            bodyLabel={bodyRowLabel}
+                                            alphaDeg={spec.alphaDeg}
                                             reynolds={reynolds}
+                                            cl={frame.cl}
+                                            regime={regime}
                                             lbmActive={lbmActive}
                                             onCommitReynolds={onReynoldsBar}
                                             lbmULattice={lbmULattice}

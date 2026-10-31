@@ -306,6 +306,21 @@ describe("alpha envelope (hard plus characterized band)", () => {
         }
     });
 
+    it("pins the hard envelope edges moved from the retired rail commit helper", () => {
+        // Formerly covered by commitAlphaValue in GeometrySection, now owned
+        // here at the schema seam. 90 is inside the hard envelope but outside
+        // the characterized band, 181 and -181 fall outside, and non-numeric
+        // input never validates.
+        expect(() => validateGeometrySpec({ ...base(), alphaDeg: 90 })).not.toThrow();
+        expect(alphaOutOfBandNote(90)).toContain("outside the characterized band");
+        for (const alphaDeg of [181, -181]) {
+            expect(() => validateGeometrySpec({ ...base(), alphaDeg })).toThrow(/alphaDeg/);
+        }
+        for (const alphaDeg of ["abc", Number.NaN, Number.POSITIVE_INFINITY] as unknown as number[]) {
+            expect(() => validateGeometrySpec({ ...base(), alphaDeg })).toThrow(/alphaDeg/);
+        }
+    });
+
     it("flags the characterized band and notes out-of-band runs", () => {
         expect(alphaBand(6)).toBe("characterized");
         expect(alphaBand(-4)).toBe("characterized");

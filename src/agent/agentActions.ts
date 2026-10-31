@@ -6,6 +6,7 @@
 import type { AgentAction, BodyToken, FieldMode, ParametricSpec } from "@/contracts/types";
 import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, RE_MAX, RE_MIN, validateParametricSpec } from "@/contracts/schema";
 import { expandCasePreset } from "./casePresets";
+import { resolveAgentFirst } from "@/config/agentFirst";
 import { PROVISIONAL_NEURAL_ENVELOPE, classifyNeuralDomain, type NeuralEnvelope } from "@/flow/neuralDomain";
 
 export const BODY_TOKENS: ReadonlyArray<string> = ["naca0012", "naca2412", "naca4412", "cylinder", "block", "orifice"];
@@ -130,6 +131,10 @@ export interface AgentValidationContext {
     hasRecirc: boolean;
     /** True while the neural surrogate can serve a frame. */
     neuralAvailable?: boolean;
+    /** Agent-first analytic mode. Explicit true forces analytic-only
+     *  rejections, explicit false keeps the legacy LBM path, undefined
+     *  falls back to the build-time agentFirstFlags default (on). */
+    agentFirst?: boolean;
     /** Override envelope for tests, defaults to the provisional envelope. */
     neuralEnvelope?: NeuralEnvelope | null;
 }
@@ -219,6 +224,32 @@ function expandedCasePoint(actions: AgentAction[]): { body: string; alphaDeg: nu
     return { body, alphaDeg, reynolds };
 }
 
+/** Agent-first block reason for one already parsed action. Returns the
+ *  honest analytic-only reason when the action cannot run in agent-first
+ *  mode (non-analytic set_engine, run_lbm, cancel_lbm, gated k/recirc
+ *  fields), null when the action is agent-first safe. Shared with the App
+ *  executor so the validator and the canvas defense cannot drift. Never
+ *  throws. */
+export function agentFirstRejectionFor(action: AgentAction): string | null {
+    try {
+        if (action.kind === "set_engine" && action.engine !== "analytic") {
+            return `set_engine ${action.engine} unavailable in agent-first analytic mode, the app serves analytic only (no LBM worker runs)`;
+        }
+        if (action.kind === "run_lbm") {
+            return "run_lbm unavailable in agent-first analytic mode, no LBM worker runs, the analytic frame is served instead";
+        }
+        if (action.kind === "cancel_lbm") {
+            return "cancel_lbm unavailable in agent-first analytic mode, no LBM worker runs";
+        }
+        if (action.kind === "set_field" && (action.field === "k" || action.field === "recirc")) {
+            return `set_field ${action.field} gated in agent-first analytic mode, the analytic frame carries no ${action.field === "k" ? "TKE" : "recirculation"} channel (no LBM statistics run)`;
+        }
+        return null;
+    } catch {
+        return "agent-first gate unreadable";
+    }
+}
+
 /**
  * Validate one action against the live context. Envelopes accept the hard
  * alpha envelope [-180, 180] with the characterized band flagged downstream,
@@ -229,11 +260,14 @@ function expandedCasePoint(actions: AgentAction[]): { body: string; alphaDeg: nu
  * effective. Trusted setup presets expand through expandCasePreset and the
  * neural envelope gates them only while neuralAvailable is true, with an
  * honest bound plus nearest alternative on rejection. set_engine accepts
- * analytic or lbm only. Never throws.
+ * analytic or lbm only. Under the agent-first flag (explicit ctx or the
+ * build-time default) non-analytic set_engine, run_lbm, cancel_lbm, and
+ * k/recirc set_field reject with honest analytic-only reasons. Never throws.
  */
 export function validateAgentAction(action: unknown, ctx: AgentValidationContext | null | undefined): ValidatedAction {
     try {
         const live = (ctx ?? {}) as Partial<AgentValidationContext>;
+        const agentFirst = resolveAgentFirst(live.agentFirst);
         if (!isRecord(action) || typeof action.kind !== "string") {
             return { ok: false, reason: "action needs a kind string", action: null };
         }
@@ -265,6 +299,13 @@ export function validateAgentAction(action: unknown, ctx: AgentValidationContext
             return { ok: true, reason: null, action: { kind: "set_reynolds", reynolds: Math.round(v) } };
         }
         if (kind === "set_engine") {
+            if (agentFirst && action.engine !== "analytic") {
+                return {
+                    ok: false,
+                    reason: `set_engine ${String(action.engine)} unavailable in agent-first analytic mode, the app serves analytic only (no LBM worker runs)`,
+                    action: null,
+                };
+            }
             if (action.engine === "analytic" || action.engine === "lbm") {
                 return { ok: true, reason: null, action: { kind: "set_engine", engine: action.engine } };
             }
@@ -275,6 +316,13 @@ export function validateAgentAction(action: unknown, ctx: AgentValidationContext
                 return { ok: false, reason: `set_field needs field in [${FIELD_TOKENS.join(", ")}]`, action: null };
             }
             const field = action.field as FieldMode;
+            if (agentFirst && (field === "k" || field === "recirc")) {
+                return {
+                    ok: false,
+                    reason: `set_field ${field} gated in agent-first analytic mode, the analytic frame carries no ${field === "k" ? "TKE" : "recirculation"} channel (no LBM statistics run)`,
+                    action: null,
+                };
+            }
             if (field === "k" && !(live.hasTke === true && live.statsReady === true)) {
                 return { ok: false, reason: "set_field k gated until the first LBM statistics sample", action: null };
             }
@@ -284,12 +332,18 @@ export function validateAgentAction(action: unknown, ctx: AgentValidationContext
             return { ok: true, reason: null, action: { kind: "set_field", field } };
         }
         if (kind === "run_lbm") {
+            if (agentFirst) {
+                return { ok: false, reason: "run_lbm unavailable in agent-first analytic mode, no LBM worker runs, the analytic frame is served instead", action: null };
+            }
             if (live.lbmEffective !== true) {
                 return { ok: false, reason: "run_lbm needs the LBM engine effective", action: null };
             }
             return { ok: true, reason: null, action: { kind: "run_lbm" } };
         }
         if (kind === "cancel_lbm") {
+            if (agentFirst) {
+                return { ok: false, reason: "cancel_lbm unavailable in agent-first analytic mode, no LBM worker runs", action: null };
+            }
             return { ok: true, reason: null, action: { kind: "cancel_lbm" } };
         }
         if (kind === "set_spec") {
@@ -326,7 +380,7 @@ export function validateAgentAction(action: unknown, ctx: AgentValidationContext
                     : kind === "setup_high_re_wake"
                         ? { preset: "high_re_wake" as const }
                         : { preset: "airfoil" as const, body: action.body as string | undefined, alphaDeg: action.alphaDeg as number | undefined };
-            const expanded = expandCasePreset(request);
+            const expanded = expandCasePreset(request, { agentFirst });
             if (!expanded.ok) {
                 return { ok: false, reason: expanded.reason ?? "preset setup rejected", action: null };
             }
@@ -369,6 +423,7 @@ export function parseAgentEnvelope(raw: unknown, ctx: AgentValidationContext | n
             hasRecirc: live.hasRecirc === true,
             neuralAvailable: live.neuralAvailable === true,
             neuralEnvelope: live.neuralEnvelope ?? null,
+            agentFirst: live.agentFirst,
         };
         if (typeof raw !== "string") {
             return { reply: "", actions: [], rejections: ["envelope not text, ignored"] };

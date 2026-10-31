@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { parseAgentEnvelope, validateAgentAction, type AgentValidationContext } from "./agentActions";
 import { expandCasePreset } from "./casePresets";
 
-const LIVE_LBM: AgentValidationContext = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true };
-const ANALYTIC: AgentValidationContext = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
+const LIVE_LBM: AgentValidationContext = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true, agentFirst: false };
+const ANALYTIC: AgentValidationContext = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false, agentFirst: false };
 
 function specPayload(): unknown {
     return {
@@ -175,5 +175,53 @@ describe("trusted preset setup actions", () => {
         );
         expect(mismatched.ok).toBe(false);
         expect(mismatched.reason ?? "").toContain("does not match");
+    });
+});
+
+describe("agent-first analytic enforcement", () => {
+    const FIRST: AgentValidationContext = { lbmEffective: true, statsReady: true, hasTke: true, hasRecirc: true, agentFirst: true };
+
+    it("rejects non-analytic set_engine with an analytic-only reason", () => {
+        for (const engine of ["lbm", "wasm", "surrogate"]) {
+            const checked = validateAgentAction({ kind: "set_engine", engine }, FIRST);
+            expect(checked.ok).toBe(false);
+            expect(checked.action).toBeNull();
+            expect(checked.reason ?? "").toContain("agent-first analytic mode");
+            const parsed = parseAgentEnvelope(`\`\`\`action-json\n{"kind": "set_engine", "engine": "${engine}"}\n\`\`\``, FIRST);
+            expect(parsed.actions).toEqual([]);
+            expect(parsed.rejections.join(" ")).toContain("agent-first analytic mode");
+        }
+        expect(validateAgentAction({ kind: "set_engine", engine: "analytic" }, FIRST).ok).toBe(true);
+    });
+
+    it("rejects run_lbm and cancel_lbm even with a live LBM context", () => {
+        const run = validateAgentAction({ kind: "run_lbm" }, FIRST);
+        expect(run.ok).toBe(false);
+        expect(run.reason ?? "").toContain("run_lbm");
+        expect(run.reason ?? "").toContain("analytic");
+        const cancel = validateAgentAction({ kind: "cancel_lbm" }, FIRST);
+        expect(cancel.ok).toBe(false);
+        expect(cancel.reason ?? "").toContain("cancel_lbm");
+        const parsed = parseAgentEnvelope("```action-json\n{\"kind\": \"run_lbm\"}\n```", FIRST);
+        expect(parsed.actions).toEqual([]);
+        expect(parsed.rejections.join(" ")).toContain("run_lbm");
+    });
+
+    it("rejects k and recirc fields even with stats ready", () => {
+        for (const field of ["k", "recirc"]) {
+            const checked = validateAgentAction({ kind: "set_field", field }, FIRST);
+            expect(checked.ok).toBe(false);
+            expect(checked.reason ?? "").toContain("gated");
+            expect(checked.reason ?? "").toContain("analytic");
+        }
+        expect(validateAgentAction({ kind: "set_field", field: "speed" }, FIRST).ok).toBe(true);
+    });
+
+    it("keeps analytic-safe actions accepted under the flag", () => {
+        expect(validateAgentAction({ kind: "set_alpha", alphaDeg: 6 }, FIRST).ok).toBe(true);
+        expect(validateAgentAction({ kind: "setup_shedding" }, FIRST).ok).toBe(true);
+        const expanded = expandCasePreset({ preset: "shedding" }, { agentFirst: true });
+        expect(expanded.ok).toBe(true);
+        expect(expanded.domainNote ?? "").toContain("analytic preview");
     });
 });

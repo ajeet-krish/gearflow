@@ -5,9 +5,12 @@
 // ships the channels, all zero before sampling, so the channel alone
 // never enables them); otherwise they render disabled with a reason so
 // a judge can see the capability exists and why it is unavailable.
-// The active chip glows purple as the one bold element; a quiet coupling
-// note beside the chips names the auto overlay (streamlines on for speed,
-// contours on elsewhere) or MANUAL when the overlays are pinned.
+// P1 agent-first: under the flag the TKE and RECIRC chips are hidden
+// outright, their disabled hint promises LBM statistics that cannot arrive
+// in analytic only mode. The active chip glows purple as the one bold
+// element; a quiet coupling note beside the chips names the auto overlay
+// (streamlines on for speed, contours on elsewhere) or MANUAL when the
+// overlays are pinned.
 
 import type { FieldMode } from "@/contracts/types";
 import type { EffectiveOverlays } from "./fieldOverlay";
@@ -18,6 +21,8 @@ export interface FieldBarProps {
     hasTke?: boolean;
     hasRecirc?: boolean;
     overlays?: EffectiveOverlays;
+    /** Agent-first master switch: hides the TKE and RECIRC chips. */
+    agentFirst?: boolean;
 }
 
 const BASE: Array<{ value: FieldMode; label: string; title: string }> = [
@@ -57,6 +62,7 @@ export default function FieldBar({
     hasTke = false,
     hasRecirc = false,
     overlays,
+    agentFirst = false,
 }: FieldBarProps) {
     const note = overlays !== undefined ? couplingNoteFor(overlays) : null;
     return (
@@ -75,26 +81,30 @@ export default function FieldBar({
                         {q.label}
                     </button>
                 ))}
-                <button
-                    type="button"
-                    className={variable === "k" ? "chip active" : "chip"}
-                    aria-pressed={variable === "k"}
-                    disabled={!hasTke}
-                    title={hasTke ? "Turbulent kinetic energy, time mean of velocity variance" : "Available after the first LBM statistics sample"}
-                    onClick={() => onVariable("k")}
-                >
-                    TKE
-                </button>
-                <button
-                    type="button"
-                    className={variable === "recirc" ? "chip active" : "chip"}
-                    aria-pressed={variable === "recirc"}
-                    disabled={!hasRecirc}
-                    title={hasRecirc ? "Recirculation mask, reverse flow region" : "Available after the first LBM statistics sample"}
-                    onClick={() => onVariable("recirc")}
-                >
-                    RECIRC
-                </button>
+                {!agentFirst && (
+                    <>
+                        <button
+                            type="button"
+                            className={variable === "k" ? "chip active" : "chip"}
+                            aria-pressed={variable === "k"}
+                            disabled={!hasTke}
+                            title={hasTke ? "Turbulent kinetic energy, time mean of velocity variance" : "Available after the first LBM statistics sample"}
+                            onClick={() => onVariable("k")}
+                        >
+                            TKE
+                        </button>
+                        <button
+                            type="button"
+                            className={variable === "recirc" ? "chip active" : "chip"}
+                            aria-pressed={variable === "recirc"}
+                            disabled={!hasRecirc}
+                            title={hasRecirc ? "Recirculation mask, reverse flow region" : "Available after the first LBM statistics sample"}
+                            onClick={() => onVariable("recirc")}
+                        >
+                            RECIRC
+                        </button>
+                    </>
+                )}
             </div>
             {note !== null && (
                 <span className={`fieldCoupling mono ${note.tone}`} role="status">

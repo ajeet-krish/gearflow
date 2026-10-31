@@ -23,6 +23,7 @@ import {
 } from "./agentActions";
 import { parseAirfoilIntent, parseAlphaDeg, parseReynolds } from "./airfoilIntent";
 import { isSchemaValidCode, nearestValidCode, parseNacaLoose } from "./nacaParse";
+import { resolveAgentFirst } from "@/config/agentFirst";
 import { localTutorReply } from "./tutorPolicy";
 import type { TutorSnapshotLite } from "./tutorTable";
 import type { AgentAction, BodyToken } from "@/contracts/types";
@@ -113,7 +114,9 @@ function cleanText(v: unknown, fallback: string): string {
 
 /** Live validation context mirrored from the console helper, so gating
  *  matches the Baseten path: k and recirc need stats, run needs LBM live,
- *  setup presets gate on the neural envelope only while it can serve. */
+ *  setup presets gate on the neural envelope only while it can serve. The
+ *  agent-first flag rides the context when the App snapshot names it,
+ *  otherwise the build-time default decides. */
 function validationFor(ctx: AgentContext | null): AgentValidationContext {
     if (ctx === null || ctx === undefined) {
         return { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
@@ -133,6 +136,7 @@ function validationFor(ctx: AgentContext | null): AgentValidationContext {
         hasTke: ctx.field?.hasTke === true,
         hasRecirc: ctx.field?.hasRecirc === true,
         neuralAvailable: neural?.available === true,
+        agentFirst: resolveAgentFirst((ctx as unknown as { agentFirst?: unknown }).agentFirst),
     };
 }
 
@@ -200,6 +204,7 @@ function buildExplainer(ctx: AgentContext | null): string {
     const cpText = cp === null ? "CpMin pending a clean solve" : `CpMin ${cp.toFixed(3)}`;
     const reText = re === null ? "Re unset" : `Re ${Math.round(re)}`;
     const alphaText = alpha === null ? "alpha unset" : `alpha ${alpha.toFixed(1)} deg`;
+    const agentFirst = resolveAgentFirst((ctx as unknown as { agentFirst?: unknown } | null)?.agentFirst);
     let suggestion: string;
     if (alpha !== null && alpha < ALPHA_MAX) {
         suggestion = "raise alpha by 1 deg for more lift, watching CpMin for suction peak growth";
@@ -208,14 +213,25 @@ function buildExplainer(ctx: AgentContext | null): string {
     } else {
         suggestion = `set an alpha inside [${ALPHA_MIN}, ${ALPHA_MAX}] deg, then raise it a touch for more lift`;
     }
+    const caveat = agentFirst
+        ? "Caveat: analytic estimate only, served by the analytic path in agent-first mode. Canvas unchanged."
+        : "Caveat: analytic estimate only, press Run for the viscous solve. Canvas unchanged.";
     return (
         `Local engineer note, local only. ${body} at ${alphaText}, ${reText}, ${regime}: ` +
         `${clText}, ${cpText}. Suggested change: ${suggestion}. ` +
-        `Caveat: analytic estimate only, press Run for the viscous solve. Canvas unchanged.`
+        caveat
     );
 }
 
-function buildHelp(): string {
+function buildHelp(agentFirst: boolean): string {
+    if (agentFirst) {
+        return (
+            "Local help, no network. The solver bar, field bar, and telemetry bar (SOLVER, FIELD, TELEMETRY) " +
+            "hold BODY plus alpha plus RE plus the analytic engine, the field quantity, and Cl plus CpMin plus validation. " +
+            "The geometry window (GEOMETRY) edits the shape preset and the display window (DISPLAY) edits colormap plus " +
+            "particles. Agent-first analytic mode serves the analytic frame only. Canvas unchanged."
+        );
+    }
     return (
         "Local help, no network. The solver bar, field bar, and telemetry bar (SOLVER, FIELD, TELEMETRY) " +
         "hold BODY plus alpha plus RE plus engine plus Run, the field quantity, and Cl plus CpMin plus validation. " +
@@ -224,7 +240,14 @@ function buildHelp(): string {
     );
 }
 
-function buildGeneric(): string {
+function buildGeneric(agentFirst: boolean): string {
+    if (agentFirst) {
+        return (
+            "Local note, no network. Ask to explain the run, set up a body (NACA 0012, 2412, 4412, cylinder, block, orifice), " +
+            "or switch field within the analytic path, and the console answers from local state. " +
+            "Agent-first analytic mode serves the analytic frame only. Canvas unchanged."
+        );
+    }
     return (
         "Local note, no network. Ask to explain the run, set up a body (NACA 0012, 2412, 4412, cylinder, block, orifice), " +
         "switch engine or field, or run LBM, and the console answers from local state. Canvas unchanged."
@@ -315,7 +338,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         const lower = raw.toLowerCase();
         const bodyLabel = safe === null ? "current body" : cleanText(safe.bodyLabel, "current body");
         if (lower.trim().length === 0) {
-            return { reply: buildGeneric(), actions: [], rejections: [] };
+            return { reply: buildGeneric(vctx.agentFirst === true), actions: [], rejections: [] };
         }
         if (CANNOT_3D_RE.test(lower)) {
             return {
@@ -344,6 +367,13 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             return { reply: buildExplainer(safe), actions: [], rejections: [] };
         }
         if (SEPARATION_RE.test(lower) && vctx.lbmEffective !== true) {
+            if (vctx.agentFirst === true) {
+                return {
+                    reply: "Cannot show viscous separation on the analytic path: the potential model omits separation and stall. Agent-first mode serves the analytic estimate only. Canvas unchanged.",
+                    actions: [],
+                    rejections: [],
+                };
+            }
             return {
                 reply: "Cannot show viscous separation on the analytic path: the potential model omits separation and stall. Press Run for the viscous LBM solve to see the separated wake. Canvas unchanged.",
                 actions: [],
@@ -659,7 +689,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 // Phenomenon preset or clarify question already staged above,
                 // help copy would contradict it, so keep the staged line only.
             } else {
-                return { reply: buildHelp(), actions: [], rejections: [] };
+                return { reply: buildHelp(vctx.agentFirst === true), actions: [], rejections: [] };
             }
         } else if (SETUP_WORD_RE.test(lower)) {
             if (!presetHandled && !clarified) {
@@ -686,26 +716,32 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 field: fieldName as AgentAction extends { kind: "set_field"; field: infer F } ? F : never,
             });
             const wasAccepted = actions.some((a) => a.kind === "set_field");
+            const gatedCopy = vctx.agentFirst === true && (fieldName === "k" || fieldName === "recirc")
+                ? `Local field note, no network. Field ${fieldName} is unavailable in agent-first analytic mode, the analytic frame carries no ${fieldName === "k" ? "TKE" : "recirculation"} channel. Canvas unchanged.`
+                : `Local field note, no network. Field ${fieldName} stays gated until the first LBM statistics sample. Canvas unchanged.`;
             sections.push(
                 wasAccepted
                     ? `Local field note, no network. Switching field to ${fieldName}. Canvas updates on apply.`
-                    : `Local field note, no network. Field ${fieldName} stays gated until the first LBM statistics sample. Canvas unchanged.`
+                    : gatedCopy
             );
         }
         const runKind = detectRun(lower);
         if (runKind !== null) {
             accept(runKind === "run_lbm" ? { kind: "run_lbm" } : { kind: "cancel_lbm" });
             const staged = actions.some((a) => a.kind === "run_lbm" || a.kind === "cancel_lbm");
+            const gatedRunCopy = vctx.agentFirst === true
+                ? "Local run note, no network. Run is unavailable in agent-first analytic mode, the analytic frame is served instead. Canvas unchanged."
+                : "Local run note, no network. Run stays gated until the LBM engine is live. Canvas unchanged.";
             sections.push(
                 staged
                     ? runKind === "run_lbm"
                         ? "Local run note, no network. Run staged: confirm with the Run LBM chip to start the viscous solve. Canvas unchanged until confirm."
                         : "Local run note, no network. Cancel staged: confirm with the Cancel LBM chip. Nothing runs until confirm."
-                    : "Local run note, no network. Run stays gated until the LBM engine is live. Canvas unchanged."
+                    : gatedRunCopy
             );
         }
         if (sections.length === 0) {
-            return { reply: buildGeneric(), actions, rejections };
+            return { reply: buildGeneric(vctx.agentFirst === true), actions, rejections };
         }
         const joined = sections.join(" ");
         const reply = actions.length === 0
@@ -717,6 +753,6 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             rejections,
         };
     } catch {
-        return { reply: buildGeneric(), actions: [], rejections: [] };
+        return { reply: buildGeneric(false), actions: [], rejections: [] };
     }
 }

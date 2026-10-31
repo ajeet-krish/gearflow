@@ -1779,3 +1779,50 @@ Verdict: PASS
 | None | src/flow/surrogateV3.ts:639, src/flow/surrogateV2.ts:497 | No issues found. Bind matches basetenClient.ts:352 and meta/client.ts:113 pattern, null fallback (typeof fetch guard, then null, load() fail at V3:672 and V2:525) intact, injected fetchFn identity untouched (pinned by tests), no secret or behavior change beyond receiver. Tests inspected, not executed (no shell tool in reviewer session). | None |
 
 Note recurring pattern: none new.
+
+## 2026-10-30 - P1 Agent-First Simplification Review
+
+Date: 2026-10-30
+Reviewer: code-reviewer
+Scope: P1 agent-first simplification (src/config/agentFirst.ts and test, App forced analytic plus executor defense, agentActions validator rejections, casePresets and tutorPolicy copy, localAssistant and AgentConsole flag carry, SimulationSection readout plus grid, path, and LBM removal, GeometrySection AoA textbox removal, FieldBar k and recirc hiding, test updates)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major | src/App.tsx:2046-2047 | Under agentFirst the effect pins neuralV3Status to unavailable, so the notice stack always renders the fastDecision reason plus analytic fallback active. Analytic is the forced primary path in this mode, not a fallback from a failed or unavailable neural load, so the visible label contradicts the forced analytic design and the SimulationSection note. | frontend-dev: suppress the neural unavailable and failed notices when agentFirst is true, or render agent-first analytic only wording there |
+| Major | src/agent/localAssistant.ts:218,352,696,708 | Flag aware validation rejects LBM actions, but reply copy is not flag branched: the explainer says press Run for the viscous solve, separation says press Run for the LBM solve, gated fields say gated until the first LBM statistics sample, and run says gated until the LBM engine is live. Under the default agent-first build none of those can happen, so the local assistant promises a path the validator and UI both refuse. | backend-dev: branch explainer, separation, field, and run copy on the resolved agentFirst flag with analytic only wording, and add localAssistant tests under agentFirst true for explain, stall, k field, and run requests |
+| Minor | src/agent/casePresets.ts:118-120 | The retired high_pressure reason ignores the resolved flag and names setup_high_re_wake as LBM served even under agentFirst, while backendNote at lines 62 to 70 correctly switches to analytic preview for served presets. | backend-dev: make the retired reason flag aware (analytic preview alternative under the flag), pin both wordings in casePresets.test.ts |
+| Minor | src/App.tsx:1649-1652,1689-1712 | The executor defense comment claims every action is rechecked through agentFirstRejectionFor, but expanded preset primitives in the loop are applied without that recheck. Unreachable today because presets expand only to speed, but the defense in depth claim can drift silently if a preset ever expands to a gated field. | backend-dev: run each expanded primitive through agentFirstRejectionFor under the flag and route rejections into gated, or narrow the comment to the top level actions it actually covers |
+| Minor | src/ui/GeometrySection.tsx:49-65,84-87 | Dead plumbing left by the AoA textbox removal: commitAlphaValue is a deprecated test only helper the view never calls, and GeometrySectionViewProps is an empty interface kept only as a stable import. Both are documented, so this is hygiene, not behavior. | frontend-dev: move the hard envelope pin into schema level tests and delete the helper and empty alias, or keep with a dated removal note |
+| Minor | src/ui/AgentConsole.tsx:321 | The Baseten system prompt still advertises run_lbm needs LBM live and set_engine lbm with no agent-first qualifier. The validator at agentActions.ts:302-347 and AgentConsole validationContextFor at AgentConsole.tsx:231-250 reject these under the flag, so gating holds, but the model is invited to propose refused actions. | backend-dev: add one agent-first analytic only line to buildBasetenMessages when the snapshot carries the flag, keeping legacy wording when off |
+
+Checks: flag config PASS (src/config/agentFirst.ts:61-75 defaults agentFirst on, forces all capability flags off, never throws; resolveAgentFirst explicit boolean wins at 82-89; lbmWorkerArmed and neuralLoadAllowed fail closed on null at 96-116). Three layer gating PASS with Minor prompt note above (UI: SimulationSection.tsx:173 hides the LBM block, FieldBar.tsx:84-107 hides k and recirc; App: engine switch drop at App.tsx:389, frame collapse at 1397, executor gate at 1669-1672; validator: agentActions.ts:302-308,319-325,335-347 plus the shared agentFirstRejectionFor at 233-251). No LBM or neural load under flag PASS (worker effect gated at App.tsx:811, adapter instantiation gated at 957 and 993, availability and predict effects return early at 1042, 1075, and 1118; static imports bundle code but fetch no weights and construct no worker). Analytic labels FAIL per Major rows (correct labels: SimulationSection.tsx:130 analytic potential flow not validated, engineLabel and solverPath pinned analytic at App.tsx:1405 and 1766-1767, backendName forced analytic branch at 1446-1458, casePresets analytic preview at casePresets.ts:64, tutorPolicy turbulent wake honesty at tutorPolicy.ts:165). Removed props PASS (no solveGrid, solver path, or neural line props reach SimulationSection at App.tsx:2128-2155; GeometrySection takes only spec, onSpec, and two warnings at 2162-2167; grid still lives in Settings via solveGrid at App.tsx:654 and 2214, which is internal plumbing, not rail props). AoA slider exact readout PASS (GeometrySection.tsx:137 output toFixed(1), slider step 0.5 at 139-148 over the hard envelope, no geoAlphaNumber input; pinned at railPanelRework.test.tsx:279-299). Test updates PASS on inspection (agentFirst.test.ts defaults, startup, and gates; agentActions.test.ts:181-227 flag rejections; casePresets.test.ts:125-141 analytic preview; railPanelRework.test.tsx:134-167 flag on and off rendering; fieldBar12b.test.tsx agentFirst hiding), with the caveat that agentFirst.test.ts:76-97 certifies App wiring by source strings, supplemented by the behavioral validator and rail tests. Conventions PASS (4-space indent and PascalCase types in the new modules, no em dash characters in the reviewed agent and config sources, keys stay in env only).
+
+Tests inspected, not executed (reviewer has no shell tool in this session).
+
+### Verification Checklist
+- [ ] All checks passed
+- [ ] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases
+
+Note recurring pattern: the gating layers (config, App executor, validator, UI hiding) are consistent and fail closed, but free text copy in the local assistant, the retired preset reason, the remote prompt, and one notice stack branch still describes the legacy LBM and neural world. Copy surfaces need the same flag carry the action surfaces already have.
+
+## 2026-10-30 - P1 Agent-First Simplification Fix Re-review
+
+Date: 2026-10-30
+Reviewer: code-reviewer
+Scope: Re-review of P1 fixes vs prior FAIL at the P1 Agent-First Simplification Review (analytic fallback notice under flag, LBM-promising local copy, retired preset wording, preset expansion bypass, Baseten prompt line, GeometrySection hygiene)
+Verdict: PASS
+
+| Item | Verdict | Details |
+|------|---------|---------|
+| 1 Analytic fallback notice (Major) | PASS | src/App.tsx:2047-2055 gates all three neural-v3 notices on !agentFirst.agentFirst; LBM notices unreachable under the flag via resolveAgentFirstStartup at src/App.tsx:363-365 |
+| 2 LBM-promising copy (Major) | PASS | src/agent/localAssistant.ts:216-218 explainer, 354-367 separation, 704-706 gated fields, 717-719 run; pinned at src/agent/localAssistant.test.ts:315-348 |
+| 3 Retired wording (Minor) | PASS | src/agent/casePresets.ts:118-120 flag aware alternative; both wordings pinned at src/agent/casePresets.test.ts:142-156 |
+| 4 Preset bypass (Minor) | PASS | src/App.tsx:1689-1696 rechecks every expanded primitive through agentFirstRejectionFor under the flag |
+| 5 Prompt line (Minor) | PASS | src/ui/AgentConsole.tsx:307,322-326 appends the analytic-only line only when the flag is on |
+| 6 Hygiene (Minor) | PASS | commitAlphaValue and the empty view props alias removed from src/ui/GeometrySection.tsx; envelope pin at src/contracts/schema.test.ts:309-322 |
+
+Residual non-blocking Minors: buildGeneric and buildHelp at src/agent/localAssistant.ts:226-239 are not flag branched (discovery copy only, validator still refuses); the flag-on prompt line and the executor primitive recheck have no behavioral pin.

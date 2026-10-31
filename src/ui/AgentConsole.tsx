@@ -27,6 +27,7 @@ import { localReply } from "@/agent/localAssistant";
 import { PROVISIONAL_NEURAL_ENVELOPE } from "@/flow/neuralDomain";
 import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
 import { appendTurns, loadTurns, saveTurns } from "@/agent/chatStore";
+import { resolveAgentFirst } from "@/config/agentFirst";
 import { g_evalLog } from "@/meta/evalLog";
 
 /** Minimal chat port so tests inject a fake with zero live calls. */
@@ -224,7 +225,9 @@ function useSafeEffect(fn: () => void | (() => void), deps?: unknown[]): void {
 }
 
 /** Validation context derived from the agent snapshot, engine flag first,
- *  neural envelope carried when the snapshot names it. */
+ *  neural envelope carried when the snapshot names it. The agent-first flag
+ *  rides the context when the snapshot names it, otherwise the build-time
+ *  default decides, so the console gates match the App executor. */
 export function validationContextFor(ctx: AgentContext | null | undefined): AgentValidationContext {
     if (ctx === null || ctx === undefined) {
         return { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
@@ -243,6 +246,7 @@ export function validationContextFor(ctx: AgentContext | null | undefined): Agen
         hasTke: ctx.field?.hasTke === true,
         hasRecirc: ctx.field?.hasRecirc === true,
         neuralAvailable: ctx.neural?.available === true,
+        agentFirst: resolveAgentFirst((ctx as unknown as { agentFirst?: unknown }).agentFirst),
     };
 }
 
@@ -300,24 +304,33 @@ export function buildBasetenMessages(
     const contract = actionContractSummary();
     const presetLines = presetPromptLines();
     const contextJson = ctx === null || ctx === undefined ? "{}" : JSON.stringify(ctx).slice(0, 3500);
+    const agentFirst = resolveAgentFirst((ctx as unknown as { agentFirst?: unknown } | null | undefined)?.agentFirst);
+    const systemLines = [
+        "You are the GearFlow tunnel assistant. Answer briefly about the run.",
+        "To change the canvas, append one fenced block per action, at most five:",
+        "```action-json",
+        '{"kind":"set_alpha","alphaDeg":6}',
+        "```",
+        `Valid kinds: ${contract.kinds.join(", ")}.`,
+        `Setup presets expand atomically: ${presetLines.live}.`,
+        presetLines.retired,
+        "For NACA codes outside 0012, 2412, and 4412, set_body cannot carry them: send one set_spec with the full parametric geometry plus reynolds plus rationale instead.",
+        "Tutor voice: when a NACA section is valid but unrealistically thick or cambered (outside 6 to 18% thickness or 0 to 9% camber), add one physics explainer sentence naming the draggy unvalidated coefficients and pointing at 12 to 15% thickness with 2 to 4% camber, then keep the applied case.",
+        "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [1000, 1000000].",
+        "set_engine accepts analytic or lbm only. set_field k needs TKE ready, recirc needs the mask ready. run_lbm needs LBM live and renders as a confirm chip, never auto runs.",
+    ];
+    if (agentFirst) {
+        systemLines.push(
+            "Agent-first analytic mode: serve the analytic frame only, do not propose run_lbm, cancel_lbm, set_engine lbm, or k/recirc fields."
+        );
+    }
+    systemLines.push(
+        "Never invent bodies, Re, or alpha: quote the envelope bounds and name the nearest in-domain case on rejection. Out of domain cases stay on the analytic path.",
+        `Live context: ${contextJson}`
+    );
     const system: BasetenMessage = {
         role: "system",
-        content: [
-            "You are the GearFlow tunnel assistant. Answer briefly about the run.",
-            "To change the canvas, append one fenced block per action, at most five:",
-            "```action-json",
-            '{"kind":"set_alpha","alphaDeg":6}',
-            "```",
-            `Valid kinds: ${contract.kinds.join(", ")}.`,
-            `Setup presets expand atomically: ${presetLines.live}.`,
-            presetLines.retired,
-            "For NACA codes outside 0012, 2412, and 4412, set_body cannot carry them: send one set_spec with the full parametric geometry plus reynolds plus rationale instead.",
-            "Tutor voice: when a NACA section is valid but unrealistically thick or cambered (outside 6 to 18% thickness or 0 to 9% camber), add one physics explainer sentence naming the draggy unvalidated coefficients and pointing at 12 to 15% thickness with 2 to 4% camber, then keep the applied case.",
-            "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [1000, 1000000].",
-            "set_engine accepts analytic or lbm only. set_field k needs TKE ready, recirc needs the mask ready. run_lbm needs LBM live and renders as a confirm chip, never auto runs.",
-            "Never invent bodies, Re, or alpha: quote the envelope bounds and name the nearest in-domain case on rejection. Out of domain cases stay on the analytic path.",
-            `Live context: ${contextJson}`,
-        ].join("\n"),
+        content: systemLines.join("\n"),
     };
     const tail = history.slice(-8).map((t): BasetenMessage => ({
         role: t.role === "user" ? "user" : "assistant",
