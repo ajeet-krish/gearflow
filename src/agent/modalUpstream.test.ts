@@ -300,6 +300,20 @@ describe("env driven upstream", () => {
         expect((JSON.parse(seenBody) as Record<string, unknown>).model).toBe(MODAL_MODEL_ID);
     });
 
+    it("resolves a modal.direct upstream from env", async () => {
+        process.env.MODAL_CHAT_URL = "https://example-workspace--spark-open.modal.direct/v1/chat/completions";
+        process.env.MODAL_PROXY_TOKEN = MODAL_TOKEN;
+        expect(resolveModalUpstreamUrl()).toBe("https://example-workspace--spark-open.modal.direct/v1/chat/completions");
+        const fetchFn = vi.fn(async () => jsonUpstream({ choices: [{ message: { content: "ok" } }] }));
+        const handler = createModalServerHandler({
+            fetchFn: fetchFn as unknown as typeof fetch,
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
+        });
+        const out = await runServerHandler(handler, JSON.stringify({ model: "attacker" }));
+        expect(out.statusCode).toBe(200);
+        expect(fetchFn).toHaveBeenCalled();
+    });
+
     it("fails closed to 503 for a hostile MODAL_CHAT_URL at the handler level", async () => {
         process.env.MODAL_CHAT_URL = "https://evil.example/v1/chat/completions";
         process.env.MODAL_PROXY_TOKEN = MODAL_TOKEN;
@@ -312,6 +326,22 @@ describe("env driven upstream", () => {
         const out = await runServerHandler(handler, JSON.stringify({ model: "attacker" }));
         expect(out.statusCode).toBe(503);
         expect(fetchFn).not.toHaveBeenCalled();
+    });
+
+    it("fails closed to 503 for modal.com upstreams", async () => {
+        for (const hostile of ["https://modal.com/v1/chat/completions", "https://foo.modal.com/v1/chat/completions"]) {
+            process.env.MODAL_CHAT_URL = hostile;
+            process.env.MODAL_PROXY_TOKEN = MODAL_TOKEN;
+            expect(resolveModalUpstreamUrl()).toBeNull();
+            const fetchFn = vi.fn(async () => jsonUpstream({ ok: true }));
+            const handler = createModalServerHandler({
+                fetchFn: fetchFn as unknown as typeof fetch,
+                limiter: new ModalRateLimiter(1000, 60 * 1000),
+            });
+            const out = await runServerHandler(handler, JSON.stringify({ model: "attacker" }));
+            expect(out.statusCode).toBe(503);
+            expect(fetchFn).not.toHaveBeenCalled();
+        }
     });
 
     it("ignores a hostile upstreamUrl override and keeps the resolved upstream", async () => {

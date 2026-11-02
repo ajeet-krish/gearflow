@@ -125,6 +125,14 @@ describe("resolveModalUpstreamUrl", () => {
         expect(resolveModalUpstreamUrl({ MODAL_CHAT_URL: "https://modal.run/v1/chat/completions" })).toBe(
             "https://modal.run/v1/chat/completions"
         );
+        expect(resolveModalUpstreamUrl({ MODAL_CHAT_URL: "https://modal.direct/v1/chat/completions" })).toBe(
+            "https://modal.direct/v1/chat/completions"
+        );
+        expect(
+            resolveModalUpstreamUrl({
+                MODAL_CHAT_URL: "https://example-workspace--spark-open.modal.direct/v1/chat/completions",
+            })
+        ).toBe("https://example-workspace--spark-open.modal.direct/v1/chat/completions");
     });
 
     it("fails closed to null for missing, empty, or hostile values", () => {
@@ -152,13 +160,29 @@ describe("resolveModalUpstreamUrl", () => {
     it("rejects modal.com hosts, query strings, and fragments", () => {
         expect(isAllowedModalUpstreamUrl("https://modal.com/v1/chat/completions")).toBe(false);
         expect(isAllowedModalUpstreamUrl("https://foo.modal.com/v1/chat/completions")).toBe(false);
+        expect(isAllowedModalUpstreamUrl("https://modal.direct.evil.example/v1/chat/completions")).toBe(false);
         expect(isAllowedModalUpstreamUrl(`${MODAL_URL}?token=secret`)).toBe(false);
         expect(isAllowedModalUpstreamUrl(`${MODAL_URL}#secret`)).toBe(false);
+        expect(isAllowedModalUpstreamUrl("https://example-workspace--spark-open.modal.direct/v1/chat/completions?token=secret")).toBe(
+            false
+        );
     });
 
     it("still allows bare modal.run serving hosts", () => {
         expect(isAllowedModalUpstreamUrl(MODAL_URL)).toBe(true);
         expect(isAllowedModalUpstreamUrl("https://modal.run/v1/chat/completions")).toBe(true);
+    });
+
+    it("allows modal.direct serving hosts and rejects lookalikes", () => {
+        expect(isAllowedModalUpstreamUrl("https://modal.direct/v1/chat/completions")).toBe(true);
+        expect(isAllowedModalUpstreamUrl("https://example-workspace--spark-open.modal.direct/v1/chat/completions")).toBe(
+            true
+        );
+        expect(isAllowedModalUpstreamUrl("http://example.modal.direct/v1/chat/completions")).toBe(false);
+        expect(isAllowedModalUpstreamUrl("https://user:pass@example-workspace.modal.direct/v1")).toBe(false);
+        expect(isAllowedModalUpstreamUrl("https://modal.com/v1/chat/completions")).toBe(false);
+        expect(isAllowedModalUpstreamUrl("https://foo.modal.com/v1/chat/completions")).toBe(false);
+        expect(isAllowedModalUpstreamUrl("https://modal.run.evil.example/v1/chat/completions")).toBe(false);
     });
 });
 

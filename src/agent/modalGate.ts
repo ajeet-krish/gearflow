@@ -35,12 +35,17 @@ export function resolveModalModelId(
 }
 
 /** Host allowlist for the Modal upstream. Only Modal serving hosts
- *  (modal.run) are allowed, never arbitrary, credentialed, or query
- *  and fragment carrying URLs. */
+ *  (modal.run and modal.direct) are allowed, never arbitrary,
+ *  credentialed, or query and fragment carrying URLs. */
 export function isAllowedModalUpstreamHost(hostname: unknown): boolean {
     if (typeof hostname !== "string" || hostname.length === 0) return false;
     const host = hostname.toLowerCase();
-    return host === "modal.run" || host.endsWith(".modal.run");
+    return (
+        host === "modal.run" ||
+        host.endsWith(".modal.run") ||
+        host === "modal.direct" ||
+        host.endsWith(".modal.direct")
+    );
 }
 
 /** True when the string is an https URL on the Modal allowlist with no
