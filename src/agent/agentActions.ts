@@ -52,7 +52,7 @@ export interface PresetContract {
 /** Validator plus prompt contract. kinds lists every live action kind,
  *  setupKinds the auto apply subset, runKinds the confirm chip subset,
  *  retiredKinds the recognized but rejected kinds, and presets the
- *  expansion of each setup preset. Consumed by buildBasetenMessages so
+ *  expansion of each setup preset. Consumed by buildModalMessages so
  *  the prompt, the validator, and the console auto apply set cannot
  *  drift. Never throws. */
 export interface ActionContractSummary {

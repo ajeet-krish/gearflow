@@ -887,3 +887,49 @@ Phase tests integrate with prior phase tests (no prior suite rerun on this dry r
 Gate does not approve training. Exit code is 2, not 0. Harmonic valid count through the gate is 0 usable (manifest missing), which is below the 20 valid threshold. Median explained through the gate is undefined, so the 0.45 threshold cannot be met. All three runbook stop conditions therefore hold in the stop sense: do not spend on training.
 
 Projection from measured rows, stated honestly with uncertainty: 5 valid of 7 measured is 71.4 percent, and a naive scale to 73 cases gives about 52 valid. That naive number is optimistic because the 7 were selected for shedding (3 bluff high Re plus 2 airfoil Re700) plus one known steady invalid plus one known confined Re100 diverged case. The full 73 holds 12 steady BGK rows that should stay harmonic invalid like cyl Re020, plus bluff Re100 rows at the same confined divergence risk seen here, plus unmeasured Re200, Re600, and airfoil Re100, Re400, Re1200 behavior. A stratified read is: high Re shedding looks healthy (5 of 5 shedding candidates valid, median 0.749588 well above 0.45), while steady and Re100 confined rows contribute near zero. Twenty valid across 73 remains plausible if high Re airfoil and bluff shedding hold, but it is not proven by n equals 7, and the merge contract bug blocks any paid sweep conclusion. Rerun this exact 7 case set after the phase range fix and require merge exit 0 plus gate exit 0 before the user spends on the 73 case sweep.
+
+## 2026-11-02 - Phase 1 Modal transport: Test Report
+
+### Test Results
+New file src/agent/modalPhase1.verify.test.ts (11 tests), all passed on first full run after creation.
+Full suite: npm test, 116 files, 1548 tests, all passed. No regressions in prior Modal suites.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| live send pinned model plus envelope | PASS | Chat body model gearflow-chat, n 1, temp 0, action spec parsed, zero live calls |
+| stream reasoning split plus content only envelope | PASS | reasoning_content decoy never leaks into text, envelope equals content spec only |
+| DONE without finish_reason | PASS | Two content deltas plus DONE yields hello with done true |
+| both reasoning keys | PASS | reasoning_content plus reasoning tracked separately, text stays hi |
+| 429 retry once | PASS | First 429 with retry after 0, second succeeds, 2 calls total |
+| hostile URL fail 503 | PASS | Evil upstream never fetched, handler returns 503 fail closed |
+| missing token 503 plus client offline map | PASS | Handler 503 with zero upstream calls, toHttpError 503 maps to offline, client chat rejects offline |
+| 30 s timeout pin | PASS | MODAL_TIMEOUT_MS is 30000, cap is 1 MiB |
+| stalled stream timeout | PASS | First delta arrives, hung read rejects timeout at 60 ms budget |
+| SSE flood cap 502 | PASS | Two 600 KiB deltas exceed 1 MiB, rejects with status 502 |
+| malformed envelope validation | PASS | Prose throws ModalError validation, chat holds text with null action |
+| npm test full suite (116 files, 1548 tests) | PASS | Includes modalClient, modalGate, modalUpstream, modalProxy, modalServerHandler, all green |
+| modalClient.test.ts pre-existing | PASS | No regressions, live send plus stream plus retry plus flood coverage still green |
+| modalGate.test.ts pre-existing | PASS | Path, body cap, forceModel, upstream allowlist, rate limiter still green |
+| modalUpstream.test.ts pre-existing | PASS | JSON plus SSE replay, env resolve, hostile fail closed still green |
+| modalProxy.test.ts pre-existing | PASS | Pinned forward, 503 paths, 403, 429, 413, generic errors, SSE, caps still green |
+
+### Coverage Summary
+Happy path covered (live chat send with pinned gearflow-chat plus stream with reasoning split plus envelope from content only).
+Edge cases covered (DONE without finish_reason, both reasoning keys held apart, 429 retry once, hostile URL fail closed 503, missing token 503 with client offline mapping).
+Error conditions covered (30 s default timeout with stalled stream rejection, SSE flood over 1 MiB rejected 502, malformed envelope validation with null action but preserved text).
+No em dashes, double hyphens, or dash equivalents in prose; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1537 prior tests still pass plus 11 new, 1548 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | All 11 new tests passed on first run, full suite 1548 passed with zero failures | No fix needed |
+
+### Verification Checklist
+- [x] All tests pass (116 files, 1548 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

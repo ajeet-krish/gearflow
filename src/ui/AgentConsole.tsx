@@ -1,28 +1,27 @@
-// Agent console: Baseten Spark chat transcript over the live run context.
-// Composer streams through BasetenClient with Stop plus a 15 s budget,
-// falls back to plain chat on a streaming parse failure, and answers
-// locally with an offline badge when the toggle, the env flag, the spend
-// cap, or a network fault forces local mode. Setup actions auto apply
-// through onAgentAction, run and cancel render as confirm chips only,
-// rejections render as reason text. Transcript persists capped at 50.
-// React plus plain CSS classes from the Zenith shell, react-markdown plus
-// remark-gfm for agent and tutor prose (user turns stay plain text).
-// Tutor turns carry a badge plus a real before vs after table.
+// Agent console: Modal Spark chat transcript over the live run context.
+// Composer streams through ModalClient with Stop plus a 30 s budget,
+// every live turn goes through the live Modal port (no parser shortcut),
+// and a live failure lands an honest error turn with zero canvas writes.
+// Setup actions auto apply through onAgentAction, run and cancel render
+// as confirm chips only, rejections render as reason text. Transcript
+// persists capped at 50. React plus plain CSS classes from the Zenith
+// shell, react-markdown plus remark-gfm for agent and tutor prose (user
+// turns stay plain text). Tutor turns carry a badge plus a real before
+// vs after table.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AgentAction, ChatTurn, FieldMode } from "@/contracts/types";
 import type { AgentContext } from "@/agent/agentContext";
-import { BasetenClient, type BasetenChatResult, type BasetenMessage, type BasetenStreamChunk } from "@/agent/basetenClient";
-import { BASETEN_MODEL_ID } from "@/agent/basetenGate";
+import { ModalClient, type ModalChatResult, type ModalMessage, type ModalStreamChunk } from "@/agent/modalClient";
+import { MODAL_MODEL_ID } from "@/agent/modalGate";
 import { actionContractSummary, parseAgentEnvelope, validateAgentAction, type AgentValidationContext } from "@/agent/agentActions";
 import { buildTutorTable, tutorRowsText, type TutorSnapshotLite, type TutorTableRow } from "@/agent/tutorTable";
 import { detectConcept, fieldForConcept, localTutorReply, type TutorConcept, type TutorFieldSuggestion } from "@/agent/tutorPolicy";
 import { buildTutorMessages } from "@/agent/tutorPrompt";
 import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/agent/airfoilIntent";
 import { expandCasePreset } from "@/agent/casePresets";
-import { cachedChat } from "@/agent/agentCache";
 import { localReply } from "@/agent/localAssistant";
 import { describeSweepResult, isAlphaSweepIntent, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
 import { PROVISIONAL_NEURAL_ENVELOPE } from "@/flow/neuralDomain";
@@ -33,15 +32,15 @@ import { g_evalLog } from "@/meta/evalLog";
 import { CURRICULUM_CHIPS } from "@/agent/curriculum";
 
 /** Minimal chat port so tests inject a fake with zero live calls. */
-export interface BasetenChatPort {
+export interface ModalChatPort {
     streamChat(
-        messages: BasetenMessage[],
+        messages: ModalMessage[],
         opts?: { feature?: string; signal?: AbortSignal; timeoutMs?: number }
-    ): AsyncGenerator<BasetenStreamChunk, BasetenChatResult, void>;
+    ): AsyncGenerator<ModalStreamChunk, ModalChatResult, void>;
     chat(
-        messages: BasetenMessage[],
+        messages: ModalMessage[],
         opts?: { feature?: string; signal?: AbortSignal; timeoutMs?: number }
-    ): Promise<BasetenChatResult>;
+    ): Promise<ModalChatResult>;
 }
 
 export interface AgentConsoleProps {
@@ -67,7 +66,7 @@ export interface AgentConsoleProps {
      *  intermediate alpha paints in order. Falls back to onAgentAction
      *  set_alpha when absent. */
     onSweepAlpha?: (alphaDeg: number) => void | Promise<void>;
-    chatClient?: BasetenChatPort | null;
+    chatClient?: ModalChatPort | null;
     evalSink?: ((payload: { feature: string; model: string }) => void) | null;
     spendCapUsd?: number;
     initialTurns?: ChatTurn[];
@@ -75,8 +74,8 @@ export interface AgentConsoleProps {
     initialExtras?: Record<string, TurnExtra>;
 }
 
-export const BASETEN_FEATURE = "baseten-chat";
-export const BASETEN_TIMEOUT_MS = 15000;
+export const MODAL_FEATURE = "modal-chat";
+export const MODAL_TIMEOUT_MS = 30000;
 export const STREAM_FLUSH_MS = 50;
 export const SPEND_SOFT_STOP_USD = SESSION_SPEND_CAP_USD;
 export const TRANSCRIPT_CAP = 50;
@@ -86,9 +85,10 @@ export const TUTOR_FEATURE = "tutor";
 export const TUTOR_TIMEOUT_MS = 2500;
 export const TUTOR_LOADING_LINE = "Prediction still loading, showing the pending table.";
 export const TUTOR_LOCAL_MODEL = "tutor-local";
-/** Parser fast path floor: a high confidence apply (>= 0.9) skips Spark
- *  with zero credits and zero port calls. Clarify, invalid, question, and
- *  low confidence results fall through to the Baseten or local path. */
+/** Parser apply floor: a high confidence apply (>= 0.9) settles through the
+ *  shared validator on the post-model rescue path. Clarify, invalid,
+ *  question, and low confidence results never apply. The pre-submit fast
+ *  path is removed: every live turn goes through the Modal port. */
 export const PARSER_APPLY_CONFIDENCE = 0.9;
 /** Model attribution for zero credit parser turns. Spend stays untouched,
  *  the badge names the local path honestly. */
@@ -312,11 +312,11 @@ export function presetPromptLines(): { live: string; retired: string } {
 /** Prompt messages: system instruction plus bounded context plus recent history.
  *  Setup presets auto apply through the App executor, run and cancel render
  *  as confirm chips only, at most five validated actions per envelope. */
-export function buildBasetenMessages(
+export function buildModalMessages(
     input: string,
     ctx: AgentContext | null | undefined,
     history: ChatTurn[]
-): BasetenMessage[] {
+): ModalMessage[] {
     const contract = actionContractSummary();
     const presetLines = presetPromptLines();
     const contextJson = ctx === null || ctx === undefined ? "{}" : JSON.stringify(ctx).slice(0, 3500);
@@ -345,11 +345,11 @@ export function buildBasetenMessages(
         "Never invent bodies, Re, or alpha: quote the envelope bounds and name the nearest in-domain case on rejection. Out of domain cases stay on the analytic path.",
         `Live context: ${contextJson}`
     );
-    const system: BasetenMessage = {
+    const system: ModalMessage = {
         role: "system",
         content: systemLines.join("\n"),
     };
-    const tail = history.slice(-8).map((t): BasetenMessage => ({
+    const tail = history.slice(-8).map((t): ModalMessage => ({
         role: t.role === "user" ? "user" : "assistant",
         content: t.text.slice(0, 2000),
     }));
@@ -417,7 +417,7 @@ function describeAction(a: AgentAction): string {
 
 function makeExtra(over: Partial<TurnExtra> = {}): TurnExtra {
     return {
-        model: BASETEN_MODEL_ID,
+        model: MODAL_MODEL_ID,
         inputTokens: 0,
         outputTokens: 0,
         costUsd: 0,
@@ -535,7 +535,7 @@ export default function AgentConsole({
     const [busy, setBusy] = useState<boolean>(() => initialBusy ?? false);
     const [stopping, setStopping] = useState(false);
     const [samNote, setSamNote] = useState(false);
-    const [spend, setSpend] = useState<SpendTotals>({ model: BASETEN_MODEL_ID, inputTokens: 0, outputTokens: 0, costUsd: 0 });
+    const [spend, setSpend] = useState<SpendTotals>({ model: MODAL_MODEL_ID, inputTokens: 0, outputTokens: 0, costUsd: 0 });
     const busyRef = useRef<boolean>(initialBusy ?? false);
     const abortRef = useRef<AbortController | null>(null);
     // Phase T2 tutor hook state. pendingTutor captures the before snapshot
@@ -565,28 +565,28 @@ export default function AgentConsole({
     const softStopped = spendExceeded(spend.costUsd, spendCapUsd);
     const forcedLocal = offline || envOffline() || softStopped;
 
-    const port: BasetenChatPort = useMemo(() => {
+    const port: ModalChatPort = useMemo(() => {
         if (chatClient !== null && chatClient !== undefined) return chatClient;
-        const live = new BasetenClient({
-            timeoutMs: BASETEN_TIMEOUT_MS,
+        const live = new ModalClient({
+            timeoutMs: MODAL_TIMEOUT_MS,
             onEval: (p) => {
                 try {
                     void g_evalLog.add({
-                        feature: BASETEN_FEATURE,
+                        feature: MODAL_FEATURE,
                         model: p.model,
                         latencyMs: p.latencyMs,
                         costUsd: p.costUsd,
                         costEstimated: false,
                         cached: p.cachedTokens > 0,
                         ok: p.ok,
-                        fallback: p.ok ? null : "baseten",
-                        hash: BASETEN_FEATURE,
+                        fallback: p.ok ? null : "modal",
+                        hash: MODAL_FEATURE,
                     });
                 } catch {
                     // Eval sink faults never break the chat path.
                 }
                 try {
-                    if (evalSink !== undefined && evalSink !== null) evalSink({ feature: BASETEN_FEATURE, model: p.model });
+                    if (evalSink !== undefined && evalSink !== null) evalSink({ feature: MODAL_FEATURE, model: p.model });
                 } catch {
                     // Optional test sink faults never break the chat path.
                 }
@@ -830,7 +830,7 @@ export default function AgentConsole({
         } else {
             try {
                 const messages = buildTutorMessages({ after: ctx, rows, concept: concept as never, suggestion });
-                const result = await port.chat(messages, { feature: TUTOR_FEATURE, timeoutMs: BASETEN_TIMEOUT_MS });
+                const result = await port.chat(messages, { feature: TUTOR_FEATURE, timeoutMs: MODAL_TIMEOUT_MS });
                 model = result.model;
                 recordSpend(result);
                 text = `${result.text}\n\nBefore vs after\n${tableText}${timedNote}`;
@@ -851,7 +851,7 @@ export default function AgentConsole({
             role: "assistant",
             at: nowIso(),
             text: text.slice(0, 2000),
-            tool: "baseten",
+            tool: "modal",
             status: useLocal ? "offline" : "live",
             tutor: {
                 concept,
@@ -986,39 +986,34 @@ export default function AgentConsole({
     function pushOfflineAssistant(userText: string): void {
         const id = nextId();
         const envelope = localReply(userText, agentContext ?? null);
-        pushTurn({ id, role: "assistant", at: nowIso(), text: envelope.reply, tool: "baseten", status: "offline" });
+        pushTurn({ id, role: "assistant", at: nowIso(), text: envelope.reply, tool: "modal", status: "offline" });
         setExtra(id, makeExtra({ streaming: false }));
         settleParsedEnvelope(id, { reply: "", actions: envelope.actions, rejections: envelope.rejections });
     }
 
-    /** Stream failure local fallback. Reuses the pending turn id, answers
-     *  from the deterministic local envelope (invalid plus nearest, tutor
-     *  table offline), settles through the shared parsed path so the tutor
-     *  hook still fires, keeps the offline badge with zero network. */
-    function settleStreamOffline(id: string, userText: string): void {
-        let envelope: { reply: string; actions: AgentAction[]; rejections: string[] };
-        try {
-            envelope = localReply(userText, agentContext ?? null);
-        } catch {
-            envelope = { reply: "Local note, no network. Canvas unchanged.", actions: [], rejections: [] };
-        }
+    /** Honest live failure turn. Reuses the pending turn id, names the
+     *  failure reason, keeps zero canvas writes, and never falls back to
+     *  local prose on the live path. */
+    function settleLiveError(id: string, err: unknown): void {
+        const reason = err instanceof Error ? err.message : String(err);
+        const detail = reason.length > 0 ? reason.slice(0, 160) : "unknown error";
+        const honest = `Live request failed (${detail}). Canvas unchanged.`;
         setTurns((prev) => {
             const merged = prev.map((t) =>
-                t.id === id ? { ...t, text: envelope.reply, tool: "baseten" as const, status: "offline" as const } : t
+                t.id === id ? { ...t, text: honest, tool: "modal" as const, status: "fallback" as const } : t
             );
             saveTurns(merged.slice(-TRANSCRIPT_CAP));
             return merged.slice(-TRANSCRIPT_CAP);
         });
         setExtra(id, { streaming: false });
-        settleParsedEnvelope(id, { reply: "", actions: envelope.actions, rejections: envelope.rejections });
     }
 
-    async function runStream(id: string, messages: BasetenMessage[], controller: AbortController, userText: string): Promise<void> {
+    async function runStream(id: string, messages: ModalMessage[], controller: AbortController, userText: string): Promise<void> {
         let fullText = "";
-        let lastResult: BasetenChatResult | null = null;
+        let lastResult: ModalChatResult | null = null;
         let lastFlush = Date.now();
         try {
-            const gen = port.streamChat(messages, { feature: BASETEN_FEATURE, signal: controller.signal, timeoutMs: BASETEN_TIMEOUT_MS });
+            const gen = port.streamChat(messages, { feature: MODAL_FEATURE, signal: controller.signal, timeoutMs: MODAL_TIMEOUT_MS });
             for (;;) {
                 const step = await gen.next();
                 if (step.done) {
@@ -1050,35 +1045,35 @@ export default function AgentConsole({
                 setExtra(id, { stopped: true, streaming: false });
                 return;
             }
-            const failed = e instanceof Error ? e : new Error(String(e));
-            const needsFallback = failed.message.toLowerCase().includes("json") || failed.message.toLowerCase().includes("valid") || fullText.length === 0;
-            if (needsFallback) {
-                try {
-                    const plain = await cachedChat(port, messages, { feature: BASETEN_FEATURE, signal: controller.signal, timeoutMs: BASETEN_TIMEOUT_MS });
-                    lastResult = plain;
-                    fullText = plain.text;
-                } catch {
-                    settleStreamOffline(id, userText);
-                    return;
-                }
-            } else {
-                settleStreamOffline(id, userText);
+            // One direct non streaming retry on a stream failure, then an
+            // honest error turn. No local prose fallback on the live path.
+            try {
+                const plain = await port.chat(messages, { feature: MODAL_FEATURE, signal: controller.signal, timeoutMs: MODAL_TIMEOUT_MS });
+                lastResult = plain;
+                fullText = plain.text;
+            } catch (retryErr) {
+                settleLiveError(id, retryErr);
                 return;
             }
         }
         if (fullText.trim().length === 0) {
             try {
-                const plain = await port.chat(messages, { feature: BASETEN_FEATURE, signal: controller.signal, timeoutMs: BASETEN_TIMEOUT_MS });
+                const plain = await port.chat(messages, { feature: MODAL_FEATURE, signal: controller.signal, timeoutMs: MODAL_TIMEOUT_MS });
                 lastResult = plain;
                 fullText = plain.text;
-            } catch {
-                fullText = "Empty reply, local mode. Canvas unchanged.";
+            } catch (retryErr) {
+                settleLiveError(id, retryErr);
+                return;
             }
+        }
+        if (fullText.trim().length === 0) {
+            settleLiveError(id, new Error("empty reply"));
+            return;
         }
         const cached = lastResult !== null && lastResult.usage.cachedTokens > 0;
         setTurns((prev) => {
             const merged = prev.map((t) =>
-                t.id === id ? { ...t, text: fullText, tool: "baseten" as const, status: (cached ? "cached" : "live") as ChatTurn["status"] } : t
+                t.id === id ? { ...t, text: fullText, tool: "modal" as const, status: (cached ? "cached" : "live") as ChatTurn["status"] } : t
             );
             saveTurns(merged.slice(-TRANSCRIPT_CAP));
             return merged.slice(-TRANSCRIPT_CAP);
@@ -1126,7 +1121,7 @@ export default function AgentConsole({
                 // Pending reset faults never break the sweep.
             }
             const runId = nextId();
-            pushTurn({ id: runId, role: "assistant", at: nowIso(), text: "Running the live alpha staircase, canvas stepping through -4 to 12 deg.", tool: "baseten", status: "offline" });
+            pushTurn({ id: runId, role: "assistant", at: nowIso(), text: "Running the live alpha staircase, canvas stepping through -4 to 12 deg.", tool: "modal", status: "offline" });
             setExtra(runId, makeExtra({ streaming: true, sweepProgress: { done: 0, total: SWEEP_ALPHAS.length, current: SWEEP_ALPHAS[0] } }));
             const startAlpha = (() => {
                 try {
@@ -1192,7 +1187,7 @@ export default function AgentConsole({
                 role: "assistant",
                 at: nowIso(),
                 text: narration,
-                tool: "baseten",
+                tool: "modal",
                 status: "offline",
                 tutor: {
                     concept: "general",
@@ -1261,36 +1256,16 @@ export default function AgentConsole({
             setBusy(false);
             return;
         }
-        // R3 parser fast path: a high confidence apply that validates cleanly
-        // settles locally with zero credits and zero port calls. Clarify,
-        // invalid, question, low confidence, and partially rejected envelopes
-        // fall through to the model path below (an empty model reply there
-        // surfaces the parser rejections with zero applies in settleEnvelope).
-        let fastIntent: ReturnType<typeof parseAirfoilIntent> = null;
-        try {
-            fastIntent = parseAirfoilIntent(text, { code: currentSectionCode() });
-        } catch {
-            fastIntent = null;
-        }
-        if (fastIntent !== null && fastIntent.kind === "apply" && fastIntent.confidence >= PARSER_APPLY_CONFIDENCE) {
-            const fast = settleParserApply(fastIntent);
-            if (fast.actions.length > 0 && fast.rejections.length === 0) {
-                const id = nextId();
-                pushTurn({ id, role: "assistant", at: nowIso(), text: "", tool: "baseten", status: "live" });
-                setExtra(id, makeExtra({ streaming: false, model: PARSER_LOCAL_MODEL, inputTokens: 0, outputTokens: 0, costUsd: 0 }));
-                settleParsedEnvelope(id, { reply: fast.reply, actions: fast.actions, rejections: fast.rejections });
-                busyRef.current = false;
-                setBusy(false);
-                return;
-            }
-        }
+        // R3 parser fast path is removed: every live turn goes through the
+        // Modal port below so the model sees the full context. The shared
+        // validator still gates every settled action in settleEnvelope.
         const controller = new AbortController();
         abortRef.current = controller;
         const id = nextId();
-        pushTurn({ id, role: "assistant", at: nowIso(), text: "", tool: "baseten", status: "live" });
+        pushTurn({ id, role: "assistant", at: nowIso(), text: "", tool: "modal", status: "live" });
         setExtra(id, makeExtra({ streaming: true }));
         try {
-            const messages = buildBasetenMessages(text, agentContext ?? null, [...turns, userTurn]);
+            const messages = buildModalMessages(text, agentContext ?? null, [...turns, userTurn]);
             await runStream(id, messages, controller, text);
         } finally {
             abortRef.current = null;
@@ -1333,12 +1308,12 @@ export default function AgentConsole({
                     ? checked.reason
                     : `set_alpha alphaDeg ${String(alphaDeg)} rejected`;
                 const id = nextId();
-                pushTurn({ id, role: "assistant", at: nowIso(), text: `Sweep apply for alpha ${alphaDeg} deg rejected: ${reason}`, tool: "baseten", status: "offline" });
+                pushTurn({ id, role: "assistant", at: nowIso(), text: `Sweep apply for alpha ${alphaDeg} deg rejected: ${reason}`, tool: "modal", status: "offline" });
                 setExtra(id, makeExtra({ streaming: false, rejections: [reason] }));
                 return;
             }
             const id = nextId();
-            pushTurn({ id, role: "assistant", at: nowIso(), text: `Applying alpha ${alphaDeg} deg from the sweep.`, tool: "baseten", status: "offline" });
+            pushTurn({ id, role: "assistant", at: nowIso(), text: `Applying alpha ${alphaDeg} deg from the sweep.`, tool: "modal", status: "offline" });
             setExtra(id, makeExtra({ streaming: false }));
             settleParsedEnvelope(id, { reply: "", actions: [checked.action], rejections: [] });
         } catch {
@@ -1403,7 +1378,7 @@ export default function AgentConsole({
                         type="checkbox"
                         checked={offline}
                         onChange={(e) => onOfflineChange?.(e.target.checked)}
-                        aria-label="Go offline, disable Baseten network calls"
+                        aria-label="Go offline, disable Modal network calls"
                     />
                     <label htmlFor="agentOffline">
                         Go offline
@@ -1441,7 +1416,7 @@ export default function AgentConsole({
                                 {isAssistant && (
                                     <span className={`badge status-${statusText === "live" ? "pass" : statusText === "cached" ? "info" : "warn"}`}>{statusText}</span>
                                 )}
-                                {isAssistant && <span className="badge status-info mono">{extra?.model ?? BASETEN_MODEL_ID}</span>}
+                                {isAssistant && <span className="badge status-info mono">{extra?.model ?? MODAL_MODEL_ID}</span>}
                                 {extra?.streaming === true && <span className="badge status-info">streaming</span>}
                                 {extra?.stopped === true && <span className="badge status-warn">stopped</span>}
                                 {(extra?.applied.length ?? 0) > 0 && <span className="badge status-pass">applied</span>}
@@ -1616,7 +1591,7 @@ export default function AgentConsole({
                     SAM sketch (cached, offline)
                 </button>
                 {samNote && (
-                    <p className="mSub">Sketch segmentation stays cached and offline. SAM runs outside this chat and never routes through Baseten from here.</p>
+                    <p className="mSub">Sketch segmentation stays cached and offline. SAM runs outside this chat and never routes through Modal from here.</p>
                 )}
             </div>
         </div>

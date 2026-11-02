@@ -1,17 +1,20 @@
-// Baseten Vercel server handler tests. Exercises createBasetenServerHandler
-// from src/agent/basetenServerHandler.ts with a fake upstream, zero live
-// calls. Mirrors the vite basetenProxy cases (path, origin, disabled,
-// limiter, key, body cap, forced model, generic errors, SSE passthrough,
+// Modal Vercel server handler tests. Exercises createModalServerHandler
+// from src/agent/modalServerHandler.ts with a fake upstream, zero live
+// calls. Mirrors the vite modalProxy cases (path, origin, disabled,
+// limiter, token, body cap, forced model, generic errors, SSE passthrough,
 // kill switch) plus forwarded IP keying, absent Origin allow and reject
-// modes, invalid JSON, and hostile base URL validation.
+// modes, invalid JSON, and hostile upstream values failing closed to 503.
 
 import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { createBasetenServerHandler } from "./basetenServerHandler";
-import type { BasetenServerHandlerDeps } from "./basetenServerHandler";
-import { BASETEN_MAX_BODY_BYTES, BASETEN_MODEL_ID, BasetenRateLimiter } from "./basetenGate";
-import { resolveBasetenBaseUrl } from "./basetenClient";
+import { createModalServerHandler } from "./modalServerHandler";
+import type { ModalServerHandlerDeps } from "./modalServerHandler";
+import { MODAL_MAX_BODY_BYTES, MODAL_MODEL_ID, ModalRateLimiter } from "./modalGate";
+import { resolveModalBaseUrl } from "./modalClient";
+
+const MODAL_URL = "https://example-workspace--spark-open.modal.run/v1/chat/completions";
+const MODAL_TOKEN = "wk-testworkspace.ws-testsecret";
 
 interface CapturedResponse {
     statusCode: number;
@@ -30,8 +33,17 @@ interface ServerRequest {
     origin?: string;
 }
 
-function getHandler(deps: BasetenServerHandlerDeps): (req: IncomingMessage, res: ServerResponse) => void {
-    return createBasetenServerHandler(deps);
+function getHandler(deps: ModalServerHandlerDeps): (req: IncomingMessage, res: ServerResponse) => void {
+    return createModalServerHandler(deps);
+}
+
+function testDeps(over: Partial<ModalServerHandlerDeps> = {}): ModalServerHandlerDeps {
+    return {
+        getAuthHeaders: () => ({ authorization: `Bearer ${MODAL_TOKEN}` }),
+        upstreamUrl: MODAL_URL,
+        limiter: new ModalRateLimiter(1000, 60 * 1000),
+        ...over,
+    };
 }
 
 function runHandler(
@@ -130,68 +142,64 @@ function sseUpstream(chunks: string[], init: { status?: number } = {}): Response
 }
 
 beforeEach(() => {
-    delete process.env.BASETEN_DISABLED;
+    delete process.env.MODAL_DISABLED;
+    delete process.env.MODAL_CHAT_URL;
+    delete process.env.MODAL_PROXY_TOKEN;
 });
 
 afterEach(() => {
-    delete process.env.BASETEN_DISABLED;
+    delete process.env.MODAL_DISABLED;
+    delete process.env.MODAL_CHAT_URL;
+    delete process.env.MODAL_PROXY_TOKEN;
     vi.unstubAllEnvs();
 });
 
-describe("basetenServerHandler wiring", () => {
+describe("modalServerHandler wiring", () => {
     it("returns 405 for GET and 404 for POST off path", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const get = await runHandler(handler, {
-            method: "GET", url: "/api/baseten/chat/completions", headers: {}, body: "", ip: "10.2.0.1",
+            method: "GET", url: "/api/modal/chat/completions", headers: {}, body: "", ip: "10.2.0.1",
         });
         expect(get.statusCode).toBe(405);
         const wrong = await runHandler(handler, {
-            method: "POST", url: "/api/baseten/wrong", headers: {}, body: "{}", ip: "10.2.0.1",
+            method: "POST", url: "/api/modal/wrong", headers: {}, body: "{}", ip: "10.2.0.1",
         });
         expect(wrong.statusCode).toBe(404);
         expect(fetchFn).not.toHaveBeenCalled();
     });
 
-    it("forces the pinned model and caps max_tokens before forwarding", async () => {
+    it("forces the pinned model, temp 0, and caps max_tokens before forwarding", async () => {
         let seenBody = "";
         const fetchFn = vi.fn(async (_url: unknown, init: unknown) => {
             seenBody = String((init as { body?: unknown }).body);
             return jsonUpstream({ choices: [{ message: { content: "hi" } }] });
         });
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
-            body: JSON.stringify({ model: "attacker-model", n: 9, max_tokens: 4096, stream: false }),
+            body: JSON.stringify({ model: "attacker-model", n: 9, max_tokens: 4096, temperature: 0.9, stream: false }),
             ip: "10.2.0.2",
         });
         const sent = JSON.parse(seenBody) as Record<string, unknown>;
-        expect(sent.model).toBe(BASETEN_MODEL_ID);
+        expect(sent.model).toBe(MODAL_MODEL_ID);
         expect(sent.n).toBe(1);
         expect(sent.max_tokens).toBe(700);
+        expect(sent.temperature).toBe(0);
         expect(out.statusCode).toBe(200);
     });
 
-    it("returns 503 when the server key is absent", async () => {
+    it("returns 503 when the proxy token is absent", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
         const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => undefined,
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            upstreamUrl: MODAL_URL,
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: "{}",
             ip: "10.2.0.3",
@@ -200,17 +208,48 @@ describe("basetenServerHandler wiring", () => {
         expect(fetchFn).not.toHaveBeenCalled();
     });
 
-    it("returns 503 when the kill switch is set", async () => {
-        process.env.BASETEN_DISABLED = "true";
+    it("returns 503 when MODAL_CHAT_URL is missing (fail closed, no fallback)", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
         const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            getAuthHeaders: () => ({ authorization: `Bearer ${MODAL_TOKEN}` }),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
+            headers: {},
+            body: "{}",
+            ip: "10.2.0.33",
+        });
+        expect(out.statusCode).toBe(503);
+        expect(fetchFn).not.toHaveBeenCalled();
+    });
+
+    it("returns 503 for a hostile MODAL_CHAT_URL (fail closed, no fallback)", async () => {
+        process.env.MODAL_CHAT_URL = "https://evil.example/v1/chat/completions";
+        const fetchFn = vi.fn(async () => jsonUpstream({}));
+        const handler = getHandler({
+            getAuthHeaders: () => ({ authorization: `Bearer ${MODAL_TOKEN}` }),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
+        });
+        const out = await runHandler(handler, {
+            method: "POST",
+            url: "/api/modal/chat/completions",
+            headers: {},
+            body: "{}",
+            ip: "10.2.0.34",
+        });
+        expect(out.statusCode).toBe(503);
+        expect(fetchFn).not.toHaveBeenCalled();
+    });
+
+    it("returns 503 when the kill switch is set", async () => {
+        process.env.MODAL_DISABLED = "true";
+        const fetchFn = vi.fn(async () => jsonUpstream({}));
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
+        const out = await runHandler(handler, {
+            method: "POST",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: "{}",
             ip: "10.2.0.4",
@@ -222,14 +261,10 @@ describe("basetenServerHandler wiring", () => {
 
     it("rejects cross origin requests with 403", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: "{}",
             ip: "10.2.0.5",
@@ -241,31 +276,25 @@ describe("basetenServerHandler wiring", () => {
 
     it("allows absent Origin by default but rejects it with requireOrigin", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({ ok: true }));
-        const open = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const open = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const allowed = await runHandler(open, {
-            method: "POST", url: "/api/baseten/chat/completions", headers: {}, body: "{}", ip: "10.2.0.6",
+            method: "POST", url: "/api/modal/chat/completions", headers: {}, body: "{}", ip: "10.2.0.6",
         });
         expect(allowed.statusCode).toBe(200);
 
         const strictFetch = vi.fn(async () => jsonUpstream({ ok: true }));
-        const strict = getHandler({
+        const strict = getHandler(testDeps({
             fetchFn: strictFetch as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
             requireOrigin: true,
-        });
+        }));
         const rejected = await runHandler(strict, {
-            method: "POST", url: "/api/baseten/chat/completions", headers: {}, body: "{}", ip: "10.2.0.6",
+            method: "POST", url: "/api/modal/chat/completions", headers: {}, body: "{}", ip: "10.2.0.6",
         });
         expect(rejected.statusCode).toBe(403);
         expect(strictFetch).not.toHaveBeenCalled();
         const withOrigin = await runHandler(strict, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: "{}",
             ip: "10.2.0.6",
@@ -277,65 +306,83 @@ describe("basetenServerHandler wiring", () => {
 
     it("rate limits the second request with 429", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
-        const limiter = new BasetenRateLimiter(1, 60 * 1000);
-        const handler = getHandler({ fetchFn: fetchFn as unknown as typeof fetch, getKey: () => "k", limiter });
+        const limiter = new ModalRateLimiter(1, 60 * 1000);
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch, limiter }));
         const first = await runHandler(handler, {
-            method: "POST", url: "/api/baseten/chat/completions", headers: {}, body: "{}", ip: "10.9.9.9",
+            method: "POST", url: "/api/modal/chat/completions", headers: {}, body: "{}", ip: "10.9.9.9",
         });
         expect(first.statusCode).toBe(200);
         const second = await runHandler(handler, {
-            method: "POST", url: "/api/baseten/chat/completions", headers: {}, body: "{}", ip: "10.9.9.9",
+            method: "POST", url: "/api/modal/chat/completions", headers: {}, body: "{}", ip: "10.9.9.9",
         });
         expect(second.statusCode).toBe(429);
     });
 
-    it("keys the limiter by x-forwarded-for first entry, then x-real-ip", async () => {
+    it("keys the limiter by platform trusted IP, ignoring spoofable x-forwarded-for", async () => {
         const seen: string[] = [];
         const recording = { allow: (ip: string): boolean => { seen.push(ip); return true; } };
         const fetchFn = vi.fn(async () => jsonUpstream({ ok: true }));
-        const handler = getHandler({
+        const handler = getHandler(testDeps({
             fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
             limiter: recording,
-        });
+        }));
         await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: { "x-forwarded-for": "1.2.3.4, 5.6.7.8" },
             body: "{}",
             ip: "9.9.9.9",
         });
-        expect(seen).toEqual(["1.2.3.4"]);
+        expect(seen).toEqual(["9.9.9.9"]);
         await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: { "x-real-ip": "2.3.4.5" },
             body: "{}",
             ip: "9.9.9.9",
         });
-        expect(seen).toEqual(["1.2.3.4", "2.3.4.5"]);
+        expect(seen).toEqual(["9.9.9.9", "2.3.4.5"]);
         await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: "{}",
             ip: "9.9.9.9",
         });
-        expect(seen).toEqual(["1.2.3.4", "2.3.4.5", "9.9.9.9"]);
+        expect(seen).toEqual(["9.9.9.9", "2.3.4.5", "9.9.9.9"]);
+    });
+
+    it("caps SSE bytes over the response limit with a generic 502 when nothing was forwarded", async () => {
+        const encoder = new TextEncoder();
+        const flood = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(encoder.encode("a".repeat(600 * 1024)));
+                controller.enqueue(encoder.encode("b".repeat(600 * 1024)));
+                controller.close();
+            },
+        });
+        const fetchFn = vi.fn(async () => new Response(flood, { status: 200, headers: { "content-type": "text/event-stream" } }));
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch, maxResponseBytes: 1024 }));
+        const out = await runHandler(handler, {
+            method: "POST",
+            url: "/api/modal/chat/completions",
+            headers: {},
+            body: JSON.stringify({ stream: true }),
+            ip: "10.2.0.20",
+        });
+        expect(out.statusCode).toBe(502);
+        expect(out.text).toContain("too large");
+        expect(out.text).not.toContain("a".repeat(100));
     });
 
     it("rejects bodies over 64 KiB with 413", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
-            body: JSON.stringify({ filler: "x".repeat(BASETEN_MAX_BODY_BYTES + 1) }),
+            body: JSON.stringify({ filler: "x".repeat(MODAL_MAX_BODY_BYTES + 1) }),
             ip: "10.2.0.7",
         });
         expect(out.statusCode).toBe(413);
@@ -344,14 +391,10 @@ describe("basetenServerHandler wiring", () => {
 
     it("returns 400 for invalid JSON bodies", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: "{not-json",
             ip: "10.2.0.8",
@@ -367,14 +410,10 @@ describe("basetenServerHandler wiring", () => {
                 { status: 500, retryAfter: "3" }
             )
         );
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: JSON.stringify({ stream: false }),
             ip: "10.2.0.9",
@@ -389,14 +428,10 @@ describe("basetenServerHandler wiring", () => {
 
     it("maps a leaking stream path upstream error to generic JSON, not SSE", async () => {
         const fetchFn = vi.fn(async () => sseUpstream(["data: leak\n\n"], { status: 429 }));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: JSON.stringify({ stream: true }),
             ip: "10.2.0.10",
@@ -410,14 +445,10 @@ describe("basetenServerHandler wiring", () => {
     it("delivers SSE chunks incrementally with SSE headers", async () => {
         const chunks = ['data: {"choices":[{"delta":{"content":"hel"}}]}\n\n', 'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n', "data: [DONE]\n\n"];
         const fetchFn = vi.fn(async () => sseUpstream(chunks));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: JSON.stringify({ stream: true }),
             ip: "10.2.0.11",
@@ -439,14 +470,10 @@ describe("basetenServerHandler wiring", () => {
                     headers: { "content-type": "application/json", "content-length": String(2 * 1024 * 1024) },
                 })
         );
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: JSON.stringify({ stream: false }),
             ip: "10.2.0.12",
@@ -465,14 +492,10 @@ describe("basetenServerHandler wiring", () => {
             },
         });
         const fetchFn = vi.fn(async () => new Response(body, { status: 200, headers: { "content-type": "application/json" } }));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: JSON.stringify({ stream: false }),
             ip: "10.2.0.13",
@@ -482,14 +505,10 @@ describe("basetenServerHandler wiring", () => {
 
     it("returns 502 when the upstream fetch throws", async () => {
         const fetchFn = vi.fn(async () => { throw new Error("boom"); });
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         const out = await runHandler(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: "{}",
             ip: "10.2.0.14",
@@ -510,17 +529,12 @@ describe("basetenServerHandler wiring", () => {
             },
         });
         const fetchFn = vi.fn(async () => new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-            timeoutMs: 5000,
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch, timeoutMs: 5000 }));
         await runHandler(
             handler,
             {
                 method: "POST",
-                url: "/api/baseten/chat/completions",
+                url: "/api/modal/chat/completions",
                 headers: {},
                 body: JSON.stringify({ stream: true }),
                 ip: "10.2.0.15",
@@ -539,17 +553,12 @@ describe("basetenServerHandler wiring", () => {
             },
         });
         const fetchFn = vi.fn(async () => new Response(hanging, { status: 200, headers: { "content-type": "text/event-stream" } }));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-            timeoutMs: 50,
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch, timeoutMs: 50 }));
         const out = await runHandler(
             handler,
             {
                 method: "POST",
-                url: "/api/baseten/chat/completions",
+                url: "/api/modal/chat/completions",
                 headers: {},
                 body: JSON.stringify({ stream: true }),
                 ip: "10.2.0.16",
@@ -563,17 +572,13 @@ describe("basetenServerHandler wiring", () => {
     it("waits for drain when write returns false then delivers all chunks", async () => {
         const chunks = ['data: {"choices":[{"delta":{"content":"hel"}}]}\n\n', 'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n', "data: [DONE]\n\n"];
         const fetchFn = vi.fn(async () => sseUpstream(chunks));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
         let calls = 0;
         const out = await runHandler(
             handler,
             {
                 method: "POST",
-                url: "/api/baseten/chat/completions",
+                url: "/api/modal/chat/completions",
                 headers: {},
                 body: JSON.stringify({ stream: true }),
                 ip: "10.2.0.17",
@@ -602,7 +607,6 @@ describe("basetenServerHandler wiring", () => {
     it("releases a pending drain and finishes when the client disconnects during backpressure", async () => {
         let cancelled = false;
         const encoder = new TextEncoder();
-        let readerRef: { cancel: () => void } | null = null;
         const hanging = new ReadableStream<Uint8Array>({
             start(controller) {
                 controller.enqueue(encoder.encode("data: hello\n\n"));
@@ -612,21 +616,15 @@ describe("basetenServerHandler wiring", () => {
                 cancelled = true;
             },
         });
-        void readerRef;
         const fetchFn = vi.fn(async () => new Response(hanging, { status: 200, headers: { "content-type": "text/event-stream" } }));
-        const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-            timeoutMs: 5000,
-        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch, timeoutMs: 5000 }));
         const startedAt = Date.now();
         const out = await Promise.race([
             runHandler(
                 handler,
                 {
                     method: "POST",
-                    url: "/api/baseten/chat/completions",
+                    url: "/api/modal/chat/completions",
                     headers: {},
                     body: JSON.stringify({ stream: true }),
                     ip: "10.2.0.18",
@@ -648,20 +646,21 @@ describe("basetenServerHandler wiring", () => {
     });
 });
 
-describe("baseten prod adapter pins", () => {
+describe("modal prod adapter pins", () => {
     it("pins requireOrigin true and maxDuration 60 on the Vercel adapter", async () => {
-        vi.stubEnv("BASETEN_API_KEY", "test-key");
+        vi.stubEnv("MODAL_PROXY_TOKEN", MODAL_TOKEN);
+        vi.stubEnv("MODAL_CHAT_URL", MODAL_URL);
         const upstream = vi.fn(async () => jsonUpstream({ ok: true }));
         const realFetch = globalThis.fetch;
         vi.stubGlobal("fetch", upstream as unknown as typeof fetch);
         try {
             vi.resetModules();
-            const mod = await import("../../api/baseten/chat/completions");
+            const mod = await import("../../api/modal/chat/completions");
             expect(mod.config).toMatchObject({ maxDuration: 60 });
             expect(typeof mod.default).toBe("function");
             const rejected = await runHandler(mod.default as unknown as (req: IncomingMessage, res: ServerResponse) => void, {
                 method: "POST",
-                url: "/api/baseten/chat/completions",
+                url: "/api/modal/chat/completions",
                 headers: {},
                 body: "{}",
                 ip: "10.3.0.1",
@@ -670,7 +669,7 @@ describe("baseten prod adapter pins", () => {
             expect(upstream).not.toHaveBeenCalled();
             const allowed = await runHandler(mod.default as unknown as (req: IncomingMessage, res: ServerResponse) => void, {
                 method: "POST",
-                url: "/api/baseten/chat/completions",
+                url: "/api/modal/chat/completions",
                 headers: {},
                 body: "{}",
                 ip: "10.3.0.2",
@@ -685,35 +684,35 @@ describe("baseten prod adapter pins", () => {
     });
 });
 
-describe("resolveBasetenBaseUrl hostile values", () => {
+describe("resolveModalBaseUrl hostile values", () => {
     it("falls back to the default for hostile explicit values", () => {
-        expect(resolveBasetenBaseUrl("javascript:alert(1)")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("data:text/plain,hi")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("ftp://example.com/baseten")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("//evil.example/baseten")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("/api/../evil")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("/api/baseten?key=secret")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("/api/baseten#frag")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("https://user:pass@example.com/baseten")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("https://example.com/baseten?key=1")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("https://example.com/baseten#frag")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("https://example.com/../evil")).toBe("/api/baseten");
+        expect(resolveModalBaseUrl("javascript:alert(1)")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("data:text/plain,hi")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("ftp://example.com/modal")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("//evil.example/modal")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("/api/../evil")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("/api/modal?key=secret")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("/api/modal#frag")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("https://user:pass@example.com/modal")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("https://example.com/modal?key=1")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("https://example.com/modal#frag")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("https://example.com/../evil")).toBe("/api/modal");
     });
 
     it("falls back to the default for hostile env values", () => {
-        vi.stubEnv("VITE_BASETEN_URL", "javascript:alert(1)");
-        expect(resolveBasetenBaseUrl()).toBe("/api/baseten");
-        vi.stubEnv("VITE_BASETEN_URL", "https://user:pass@example.com/baseten");
-        expect(resolveBasetenBaseUrl()).toBe("/api/baseten");
-        vi.stubEnv("VITE_BASETEN_URL", "//evil.example/baseten");
-        expect(resolveBasetenBaseUrl()).toBe("/api/baseten");
-        vi.stubEnv("VITE_BASETEN_URL", "/api/../evil");
-        expect(resolveBasetenBaseUrl()).toBe("/api/baseten");
+        vi.stubEnv("VITE_MODAL_URL", "javascript:alert(1)");
+        expect(resolveModalBaseUrl()).toBe("/api/modal");
+        vi.stubEnv("VITE_MODAL_URL", "https://user:pass@example.com/modal");
+        expect(resolveModalBaseUrl()).toBe("/api/modal");
+        vi.stubEnv("VITE_MODAL_URL", "//evil.example/modal");
+        expect(resolveModalBaseUrl()).toBe("/api/modal");
+        vi.stubEnv("VITE_MODAL_URL", "/api/../evil");
+        expect(resolveModalBaseUrl()).toBe("/api/modal");
     });
 
     it("still allows safe relative and https bases", () => {
-        vi.stubEnv("VITE_BASETEN_URL", "");
-        expect(resolveBasetenBaseUrl("/api/baseten")).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("https://proxy.example.com/baseten")).toBe("https://proxy.example.com/baseten");
+        vi.stubEnv("VITE_MODAL_URL", "");
+        expect(resolveModalBaseUrl("/api/modal")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("https://proxy.example.com/modal")).toBe("https://proxy.example.com/modal");
     });
 });

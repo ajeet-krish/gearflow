@@ -1,19 +1,20 @@
-// Baseten client tests. Fake fetch only, zero live calls.
+// Modal client tests. Fake fetch only, zero live calls.
 
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
-    BASETEN_RETRY_DEFAULT_MS,
-    BasetenClient,
-    BasetenError,
-    estimateBasetenCost,
+    MODAL_RETRY_DEFAULT_MS,
+    MODAL_TIMEOUT_MS,
+    ModalClient,
+    ModalError,
+    estimateModalCost,
     extractActionJson,
-    resolveBasetenBaseUrl,
+    resolveModalBaseUrl,
     retryDelayMs,
-} from "./basetenClient";
-import { BASETEN_MODEL_ID } from "./basetenGate";
-import type { BasetenMessage } from "./basetenClient";
+} from "./modalClient";
+import { MODAL_MODEL_ID } from "./modalGate";
+import type { ModalMessage } from "./modalClient";
 
-const MESSAGES: BasetenMessage[] = [{ role: "user", content: "propose a spec" }];
+const MESSAGES: ModalMessage[] = [{ role: "user", content: "propose a spec" }];
 
 function jsonResponse(payload: unknown, init: { status?: number; retryAfter?: string | null } = {}): Response {
     const status = init.status ?? 200;
@@ -63,7 +64,7 @@ describe("chat success envelope", () => {
             return jsonResponse(chatPayload('{"kind":"spec","reynolds":200000}'));
         });
         const evals: Array<{ model: string; inputTokens: number; outputTokens: number; costUsd: number }> = [];
-        const client = new BasetenClient({
+        const client = new ModalClient({
             fetchFn: fetchFn as unknown as typeof fetch,
             offline: false,
             onEval: (p) => {
@@ -71,16 +72,20 @@ describe("chat success envelope", () => {
             },
         });
         const result = await client.chat(MESSAGES);
-        expect(result.model).toBe(BASETEN_MODEL_ID);
+        expect(result.model).toBe(MODAL_MODEL_ID);
         expect(result.action).toMatchObject({ kind: "spec" });
         expect(result.usage.inputTokens).toBe(800);
         expect(result.usage.outputTokens).toBe(300);
         expect(result.costUsd).toBeCloseTo(0.002275, 6);
-        expect(JSON.parse(seen[0] as string).model).toBe(BASETEN_MODEL_ID);
+        expect(JSON.parse(seen[0] as string).model).toBe(MODAL_MODEL_ID);
         expect(JSON.parse(seen[0] as string).n).toBe(1);
         expect(evals).toHaveLength(1);
-        expect(evals[0].model).toBe(BASETEN_MODEL_ID);
+        expect(evals[0].model).toBe(MODAL_MODEL_ID);
         expect(evals[0].costUsd).toBeCloseTo(0.002275, 6);
+    });
+
+    it("pins the default 30 s timeout", () => {
+        expect(MODAL_TIMEOUT_MS).toBe(30000);
     });
 });
 
@@ -92,17 +97,17 @@ describe("extractActionJson", () => {
 
     it("falls back to raw JSON and throws validation on prose", () => {
         expect(extractActionJson('{"kind":"spec"}')).toMatchObject({ kind: "spec" });
-        expect(() => extractActionJson("just some words")).toThrow(BasetenError);
+        expect(() => extractActionJson("just some words")).toThrow(ModalError);
         try {
             extractActionJson("just some words");
         } catch (e) {
-            expect((e as BasetenError).code).toBe("validation");
+            expect((e as ModalError).code).toBe("validation");
         }
     });
 });
 
 describe("streamChat DONE accumulation", () => {
-    it("accumulates content plus reasoning deltas across chunk boundaries", async () => {
+    it("accumulates content deltas into text and tracks reasoning separately", async () => {
         const full =
             'data: {"choices":[{"delta":{"content":"hel"},"finish_reason":null}]}\n\n' +
             'data: {"choices":[{"delta":{"reasoning_content":"lo"},"finish_reason":null}]}\n\n' +
@@ -111,7 +116,7 @@ describe("streamChat DONE accumulation", () => {
         const mid = Math.floor(full.length * 0.4);
         const cut = full.indexOf("hel") + 2;
         const fetchFn = vi.fn(async () => sseResponse([full.slice(0, cut), full.slice(cut, mid), full.slice(mid)]));
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         const deltas: string[] = [];
         let finalText = "";
         let doneSeen = false;
@@ -120,8 +125,43 @@ describe("streamChat DONE accumulation", () => {
             finalText = chunk.text;
             if (chunk.done) doneSeen = true;
         }
-        expect(deltas.join("")).toBe("hello world");
-        expect(finalText).toBe("hello world");
+        // Reasoning never leaks into the visible text or the envelope.
+        expect(deltas.join("")).toBe("hel world");
+        expect(finalText).toBe("hel world");
+        expect(doneSeen).toBe(true);
+    });
+
+    it("accepts the reasoning delta shape alongside reasoning_content", async () => {
+        const full =
+            'data: {"choices":[{"delta":{"reasoning":"think"},"finish_reason":null}]}\n\n' +
+            'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}\n\n' +
+            "data: [DONE]\n\n";
+        const fetchFn = vi.fn(async () => sseResponse([full]));
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        let finalText = "";
+        let doneSeen = false;
+        for await (const chunk of client.streamChat(MESSAGES)) {
+            finalText = chunk.text;
+            if (chunk.done) doneSeen = true;
+        }
+        expect(finalText).toBe("hi");
+        expect(doneSeen).toBe(true);
+    });
+
+    it("terminates on DONE even when no finish_reason arrived", async () => {
+        const full =
+            'data: {"choices":[{"delta":{"content":"hel"},"finish_reason":null}]}\n\n' +
+            'data: {"choices":[{"delta":{"content":"lo"},"finish_reason":null}]}\n\n' +
+            "data: [DONE]\n\n";
+        const fetchFn = vi.fn(async () => sseResponse([full]));
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        let finalText = "";
+        let doneSeen = false;
+        for await (const chunk of client.streamChat(MESSAGES)) {
+            finalText = chunk.text;
+            if (chunk.done) doneSeen = true;
+        }
+        expect(finalText).toBe("hello");
         expect(doneSeen).toBe(true);
     });
 });
@@ -129,7 +169,7 @@ describe("streamChat DONE accumulation", () => {
 describe("abort and timeout", () => {
     it("surfaces abort without retrying when the signal is already aborted", async () => {
         const fetchFn = vi.fn(async () => jsonResponse(chatPayload("{}")));
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         const controller = new AbortController();
         controller.abort();
         await expect(client.chat(MESSAGES, { signal: controller.signal })).rejects.toMatchObject({ code: "abort" });
@@ -149,7 +189,7 @@ describe("abort and timeout", () => {
                 });
             });
         });
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         await expect(client.chat(MESSAGES, { timeoutMs: 20 })).rejects.toMatchObject({ code: "timeout" });
         expect(calls).toBe(2);
     });
@@ -160,14 +200,14 @@ describe("error mapping", () => {
         const fetchFn = vi.fn(async () =>
             jsonResponse({ error: { message: "please check model", code: "secret-detail-xyz" } }, { status: 404 })
         );
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
-        let err: BasetenError | null = null;
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        let err: ModalError | null = null;
         try {
             await client.chat(MESSAGES);
         } catch (e) {
-            err = e as BasetenError;
+            err = e as ModalError;
         }
-        expect(err).toBeInstanceOf(BasetenError);
+        expect(err).toBeInstanceOf(ModalError);
         expect(err?.status).toBe(404);
         expect(err?.retryable).toBe(false);
         expect(err?.message).toContain("model");
@@ -181,33 +221,33 @@ describe("error mapping", () => {
             if (calls === 1) return jsonResponse({ error: "busy" }, { status: 429, retryAfter: "0" });
             return jsonResponse(chatPayload('{"kind":"chat"}'));
         });
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         const result = await client.chat(MESSAGES);
         expect(result.text).toContain("chat");
         expect(calls).toBe(2);
     });
 
-    it("maps the no key 503 path to offline", async () => {
-        const fetchFn = vi.fn(async () => jsonResponse({ error: "Baseten service unavailable" }, { status: 503 }));
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+    it("maps the no token 503 path to offline", async () => {
+        const fetchFn = vi.fn(async () => jsonResponse({ error: "Modal service unavailable" }, { status: 503 }));
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         await expect(client.chat(MESSAGES, { timeoutMs: 50 })).rejects.toMatchObject({ code: "offline" });
     });
 });
 
 describe("usage plus cost reporting", () => {
     it("prices 800 in plus 300 out near $0.0023", () => {
-        expect(estimateBasetenCost(800, 300)).toBeCloseTo(0.002275, 6);
+        expect(estimateModalCost(800, 300)).toBeCloseTo(0.002275, 6);
     });
 
     it("prices cached input at the reduced rate", () => {
-        const full = estimateBasetenCost(800, 300, 0);
-        const cached = estimateBasetenCost(800, 300, 800);
+        const full = estimateModalCost(800, 300, 0);
+        const cached = estimateModalCost(800, 300, 800);
         expect(cached).toBeLessThan(full);
         expect(cached).toBeCloseTo((800 * 0.15) / 1_000_000 + (300 * 4.25) / 1_000_000, 9);
     });
 
     it("clamps cached tokens to input when cached exceeds input", () => {
-        const cost = estimateBasetenCost(100, 50, 500);
+        const cost = estimateModalCost(100, 50, 500);
         expect(cost).toBeCloseTo((100 * 0.15) / 1_000_000 + (50 * 4.25) / 1_000_000, 9);
     });
 });
@@ -219,8 +259,8 @@ describe("retry delay parsing", () => {
         const future = new Date(Date.now() + 60_000).toUTCString();
         expect(retryDelayMs(future)).toBeLessThanOrEqual(8000);
         expect(retryDelayMs(future)).toBeGreaterThan(0);
-        expect(retryDelayMs("not-a-date")).toBe(BASETEN_RETRY_DEFAULT_MS);
-        expect(retryDelayMs(null)).toBe(BASETEN_RETRY_DEFAULT_MS);
+        expect(retryDelayMs("not-a-date")).toBe(MODAL_RETRY_DEFAULT_MS);
+        expect(retryDelayMs(null)).toBe(MODAL_RETRY_DEFAULT_MS);
     });
 
     it("waits a nonzero bounded backoff before retrying when retry-after is absent", async () => {
@@ -230,13 +270,13 @@ describe("retry delay parsing", () => {
             if (calls === 1) return jsonResponse({ error: "busy" }, { status: 429, retryAfter: null });
             return jsonResponse(chatPayload('{"kind":"chat"}'));
         });
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         const start = Date.now();
         const result = await client.chat(MESSAGES);
         const elapsed = Date.now() - start;
         expect(result.text).toContain("chat");
         expect(calls).toBe(2);
-        expect(elapsed).toBeGreaterThanOrEqual(BASETEN_RETRY_DEFAULT_MS - 50);
+        expect(elapsed).toBeGreaterThanOrEqual(MODAL_RETRY_DEFAULT_MS - 50);
     });
 });
 
@@ -267,7 +307,7 @@ describe("stream timeout and abort", () => {
             text: async () => "",
             body: hanging,
         } as unknown as Response));
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         const gen = client.streamChat(MESSAGES, { timeoutMs: 60 });
         const first = await gen.next();
         expect(first.done).toBe(false);
@@ -286,7 +326,7 @@ describe("stream timeout and abort", () => {
             text: async () => "",
             body: hanging,
         } as unknown as Response));
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         const controller = new AbortController();
         const gen = client.streamChat(MESSAGES, { signal: controller.signal, timeoutMs: 5000 });
         const pending = gen.next();
@@ -295,52 +335,87 @@ describe("stream timeout and abort", () => {
     });
 });
 
-describe("resolveBasetenBaseUrl", () => {
+describe("resolveModalBaseUrl", () => {
     afterEach(() => {
         vi.unstubAllEnvs();
     });
 
     it("defaults to the same origin proxy when no override or env is set", () => {
-        vi.stubEnv("VITE_BASETEN_URL", "");
-        expect(resolveBasetenBaseUrl()).toBe("/api/baseten");
-        expect(new BasetenClient({ offline: false }).baseUrl).toBe("/api/baseten");
+        vi.stubEnv("VITE_MODAL_URL", "");
+        expect(resolveModalBaseUrl()).toBe("/api/modal");
+        expect(new ModalClient({ offline: false }).baseUrl).toBe("/api/modal");
     });
 
     it("prefers an explicit override over the env value", () => {
-        vi.stubEnv("VITE_BASETEN_URL", "/api/baseten");
-        expect(resolveBasetenBaseUrl("https://proxy.example.com/baseten")).toBe("https://proxy.example.com/baseten");
+        vi.stubEnv("VITE_MODAL_URL", "/api/modal");
+        expect(resolveModalBaseUrl("https://proxy.example.com/modal")).toBe("https://proxy.example.com/modal");
     });
 
     it("reads the env base when no explicit value is given", () => {
-        vi.stubEnv("VITE_BASETEN_URL", "https://proxy.example.com/baseten");
-        expect(resolveBasetenBaseUrl()).toBe("https://proxy.example.com/baseten");
-        expect(new BasetenClient({ offline: false }).baseUrl).toBe("https://proxy.example.com/baseten");
+        vi.stubEnv("VITE_MODAL_URL", "https://proxy.example.com/modal");
+        expect(resolveModalBaseUrl()).toBe("https://proxy.example.com/modal");
+        expect(new ModalClient({ offline: false }).baseUrl).toBe("https://proxy.example.com/modal");
     });
 
     it("strips a single trailing slash from explicit and env values", () => {
-        vi.stubEnv("VITE_BASETEN_URL", "/api/baseten/");
-        expect(resolveBasetenBaseUrl()).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("/api/baseten/")).toBe("/api/baseten");
-        expect(new BasetenClient({ baseUrl: "/api/baseten/", offline: false }).baseUrl).toBe("/api/baseten");
+        vi.stubEnv("VITE_MODAL_URL", "/api/modal/");
+        expect(resolveModalBaseUrl()).toBe("/api/modal");
+        expect(resolveModalBaseUrl("/api/modal/")).toBe("/api/modal");
+        expect(new ModalClient({ baseUrl: "/api/modal/", offline: false }).baseUrl).toBe("/api/modal");
     });
 
     it("falls back to the default on blank explicit or env values", () => {
-        vi.stubEnv("VITE_BASETEN_URL", "   ");
-        expect(resolveBasetenBaseUrl()).toBe("/api/baseten");
-        expect(resolveBasetenBaseUrl("   ")).toBe("/api/baseten");
+        vi.stubEnv("VITE_MODAL_URL", "   ");
+        expect(resolveModalBaseUrl()).toBe("/api/modal");
+        expect(resolveModalBaseUrl("   ")).toBe("/api/modal");
     });
 
     it("appends the chat path exactly once with no double chat completions", async () => {
-        vi.stubEnv("VITE_BASETEN_URL", "");
+        vi.stubEnv("VITE_MODAL_URL", "");
         const urls: string[] = [];
         const fetchFn = vi.fn(async (url: unknown) => {
             urls.push(String(url));
             return jsonResponse(chatPayload('{"kind":"chat"}'));
         });
-        const client = new BasetenClient({ baseUrl: "/api/baseten/", fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ baseUrl: "/api/modal/", fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         await client.chat(MESSAGES);
         expect(urls).toHaveLength(1);
-        expect(urls[0]).toBe("/api/baseten/chat/completions");
+        expect(urls[0]).toBe("/api/modal/chat/completions");
         expect(urls[0]).not.toContain("chat/completions/chat/completions");
+    });
+
+    it("requires https for non localhost hosts but allows http loopback", () => {
+        expect(resolveModalBaseUrl("http://proxy.example.com/modal")).toBe("/api/modal");
+        expect(resolveModalBaseUrl("https://proxy.example.com/modal")).toBe("https://proxy.example.com/modal");
+        expect(resolveModalBaseUrl("http://localhost:5173/api/modal")).toBe("http://localhost:5173/api/modal");
+        expect(resolveModalBaseUrl("http://127.0.0.1:5173/api/modal")).toBe("http://127.0.0.1:5173/api/modal");
+    });
+
+    it("aborts an SSE flood over the response cap with a generic 502", async () => {
+        const encoder = new TextEncoder();
+        const flood = "a".repeat(600 * 1024);
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(encoder.encode(`data: {"choices":[{"delta":{"content":"${flood}"}}]}\n\n`));
+                controller.enqueue(encoder.encode(`data: {"choices":[{"delta":{"content":"${flood}"}}]}\n\n`));
+                controller.close();
+            },
+        });
+        const fetchFn = vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            headers: { get: () => "text/event-stream" },
+            json: async () => {
+                throw new Error("streaming body has no JSON");
+            },
+            text: async () => "",
+            body,
+        } as unknown as Response));
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        await expect(async () => {
+            for await (const _chunk of client.streamChat(MESSAGES)) {
+                // Drain the flood until the cap trips.
+            }
+        }).rejects.toMatchObject({ status: 502 });
     });
 });

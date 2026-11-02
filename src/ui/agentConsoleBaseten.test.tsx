@@ -1,13 +1,13 @@
-// Baseten spark chat console tests. Static markup plus pure helpers plus a
+// Modal spark chat console tests. Static markup plus pure helpers plus a
 // fake chat port, zero live calls. Mirrors the shell test style.
 
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import AgentConsole, {
-    BASETEN_FEATURE,
+    MODAL_FEATURE,
     PRESET_CHIPS,
     SPEND_SOFT_STOP_USD,
-    buildBasetenMessages,
+    buildModalMessages,
     localOfflineReply,
     spendExceeded,
     validationContextFor,
@@ -23,7 +23,7 @@ function assistantTurn(over: Partial<ChatTurn> = {}): ChatTurn {
         role: "assistant",
         text: "Run looks healthy at alpha 6.",
         at: new Date().toISOString(),
-        tool: "baseten",
+        tool: "modal",
         status: "live",
         ...over,
     };
@@ -45,7 +45,7 @@ function fakePort(text: string) {
             return {
                 text,
                 action: null,
-                model: "meta-models/muse-spark-open-1026",
+                model: "gearflow-chat",
                 usage: { inputTokens: 12, outputTokens: 24, cachedTokens: 0 },
                 costUsd: 0.0001,
                 latencyMs: 5,
@@ -56,7 +56,7 @@ function fakePort(text: string) {
             return {
                 text,
                 action: null,
-                model: "meta-models/muse-spark-open-1026",
+                model: "gearflow-chat",
                 usage: { inputTokens: 12, outputTokens: 24, cachedTokens: 0 },
                 costUsd: 0.0001,
                 latencyMs: 5,
@@ -66,7 +66,7 @@ function fakePort(text: string) {
     return { port, calls, seen };
 }
 
-describe("baseten console chrome", () => {
+describe("modal console chrome", () => {
     it("renders the three preset demo chips", () => {
         const html = renderToStaticMarkup(<AgentConsole offline={false} onOfflineChange={() => {}} />);
         for (const chip of PRESET_CHIPS) {
@@ -122,7 +122,7 @@ describe("baseten console chrome", () => {
                 initialTurns={[assistantTurn({ text: "Tuning the run now." })]}
                 initialExtras={{
                     "t-assistant-1": {
-                        model: "meta-models/muse-spark-open-1026",
+                        model: "gearflow-chat",
                         inputTokens: 12,
                         outputTokens: 24,
                         costUsd: 0.0001,
@@ -140,15 +140,15 @@ describe("baseten console chrome", () => {
         expect(html).toContain("Confirm Run LBM");
     });
 
-    it("keeps SAM as a separate cached entry point outside Baseten", () => {
+    it("keeps SAM as a separate cached entry point outside Modal", () => {
         const html = renderToStaticMarkup(<AgentConsole offline={false} onOfflineChange={() => {}} />);
         expect(html).toContain("SAM sketch (cached, offline)");
     });
 });
 
-describe("baseten console helpers", () => {
+describe("modal console helpers", () => {
     it("builds prompt messages with system context plus the user turn", () => {
-        const messages = buildBasetenMessages("Explain this run", null, []);
+        const messages = buildModalMessages("Explain this run", null, []);
         expect(messages[0].role).toBe("system");
         expect(messages[messages.length - 1]).toEqual({ role: "user", content: "Explain this run" });
         expect(messages[0].content).toContain("set_alpha");
@@ -185,7 +185,7 @@ describe("baseten console helpers", () => {
         let chunks = 0;
         const gen = port.streamChat(
             [{ role: "user", content: "hi" }],
-            { feature: BASETEN_FEATURE, timeoutMs: 15000 }
+            { feature: MODAL_FEATURE, timeoutMs: 30000 }
         );
         for (;;) {
             const step = await gen.next();
@@ -271,7 +271,7 @@ describe("baseten console helpers", () => {
     });
 });
 
-describe("baseten console B2 fixes", () => {
+describe("modal console B2 fixes", () => {
     function pendingSnapshot() {
         return {
             spec: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 },
@@ -313,7 +313,7 @@ describe("baseten console B2 fixes", () => {
                 initialTurns={[assistantTurn({ text: "Ready to solve." })]}
                 initialExtras={{
                     "t-assistant-1": {
-                        model: "meta-models/muse-spark-open-1026",
+                        model: "gearflow-chat",
                         inputTokens: 0,
                         outputTokens: 0,
                         costUsd: 0,
@@ -339,7 +339,7 @@ describe("baseten console B2 fixes", () => {
         expect(out.reply).not.toContain("alphaDeg");
     });
 
-    it("user turns are not labelled baseten live", () => {
+    it("user turns are not labelled modal live", () => {
         const userHtml = renderToStaticMarkup(
             <AgentConsole
                 offline={false}
@@ -362,7 +362,7 @@ describe("baseten console B2 fixes", () => {
     });
 });
 
-describe("baseten console agent-first prompt", () => {
+describe("modal console agent-first prompt", () => {
     function agentFirstCtx() {
         return buildAgentContext({
             spec: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 },
@@ -418,7 +418,7 @@ describe("baseten console agent-first prompt", () => {
     }
 
     it("appends the analytic-only line when the snapshot carries agentFirst true", () => {
-        const messages = buildBasetenMessages("Explain this run", agentFirstCtx(), []);
+        const messages = buildModalMessages("Explain this run", agentFirstCtx(), []);
         expect(messages[0].role).toBe("system");
         expect(messages[0].content).toContain("Agent-first analytic mode");
         expect(messages[0].content).toContain("serve the analytic frame only");
@@ -426,7 +426,7 @@ describe("baseten console agent-first prompt", () => {
     });
 
     it("omits the analytic-only line for legacy snapshots", () => {
-        const messages = buildBasetenMessages("Explain this run", legacyCtx(), []);
+        const messages = buildModalMessages("Explain this run", legacyCtx(), []);
         expect(messages[0].content).not.toContain("Agent-first analytic mode");
     });
 });

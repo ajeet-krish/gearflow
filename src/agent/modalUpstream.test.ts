@@ -1,43 +1,35 @@
-// Modal upstream cutover tests. Resolver plus fake Modal upstream replay
-// through both the server handler and the Vite proxy. Zero live calls.
+// Modal upstream tests. Resolver plus Modal upstream replay through
+// both the server handler and the Vite proxy. Modal-only with fail-closed
+// 503 on missing or hostile config, zero live calls.
 
 import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
-    BASETEN_MODEL_ID,
-    BASETEN_UPSTREAM_URL,
-    BasetenRateLimiter,
     MODAL_MODEL_ID,
-    forceModel,
-    isAllowedChatUpstreamUrl,
-    resolveChatUpstream,
-    resolveChatUpstreamFromEnv,
+    ModalRateLimiter,
     resolveModalModelId,
-} from "./basetenGate";
-import { createBasetenServerHandler } from "./basetenServerHandler";
-import { basetenProxy } from "../../vite.config";
+    resolveModalUpstreamUrl,
+} from "./modalGate";
+import { createModalServerHandler } from "./modalServerHandler";
+import { modalProxy } from "../../vite.config";
 import type { Connect } from "vite";
 
 const MODAL_URL = "https://example-workspace--spark-open.modal.run/v1/chat/completions";
 const MODAL_TOKEN = "wk-testworkspace.ws-testsecret";
 
 beforeEach(() => {
-    delete process.env.CHAT_UPSTREAM;
     delete process.env.MODAL_CHAT_URL;
     delete process.env.MODAL_MODEL_ID;
     delete process.env.MODAL_PROXY_TOKEN;
-    delete process.env.BASETEN_API_KEY;
-    delete process.env.BASETEN_DISABLED;
+    delete process.env.MODAL_DISABLED;
 });
 
 afterEach(() => {
-    delete process.env.CHAT_UPSTREAM;
     delete process.env.MODAL_CHAT_URL;
     delete process.env.MODAL_MODEL_ID;
     delete process.env.MODAL_PROXY_TOKEN;
-    delete process.env.BASETEN_API_KEY;
-    delete process.env.BASETEN_DISABLED;
+    delete process.env.MODAL_DISABLED;
     vi.unstubAllEnvs();
 });
 
@@ -71,7 +63,7 @@ function runServerHandler(
             socket: { remoteAddress: string };
             destroy: () => void;
         };
-        req.url = "/api/baseten/chat/completions";
+        req.url = "/api/modal/chat/completions";
         req.method = "POST";
         req.headers = { host: "localhost:5173" };
         req.socket = { remoteAddress: "10.20.0.1" };
@@ -108,11 +100,11 @@ function runServerHandler(
     });
 }
 
-function getViteHandler(deps: Parameters<typeof basetenProxy>[0]): Connect.NextHandleFunction {
-    const plugin = basetenProxy(deps);
+function getViteHandler(deps: Parameters<typeof modalProxy>[0]): Connect.NextHandleFunction {
+    const plugin = modalProxy(deps);
     const seen: Connect.NextHandleFunction[] = [];
     plugin.configureServer({ middlewares: { use: (h: Connect.NextHandleFunction) => seen.push(h) } } as never);
-    if (seen.length !== 1) throw new Error("expected one baseten middleware");
+    if (seen.length !== 1) throw new Error("expected one modal middleware");
     return seen[0];
 }
 
@@ -128,7 +120,7 @@ function runViteHandler(
             socket: { remoteAddress: string };
             destroy: () => void;
         };
-        req.url = "/api/baseten/chat/completions";
+        req.url = "/api/modal/chat/completions";
         req.method = "POST";
         req.headers = { host: "localhost:5173" };
         req.socket = { remoteAddress: "10.20.0.2" };
@@ -162,69 +154,15 @@ function runViteHandler(
     });
 }
 
-describe("resolveChatUpstream", () => {
-    it("defaults to baseten when kind is unset", () => {
-        expect(resolveChatUpstream(undefined, undefined)).toEqual({ kind: "baseten", url: BASETEN_UPSTREAM_URL });
-        expect(resolveChatUpstream("", undefined)).toEqual({ kind: "baseten", url: BASETEN_UPSTREAM_URL });
-    });
-
-    it("selects modal with a valid Modal URL", () => {
-        expect(resolveChatUpstream("modal", MODAL_URL)).toEqual({ kind: "modal", url: MODAL_URL });
-    });
-
-    it("falls back to baseten for invalid kinds and hostile URLs", () => {
-        expect(resolveChatUpstream("bogus", MODAL_URL).kind).toBe("baseten");
-        expect(resolveChatUpstream("modal", undefined).kind).toBe("baseten");
-        expect(resolveChatUpstream("modal", "").kind).toBe("baseten");
-        expect(resolveChatUpstream("modal", "http://example.modal.run/v1/chat/completions").kind).toBe("baseten");
-        expect(resolveChatUpstream("modal", "https://evil.example/v1/chat/completions").kind).toBe("baseten");
-        expect(resolveChatUpstream("modal", "https://user:pass@example-workspace.modal.run/v1").kind).toBe("baseten");
-        for (const bad of [
-            "javascript:alert(1)",
-            "data:text/plain,hi",
-            "ftp://example.modal.run/v1",
-            "//example.modal.run/v1",
-        ]) {
-            expect(resolveChatUpstream("modal", bad).kind).toBe("baseten");
-        }
-    });
-});
-
-describe("forceModel upstream kind", () => {
-    it("keeps the Baseten pin by default and for invalid kinds", () => {
-        expect((forceModel({ model: "x" }) as Record<string, unknown>).model).toBe(BASETEN_MODEL_ID);
-        expect((forceModel({ model: "x" }, "bogus") as Record<string, unknown>).model).toBe(BASETEN_MODEL_ID);
-    });
-
-    it("pins the Modal endpoint name by default when kind is modal", () => {
-        const out = forceModel({ model: "attacker", n: 9, max_tokens: 4096 }, "modal") as Record<string, unknown>;
-        expect(out.model).toBe(MODAL_MODEL_ID);
+describe("modal endpoint model", () => {
+    it("pins the Modal endpoint name by default", () => {
         expect(MODAL_MODEL_ID).toBe("gearflow-chat");
-        expect(out.n).toBe(1);
-        expect(out.max_tokens).toBe(700);
-    });
-
-    it("resolves the Modal default from the pinned constant without env", () => {
         expect(resolveModalModelId({})).toBe("gearflow-chat");
         expect(resolveModalModelId({ MODAL_MODEL_ID: "" })).toBe("gearflow-chat");
-        expect(resolveModalModelId({ MODAL_MODEL_ID: "   " })).toBe("gearflow-chat");
     });
 
     it("overrides the Modal model from MODAL_MODEL_ID env for renames", () => {
-        vi.stubEnv("MODAL_MODEL_ID", "custom-endpoint");
-        const out = forceModel({ model: "attacker", n: 9, max_tokens: 4096 }, "modal") as Record<string, unknown>;
-        expect(out.model).toBe("custom-endpoint");
-        expect(resolveModalModelId()).toBe("custom-endpoint");
-        vi.unstubAllEnvs();
-        const backToDefault = forceModel({ model: "attacker" }, "modal") as Record<string, unknown>;
-        expect(backToDefault.model).toBe("gearflow-chat");
-    });
-
-    it("keeps the Baseten pin when MODAL_MODEL_ID env is set", () => {
-        vi.stubEnv("MODAL_MODEL_ID", "custom-endpoint");
-        expect((forceModel({ model: "x" }) as Record<string, unknown>).model).toBe(BASETEN_MODEL_ID);
-        expect((forceModel({ model: "x" }, "bogus") as Record<string, unknown>).model).toBe(BASETEN_MODEL_ID);
-        expect(BASETEN_MODEL_ID).toBe("meta-models/muse-spark-open-1026");
+        expect(resolveModalModelId({ MODAL_MODEL_ID: "custom-endpoint" })).toBe("custom-endpoint");
     });
 });
 
@@ -243,12 +181,11 @@ describe("modal handler replay", () => {
                 usage: { prompt_tokens: 10, completion_tokens: 5 },
             });
         });
-        const handler = createBasetenServerHandler({
+        const handler = createModalServerHandler({
             fetchFn: fetchFn as unknown as typeof fetch,
             getAuthHeaders: () => ({ authorization: `Bearer ${MODAL_TOKEN}` }),
             upstreamUrl: MODAL_URL,
-            chatKind: "modal",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runServerHandler(handler, JSON.stringify({ model: "attacker", stream: false }));
         expect(out.statusCode).toBe(200);
@@ -265,12 +202,11 @@ describe("modal handler replay", () => {
             "data: [DONE]\n\n",
         ];
         const fetchFn = vi.fn(async () => sseUpstream(chunks));
-        const handler = createBasetenServerHandler({
+        const handler = createModalServerHandler({
             fetchFn: fetchFn as unknown as typeof fetch,
             getAuthHeaders: () => ({ authorization: `Bearer ${MODAL_TOKEN}` }),
             upstreamUrl: MODAL_URL,
-            chatKind: "modal",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runServerHandler(handler, JSON.stringify({ stream: true }));
         expect(out.statusCode).toBe(200);
@@ -299,8 +235,7 @@ describe("modal vite parity", () => {
             fetchFn: fetchFn as unknown as typeof fetch,
             getAuthHeaders: () => ({ authorization: `Bearer ${MODAL_TOKEN}` }),
             upstreamUrl: MODAL_URL,
-            chatKind: "modal",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runViteHandler(handler, JSON.stringify({ model: "attacker", stream: false }));
         expect(out.statusCode).toBe(200);
@@ -313,10 +248,9 @@ describe("modal vite parity", () => {
 
 describe("env driven upstream", () => {
     it("resolves Modal from env through the shared helper in the handler", async () => {
-        process.env.CHAT_UPSTREAM = "modal";
         process.env.MODAL_CHAT_URL = MODAL_URL;
         process.env.MODAL_PROXY_TOKEN = MODAL_TOKEN;
-        expect(resolveChatUpstreamFromEnv()).toEqual({ kind: "modal", url: MODAL_URL });
+        expect(resolveModalUpstreamUrl()).toBe(MODAL_URL);
         let seenUrl = "";
         let seenAuth = "";
         let seenBody = "";
@@ -329,9 +263,9 @@ describe("env driven upstream", () => {
                 choices: [{ message: { content: '{"action":"explain"}' } }],
             });
         });
-        const handler = createBasetenServerHandler({
+        const handler = createModalServerHandler({
             fetchFn: fetchFn as unknown as typeof fetch,
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runServerHandler(handler, JSON.stringify({ model: "attacker", stream: false }));
         expect(out.statusCode).toBe(200);
@@ -341,7 +275,6 @@ describe("env driven upstream", () => {
     });
 
     it("resolves Modal from env through the shared helper in the Vite proxy", async () => {
-        process.env.CHAT_UPSTREAM = "modal";
         process.env.MODAL_CHAT_URL = MODAL_URL;
         process.env.MODAL_PROXY_TOKEN = MODAL_TOKEN;
         let seenUrl = "";
@@ -358,7 +291,7 @@ describe("env driven upstream", () => {
         });
         const handler = getViteHandler({
             fetchFn: fetchFn as unknown as typeof fetch,
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runViteHandler(handler, JSON.stringify({ model: "attacker", stream: false }));
         expect(out.statusCode).toBe(200);
@@ -367,52 +300,44 @@ describe("env driven upstream", () => {
         expect((JSON.parse(seenBody) as Record<string, unknown>).model).toBe(MODAL_MODEL_ID);
     });
 
-    it("falls back to Baseten for a hostile MODAL_CHAT_URL at the handler level", async () => {
-        process.env.CHAT_UPSTREAM = "modal";
+    it("fails closed to 503 for a hostile MODAL_CHAT_URL at the handler level", async () => {
         process.env.MODAL_CHAT_URL = "https://evil.example/v1/chat/completions";
-        process.env.BASETEN_API_KEY = "base-test-key";
-        let seenUrl = "";
-        let seenBody = "";
-        const fetchFn = vi.fn(async (url: unknown, init: unknown) => {
-            seenUrl = String(url);
-            seenBody = String((init as { body?: unknown }).body ?? "");
-            return jsonUpstream({ id: "chatcmpl-fallback", choices: [{ message: { content: "ok" } }] });
-        });
-        const handler = createBasetenServerHandler({
+        process.env.MODAL_PROXY_TOKEN = MODAL_TOKEN;
+        expect(resolveModalUpstreamUrl()).toBeNull();
+        const fetchFn = vi.fn(async () => jsonUpstream({ ok: true }));
+        const handler = createModalServerHandler({
             fetchFn: fetchFn as unknown as typeof fetch,
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runServerHandler(handler, JSON.stringify({ model: "attacker" }));
-        expect(out.statusCode).toBe(200);
-        expect(seenUrl).toBe(BASETEN_UPSTREAM_URL);
-        expect((JSON.parse(seenBody) as Record<string, unknown>).model).toBe(BASETEN_MODEL_ID);
+        expect(out.statusCode).toBe(503);
+        expect(fetchFn).not.toHaveBeenCalled();
     });
 
     it("ignores a hostile upstreamUrl override and keeps the resolved upstream", async () => {
-        process.env.BASETEN_API_KEY = "base-test-key";
+        process.env.MODAL_CHAT_URL = MODAL_URL;
+        process.env.MODAL_PROXY_TOKEN = MODAL_TOKEN;
         let seenUrl = "";
         const fetchFn = vi.fn(async (url: unknown) => {
             seenUrl = String(url);
             return jsonUpstream({ id: "chatcmpl-override", choices: [{ message: { content: "ok" } }] });
         });
-        const handler = createBasetenServerHandler({
+        const handler = createModalServerHandler({
             fetchFn: fetchFn as unknown as typeof fetch,
             upstreamUrl: "https://evil.example/v1/chat/completions",
-            chatKind: "modal",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runServerHandler(handler, JSON.stringify({ model: "attacker" }));
         expect(out.statusCode).toBe(200);
-        expect(seenUrl).toBe(BASETEN_UPSTREAM_URL);
+        expect(seenUrl).toBe(MODAL_URL);
     });
 
-    it("returns 503 when Modal is selected without a proxy token", async () => {
-        process.env.CHAT_UPSTREAM = "modal";
+    it("returns 503 when the proxy token is missing", async () => {
         process.env.MODAL_CHAT_URL = MODAL_URL;
         const fetchFn = vi.fn(async () => jsonUpstream({ choices: [] }));
-        const handler = createBasetenServerHandler({
+        const handler = createModalServerHandler({
             fetchFn: fetchFn as unknown as typeof fetch,
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runServerHandler(handler, JSON.stringify({ model: "attacker" }));
         expect(out.statusCode).toBe(503);
@@ -432,8 +357,7 @@ describe("vite SSE replay", () => {
             fetchFn: fetchFn as unknown as typeof fetch,
             getAuthHeaders: () => ({ authorization: `Bearer ${MODAL_TOKEN}` }),
             upstreamUrl: MODAL_URL,
-            chatKind: "modal",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runViteHandler(handler, JSON.stringify({ stream: true }));
         expect(out.statusCode).toBe(200);
@@ -441,22 +365,5 @@ describe("vite SSE replay", () => {
         expect(out.writes.length).toBeGreaterThanOrEqual(3);
         expect(out.text).toContain("reasoning_content");
         expect(out.text).toContain("[DONE]");
-    });
-});
-
-describe("modal allowlist hardening", () => {
-    it("rejects modal.com hosts, query strings, and fragments", () => {
-        expect(isAllowedChatUpstreamUrl("modal", "https://modal.com/v1/chat/completions")).toBe(false);
-        expect(isAllowedChatUpstreamUrl("modal", "https://foo.modal.com/v1/chat/completions")).toBe(false);
-        expect(isAllowedChatUpstreamUrl("modal", `${MODAL_URL}?token=secret`)).toBe(false);
-        expect(isAllowedChatUpstreamUrl("modal", `${MODAL_URL}#secret`)).toBe(false);
-        expect(resolveChatUpstream("modal", "https://foo.modal.com/v1").kind).toBe("baseten");
-        expect(resolveChatUpstream("modal", `${MODAL_URL}?token=secret`).kind).toBe("baseten");
-        expect(resolveChatUpstream("modal", `${MODAL_URL}#secret`).kind).toBe("baseten");
-    });
-
-    it("still allows bare modal.run serving hosts", () => {
-        expect(isAllowedChatUpstreamUrl("modal", MODAL_URL)).toBe(true);
-        expect(isAllowedChatUpstreamUrl("modal", "https://modal.run/v1/chat/completions")).toBe(true);
     });
 });

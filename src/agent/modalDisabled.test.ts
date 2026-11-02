@@ -1,39 +1,40 @@
-// Baseten kill switch tests. Gate predicate plus proxy 503 plus the client
-// offline mapping. Proxy assertions run the real basetenProxy middleware
+// Modal kill switch tests. Gate predicate plus proxy 503 plus the client
+// offline mapping. Proxy assertions run the real modalProxy middleware
 // with a fake upstream, zero live calls.
 
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it } from "vitest";
-import { basetenProxy } from "../../vite.config";
+import { modalProxy } from "../../vite.config";
 import {
-    BASETEN_DISABLED_MESSAGE,
-    BASETEN_PATH,
-    isBasetenDisabled,
-} from "./basetenGate";
-import { toHttpError } from "./basetenClient";
+    MODAL_DISABLED_MESSAGE,
+    MODAL_PATH,
+    isModalDisabled,
+} from "./modalGate";
+import { toHttpError } from "./modalClient";
 import type { Connect } from "vite";
 
-const SAVED = process.env.BASETEN_DISABLED;
+const SAVED = process.env.MODAL_DISABLED;
 
 afterEach(() => {
     if (SAVED === undefined) {
-        delete process.env.BASETEN_DISABLED;
+        delete process.env.MODAL_DISABLED;
     } else {
-        process.env.BASETEN_DISABLED = SAVED;
+        process.env.MODAL_DISABLED = SAVED;
     }
 });
 
 function getHandler(counter: { calls: number }): Connect.NextHandleFunction {
-    const plugin = basetenProxy({
+    const plugin = modalProxy({
         fetchFn: (async () => {
             counter.calls += 1;
             return new Response("{}", { status: 200 });
         }) as unknown as typeof fetch,
-        getKey: () => "test-key",
+        getAuthHeaders: () => ({ authorization: "Bearer test-token" }),
+        upstreamUrl: "https://example-workspace.modal.run/v1/chat/completions",
     });
     const seen: Connect.NextHandleFunction[] = [];
     plugin.configureServer({ middlewares: { use: (h: Connect.NextHandleFunction) => seen.push(h) } } as never);
-    if (seen.length !== 1) throw new Error("expected one baseten middleware");
+    if (seen.length !== 1) throw new Error("expected one modal middleware");
     return seen[0];
 }
 
@@ -46,7 +47,7 @@ function runProxy(handler: Connect.NextHandleFunction): Promise<{ statusCode: nu
             socket: { remoteAddress: string };
             destroy: () => void;
         };
-        req.url = BASETEN_PATH;
+        req.url = MODAL_PATH;
         req.method = "POST";
         req.headers = { host: "localhost:5173" };
         req.socket = { remoteAddress: "127.0.0.1" };
@@ -67,26 +68,26 @@ function runProxy(handler: Connect.NextHandleFunction): Promise<{ statusCode: nu
     });
 }
 
-describe("isBasetenDisabled", () => {
+describe("isModalDisabled", () => {
     it("disables only on the exact string true", () => {
-        expect(isBasetenDisabled("true")).toBe(true);
-        expect(isBasetenDisabled("false")).toBe(false);
-        expect(isBasetenDisabled("1")).toBe(false);
-        expect(isBasetenDisabled("TRUE")).toBe(false);
-        expect(isBasetenDisabled(undefined)).toBe(false);
-        expect(isBasetenDisabled(null)).toBe(false);
-        expect(isBasetenDisabled(true)).toBe(false);
-        expect(isBasetenDisabled("")).toBe(false);
+        expect(isModalDisabled("true")).toBe(true);
+        expect(isModalDisabled("false")).toBe(false);
+        expect(isModalDisabled("1")).toBe(false);
+        expect(isModalDisabled("TRUE")).toBe(false);
+        expect(isModalDisabled(undefined)).toBe(false);
+        expect(isModalDisabled(null)).toBe(false);
+        expect(isModalDisabled(true)).toBe(false);
+        expect(isModalDisabled("")).toBe(false);
     });
 
     it("pins the disabled message", () => {
-        expect(BASETEN_DISABLED_MESSAGE).toContain("disabled");
+        expect(MODAL_DISABLED_MESSAGE).toContain("disabled");
     });
 });
 
-describe("baseten kill switch wiring", () => {
-    it("answers 503 disabled when BASETEN_DISABLED is true", async () => {
-        process.env.BASETEN_DISABLED = "true";
+describe("modal kill switch wiring", () => {
+    it("answers 503 disabled when MODAL_DISABLED is true", async () => {
+        process.env.MODAL_DISABLED = "true";
         const counter = { calls: 0 };
         const out = await runProxy(getHandler(counter));
         expect(out.statusCode).toBe(503);
@@ -94,8 +95,8 @@ describe("baseten kill switch wiring", () => {
         expect(counter.calls).toBe(0);
     });
 
-    it("stays live when BASETEN_DISABLED is unset", async () => {
-        delete process.env.BASETEN_DISABLED;
+    it("stays live when MODAL_DISABLED is unset", async () => {
+        delete process.env.MODAL_DISABLED;
         const counter = { calls: 0 };
         const out = await runProxy(getHandler(counter));
         expect(out.statusCode).not.toBe(503);

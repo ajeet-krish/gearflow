@@ -11,21 +11,18 @@ import {
     isSameOriginRequest,
 } from "./src/meta/proxyGate";
 import {
-    BASETEN_DISABLED_MESSAGE,
-    BASETEN_MAX_BODY_BYTES,
-    BASETEN_MAX_RESPONSE_BYTES,
-    BASETEN_TIMEOUT_MS,
+    MODAL_DISABLED_MESSAGE,
+    MODAL_MAX_BODY_BYTES,
+    MODAL_MAX_RESPONSE_BYTES,
+    MODAL_TIMEOUT_MS,
     forceModel,
-    g_basetenRateLimiter,
-    isAllowedChatUpstreamUrl,
-    isBasetenDisabled,
-    isBasetenPath,
-    parseChatUpstreamKind,
-    resolveChatUpstream,
-    resolveChatUpstreamFromEnv,
+    g_modalRateLimiter,
+    isAllowedModalUpstreamUrl,
+    isModalDisabled,
+    isModalPath,
+    resolveModalUpstreamUrl,
     toGenericError,
-} from "./src/agent/basetenGate";
-import type { ChatUpstreamKind } from "./src/agent/basetenGate";
+} from "./src/agent/modalGate";
 
 const META_API_BASE = "https://api.meta.ai/v1";
 
@@ -142,46 +139,39 @@ function metaProxy() {
 }
 
 /**
- * Same origin Baseten proxy for Muse Spark. Reads the server only
- * BASETEN_API_KEY from the dev process environment and injects it as a
- * Bearer token, so the key never reaches the browser bundle. Allowlisted
- * to POST on the single pinned chat completions path, same origin
- * checked, per-IP rate limited, body capped at 64 KiB (413 over),
+ * Same origin Modal proxy for Muse Spark. Reads the server only
+ * MODAL_PROXY_TOKEN from the dev process environment and injects it as
+ * a Bearer token, so the token never reaches the browser bundle.
+ * Allowlisted to POST on the single pinned chat completions path, same
+ * origin checked, per-IP rate limited, body capped at 64 KiB (413 over),
  * upstream 30 s total plus idle stream deadline kept through the read
  * loop with close driven abort and reader cancel, response capped at
- * BASETEN_MAX_RESPONSE_BYTES on the non stream path (502 over), pinned
+ * MODAL_MAX_RESPONSE_BYTES on the non stream path (502 over), pinned
  * model id forced into the forwarded body, non 2xx upstream mapped to
  * generic errors with only retry-after forwarded, SSE passthrough with
- * write drain respected, generic errors only.
+ * write drain respected, generic errors only. Modal-only: a missing or
+ * hostile MODAL_CHAT_URL fails closed to 503, never falls back.
  */
-export interface BasetenProxyDeps {
+export interface ModalProxyDeps {
     fetchFn?: typeof fetch;
-    getKey?: () => string | undefined;
     /** Override the Authorization headers (Modal Bearer proxy token route).
-     *  When omitted, baseten uses getKey Bearer and modal uses the server
-     *  only MODAL_PROXY_TOKEN Bearer.
+     *  When omitted, the server only MODAL_PROXY_TOKEN Bearer is used.
      *  Server-trusted test-only override: tests inject a fake Bearer so no
      *  live token is needed; production passes no override. */
     getAuthHeaders?: () => Record<string, string> | undefined;
     /** Override the resolved upstream URL (fake upstreams in tests). When
-     *  omitted, the shared resolveChatUpstreamFromEnv helper picks the URL
-     *  from CHAT_UPSTREAM plus MODAL_CHAT_URL with a Baseten fallback.
-     *  Server-trusted test-only override: validated against the effective
-     *  kind allowlist before use, hostile values fall back to the resolved
-     *  URL. Production uses defaults. */
+     *  omitted, MODAL_CHAT_URL resolves through the shared helper and a
+     *  missing or hostile value fails closed to 503. Server-trusted
+     *  test-only override: validated against the Modal allowlist before
+     *  use, hostile values fall back to the resolved URL. Production uses
+     *  defaults. */
     upstreamUrl?: string;
-    /** Kind override for tests; defaults to process.env.CHAT_UPSTREAM.
-     *  Server-trusted test-only; production reads the env. */
-    chatKind?: unknown;
-    /** Modal URL override for tests; defaults to process.env.MODAL_CHAT_URL.
-     *  Server-trusted test-only; production reads the env. */
-    modalUrl?: unknown;
     limiter?: { allow: (ip: string) => boolean };
     timeoutMs?: number;
     maxResponseBytes?: number;
 }
 
-function writeGenericBasetenError(
+function writeGenericModalError(
     res: Parameters<Connect.NextHandleFunction>[1],
     upstreamStatus: number,
     upstreamRetryAfter: string | null
@@ -193,22 +183,21 @@ function writeGenericBasetenError(
     res.end(JSON.stringify({ error: generic.message }));
 }
 
-export function basetenProxy(deps: BasetenProxyDeps = {}): {
+export function modalProxy(deps: ModalProxyDeps = {}): {
     name: string;
     configureServer: (server: ViteDevServer) => void;
     configurePreviewServer: (server: { middlewares: { use: (h: Connect.NextHandleFunction) => void } }) => void;
 } {
     const fetchFn = deps.fetchFn ?? fetch;
-    const getKey = deps.getKey ?? ((): string | undefined => process.env.BASETEN_API_KEY);
-    const limiter = deps.limiter ?? g_basetenRateLimiter;
-    const timeoutMs = deps.timeoutMs ?? BASETEN_TIMEOUT_MS;
-    const maxResponseBytes = deps.maxResponseBytes ?? BASETEN_MAX_RESPONSE_BYTES;
+    const limiter = deps.limiter ?? g_modalRateLimiter;
+    const timeoutMs = deps.timeoutMs ?? MODAL_TIMEOUT_MS;
+    const maxResponseBytes = deps.maxResponseBytes ?? MODAL_MAX_RESPONSE_BYTES;
     const handler: Connect.NextHandleFunction = (req, res, next) => {
-        if (!req.url || !req.url.startsWith("/api/baseten")) {
+        if (!req.url || !req.url.startsWith("/api/modal")) {
             next();
             return;
         }
-        if (!isBasetenPath(req.method, req.url)) {
+        if (!isModalPath(req.method, req.url)) {
             res.statusCode = req.method !== "POST" ? 405 : 404;
             res.setHeader("content-type", "application/json");
             res.end(JSON.stringify({ error: "not found" }));
@@ -220,10 +209,10 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
             res.end(JSON.stringify({ error: "not found" }));
             return;
         }
-        if (isBasetenDisabled(process.env.BASETEN_DISABLED)) {
+        if (isModalDisabled(process.env.MODAL_DISABLED)) {
             res.statusCode = 503;
             res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify({ error: BASETEN_DISABLED_MESSAGE }));
+            res.end(JSON.stringify({ error: MODAL_DISABLED_MESSAGE }));
             return;
         }
         const ip = (req.socket?.remoteAddress ?? "local").toString();
@@ -233,35 +222,25 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
             res.end(JSON.stringify({ error: "rate limited, retry later" }));
             return;
         }
-        // Env driven default through the shared helper so the Vite proxy and
-        // the server handler cannot diverge. Dep overrides are
-        // server-trusted test-only inputs layered on top.
-        const kindInput = deps.chatKind ?? process.env.CHAT_UPSTREAM;
-        const modalUrlInput = deps.modalUrl ?? process.env.MODAL_CHAT_URL;
-        const resolved =
-            deps.chatKind === undefined && deps.modalUrl === undefined
-                ? resolveChatUpstreamFromEnv()
-                : resolveChatUpstream(kindInput, modalUrlInput);
-        // Validate a test-only upstreamUrl override against the effective
-        // kind allowlist; hostile values fall back to the resolved URL.
-        let effectiveKind: ChatUpstreamKind = resolved.kind;
-        let upstreamUrl = resolved.url;
-        if (deps.upstreamUrl !== undefined) {
-            const candidateKind = parseChatUpstreamKind(kindInput);
-            if (isAllowedChatUpstreamUrl(candidateKind, deps.upstreamUrl)) {
-                effectiveKind = candidateKind;
-                upstreamUrl = deps.upstreamUrl.trim();
-            }
+        // Modal-only upstream: MODAL_CHAT_URL through the shared helper,
+        // fail closed to 503 when missing or hostile. A server-trusted
+        // test-only override may substitute a fake upstream, validated
+        // against the Modal allowlist first.
+        const resolved = resolveModalUpstreamUrl();
+        let upstreamUrl = resolved;
+        if (deps.upstreamUrl !== undefined && isAllowedModalUpstreamUrl(deps.upstreamUrl)) {
+            upstreamUrl = deps.upstreamUrl.trim();
+        }
+        if (upstreamUrl === null) {
+            res.statusCode = 503;
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ error: "Modal service unavailable" }));
+            return;
         }
         const buildDefaultAuthHeaders = (): Record<string, string> | undefined => {
-            if (effectiveKind === "modal") {
-                const token = process.env.MODAL_PROXY_TOKEN;
-                if (!token) return undefined;
-                return { authorization: `Bearer ${token}` };
-            }
-            const key = getKey();
-            if (!key) return undefined;
-            return { authorization: `Bearer ${key}` };
+            const token = process.env.MODAL_PROXY_TOKEN;
+            if (!token) return undefined;
+            return { authorization: `Bearer ${token}` };
         };
         const authHeaders = deps.getAuthHeaders !== undefined ? deps.getAuthHeaders() : buildDefaultAuthHeaders();
         if (
@@ -271,7 +250,7 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
         ) {
             res.statusCode = 503;
             res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify({ error: "Baseten service unavailable" }));
+            res.end(JSON.stringify({ error: "Modal service unavailable" }));
             return;
         }
         const chunks: Buffer[] = [];
@@ -280,7 +259,7 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
         req.on("data", (chunk: Buffer) => {
             if (rejected) return;
             received += chunk.length;
-            if (received > BASETEN_MAX_BODY_BYTES) {
+            if (received > MODAL_MAX_BODY_BYTES) {
                 rejected = true;
                 res.statusCode = 413;
                 res.setHeader("content-type", "application/json");
@@ -301,7 +280,7 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
                 res.end(JSON.stringify({ error: "invalid request" }));
                 return;
             }
-            const forced = forceModel(payload, effectiveKind);
+            const forced = forceModel(payload);
             const requestedStream =
                 typeof payload === "object" &&
                 payload !== null &&
@@ -365,7 +344,7 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
                             // Error path body cancel is best effort.
                         }
                         finish();
-                        writeGenericBasetenError(res, upstream.status, upstreamRetry);
+                        writeGenericModalError(res, upstream.status, upstreamRetry);
                         return;
                     }
                     const isStream = requestedStream || upstreamType.includes("text/event-stream");
@@ -380,6 +359,9 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
                                 const reader = upstream.body.getReader();
                                 readerRef = reader as unknown as { cancel: () => unknown };
                                 pokeIdle(readerRef);
+                                let streamedBytes = 0;
+                                let forwardedBytes = 0;
+                                let overCap = false;
                                 for (;;) {
                                     let read: ReadableStreamReadResult<Uint8Array>;
                                     try {
@@ -389,7 +371,19 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
                                     }
                                     if (read.done) break;
                                     pokeIdle(readerRef);
+                                    streamedBytes += read.value.length;
+                                    if (streamedBytes > maxResponseBytes) {
+                                        overCap = true;
+                                        controller.abort();
+                                        try {
+                                            await reader.cancel();
+                                        } catch {
+                                            // Over cap cancel is best effort.
+                                        }
+                                        break;
+                                    }
                                     const chunk = Buffer.from(read.value);
+                                    forwardedBytes += chunk.length;
                                     const ok = res.write(chunk);
                                     if (!ok) {
                                         await new Promise<void>((resolve) => {
@@ -402,6 +396,13 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
                                     reader.releaseLock();
                                 } catch {
                                     // Reader cleanup is best effort only.
+                                }
+                                if (overCap && forwardedBytes === 0) {
+                                    finish();
+                                    res.statusCode = 502;
+                                    res.setHeader("content-type", "application/json");
+                                    res.end(JSON.stringify({ error: "upstream response too large" }));
+                                    return;
                                 }
                             }
                             finish();
@@ -490,13 +491,13 @@ export function basetenProxy(deps: BasetenProxyDeps = {}): {
                     if (!res.writableEnded) {
                         res.statusCode = 502;
                         res.setHeader("content-type", "application/json");
-                        res.end(JSON.stringify({ error: "Baseten service unavailable" }));
+                        res.end(JSON.stringify({ error: "Modal service unavailable" }));
                     }
                 });
         });
     };
     return {
-        name: "gearflow-baseten-proxy",
+        name: "gearflow-modal-proxy",
         configureServer(server: ViteDevServer) {
             server.middlewares.use(handler);
         },
@@ -511,7 +512,7 @@ export default defineConfig({
     // and a project subpath (owner.github.io/repo/). Surrogate fetches and
     // the ORT wasm prefix stay relative to the document base by construction.
     base: "./",
-    plugins: [react(), metaProxy(), basetenProxy()],
+    plugins: [react(), metaProxy(), modalProxy()],
     worker: {
         format: "es",
     },

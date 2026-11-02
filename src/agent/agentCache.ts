@@ -12,10 +12,10 @@
 // transfer across environments with different crypto availability.
 
 import {
-    type BasetenChatOptions,
-    type BasetenChatResult,
-    type BasetenMessage,
-} from "./basetenClient";
+    type ModalChatOptions,
+    type ModalChatResult,
+    type ModalMessage,
+} from "./modalClient";
 
 export const AGENT_CACHE_VERSION = 1;
 export const AGENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -53,7 +53,7 @@ export interface AgentCacheDeps {
     skipMemory?: boolean;
 }
 
-export interface CachedChatOptions extends BasetenChatOptions {
+export interface CachedChatOptions extends ModalChatOptions {
     now?: number;
     store?: AgentCacheStore | null;
     skipMemory?: boolean;
@@ -61,7 +61,7 @@ export interface CachedChatOptions extends BasetenChatOptions {
 
 /** Minimal chat port so the wrapper accepts the console port or a fake. */
 export interface ChatPort {
-    chat(messages: BasetenMessage[], opts?: BasetenChatOptions): Promise<BasetenChatResult>;
+    chat(messages: ModalMessage[], opts?: ModalChatOptions): Promise<ModalChatResult>;
 }
 
 const g_memory = new Map<string, AgentCacheEntry>();
@@ -246,16 +246,16 @@ export function cacheGet(key: string, deps?: AgentCacheDeps): AgentCacheEntry | 
 }
 
 /** Store one result under key in memory plus the blob. Never throws. */
-export function cacheSet(key: string, result: BasetenChatResult, deps?: AgentCacheDeps): void {
+export function cacheSet(key: string, result: ModalChatResult, deps?: AgentCacheDeps): void {
     try {
         if (typeof key !== "string" || key.length === 0) return;
         if (result === null || typeof result !== "object") return;
         const now = nowMs(deps?.now);
-        const usage = (result as BasetenChatResult).usage ?? { inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
+        const usage = (result as ModalChatResult).usage ?? { inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
         const entry: AgentCacheEntry = {
             version: AGENT_CACHE_VERSION,
             text: typeof result.text === "string" ? result.text : "",
-            action: (result as BasetenChatResult).action ?? null,
+            action: (result as ModalChatResult).action ?? null,
             model: typeof result.model === "string" ? result.model : "unknown",
             usage: {
                 inputTokens: isNonNegNumber(usage.inputTokens) ? Math.floor(usage.inputTokens) : 0,
@@ -287,7 +287,7 @@ export function cacheSet(key: string, result: BasetenChatResult, deps?: AgentCac
     }
 }
 
-function zeroedCopy(entry: AgentCacheEntry): BasetenChatResult {
+function zeroedCopy(entry: AgentCacheEntry): ModalChatResult {
     return {
         text: entry.text,
         action: entry.action,
@@ -311,9 +311,9 @@ function zeroedCopy(entry: AgentCacheEntry): BasetenChatResult {
  */
 export async function cachedChat(
     port: ChatPort,
-    messages: BasetenMessage[],
+    messages: ModalMessage[],
     opts?: CachedChatOptions
-): Promise<BasetenChatResult> {
+): Promise<ModalChatResult> {
     const list = Array.isArray(messages) ? messages : [];
     let prompt = "";
     try {

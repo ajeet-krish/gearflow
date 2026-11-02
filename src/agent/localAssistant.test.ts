@@ -216,7 +216,7 @@ describe("localReply engine, field, and run", () => {
         expect(out.reply).toContain("Canvas unchanged until confirm");
     });
 
-    it("rejects run_lbm without a live LBM engine like the Baseten path", () => {
+    it("rejects run_lbm without a live LBM engine like the Modal path", () => {
         const out = localReply("run the lbm solve", makeCtx());
         expect(out.actions).toEqual([]);
         expect(out.rejections.join(" ")).toContain("LBM");

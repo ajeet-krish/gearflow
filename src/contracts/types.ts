@@ -268,7 +268,7 @@ export interface ChatTurn {
     role: "user" | "assistant";
     text: string;
     at: string;
-    tool?: "spark-spec" | "spark-engineer" | "sam" | "poster" | "chat" | "baseten";
+    tool?: "spark-spec" | "spark-engineer" | "sam" | "poster" | "chat" | "modal" | "baseten";
     status?: "live" | "cached" | "fallback" | "offline";
     applied?: boolean;
     specSnapshot?: ParametricSpec;

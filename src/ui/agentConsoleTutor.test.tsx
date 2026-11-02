@@ -337,8 +337,9 @@ describe("agent console tutor hook (T2)", () => {
             typeText(m, "Set up NACA 2412 alpha 6 Re 50000");
             submitForm(m);
             await flush();
-            // Parser fast path: three canvas writes, zero port calls.
-            expect(log.streams).toBe(0);
+            // Modal-only live path: one stream call, the shared validator
+            // gates the rescue applies.
+            expect(log.streams).toBe(1);
             expect(log.chats).toBe(0);
             expect(onAgentAction).toHaveBeenCalledTimes(3);
             expect(tutorBlocks(m.tree())).toHaveLength(0);

@@ -13,12 +13,12 @@ import {
     validateAgentAction,
     type AgentValidationContext,
 } from "./agentActions";
-import { RUN_KINDS, SETUP_KINDS, buildBasetenMessages } from "@/ui/AgentConsole";
+import { RUN_KINDS, SETUP_KINDS, buildModalMessages } from "@/ui/AgentConsole";
 
 const ANALYTIC: AgentValidationContext = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
 
 function promptSystem(): string {
-    const messages = buildBasetenMessages("Explain this run", null, []);
+    const messages = buildModalMessages("Explain this run", null, []);
     expect(messages.length).toBeGreaterThan(0);
     return messages[0].content;
 }

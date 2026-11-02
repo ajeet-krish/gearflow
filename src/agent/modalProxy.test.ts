@@ -1,11 +1,14 @@
-// Baseten Vite proxy integration tests. Exercises the real basetenProxy
+// Modal Vite proxy integration tests. Exercises the real modalProxy
 // middleware from vite.config.ts with a fake upstream, zero live calls.
 
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { basetenProxy } from "../../vite.config";
-import { BASETEN_MAX_BODY_BYTES, BASETEN_MODEL_ID, BasetenRateLimiter } from "./basetenGate";
+import { modalProxy } from "../../vite.config";
+import { MODAL_MAX_BODY_BYTES, MODAL_MODEL_ID, ModalRateLimiter } from "./modalGate";
 import type { Connect } from "vite";
+
+const MODAL_URL = "https://example-workspace--spark-open.modal.run/v1/chat/completions";
+const MODAL_TOKEN = "wk-testworkspace.ws-testsecret";
 
 interface CapturedResponse {
     statusCode: number;
@@ -24,11 +27,20 @@ interface ProxyRequest {
     origin?: string;
 }
 
-function getHandler(deps: Parameters<typeof basetenProxy>[0]): Connect.NextHandleFunction {
-    const plugin = basetenProxy(deps);
+function testDeps(over: Partial<Parameters<typeof modalProxy>[0]> = {}): Parameters<typeof modalProxy>[0] {
+    return {
+        getAuthHeaders: () => ({ authorization: `Bearer ${MODAL_TOKEN}` }),
+        upstreamUrl: MODAL_URL,
+        limiter: new ModalRateLimiter(1000, 60 * 1000),
+        ...over,
+    };
+}
+
+function getHandler(deps: Parameters<typeof modalProxy>[0]): Connect.NextHandleFunction {
+    const plugin = modalProxy(deps);
     const seen: Connect.NextHandleFunction[] = [];
     plugin.configureServer({ middlewares: { use: (h: Connect.NextHandleFunction) => seen.push(h) } } as never);
-    if (seen.length !== 1) throw new Error("expected one baseten middleware");
+    if (seen.length !== 1) throw new Error("expected one modal middleware");
     return seen[0];
 }
 
@@ -109,42 +121,41 @@ function sseUpstream(chunks: string[], init: { status?: number } = {}): Response
     });
 }
 
-describe("basetenProxy wiring", () => {
-    it("forces the pinned model and caps max_tokens before forwarding", async () => {
+describe("modalProxy wiring", () => {
+    it("forces the pinned model, temp 0, and caps max_tokens before forwarding", async () => {
         let seenBody = "";
         const fetchFn = vi.fn(async (_url: unknown, init: unknown) => {
             seenBody = String((init as { body?: unknown }).body);
             return jsonUpstream({ choices: [{ message: { content: "hi" } }] });
         });
-        const handler = getHandler({
+        const handler = getHandler(testDeps({
             fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        }));
         const out = await runProxy(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
-            body: JSON.stringify({ model: "attacker-model", n: 9, max_tokens: 4096, stream: false }),
+            body: JSON.stringify({ model: "attacker-model", n: 9, max_tokens: 4096, temperature: 0.9, stream: false }),
             ip: "10.1.0.1",
         });
         const sent = JSON.parse(seenBody) as Record<string, unknown>;
-        expect(sent.model).toBe(BASETEN_MODEL_ID);
+        expect(sent.model).toBe(MODAL_MODEL_ID);
         expect(sent.n).toBe(1);
         expect(sent.max_tokens).toBe(700);
+        expect(sent.temperature).toBe(0);
         expect(out.statusCode).toBe(200);
     });
 
-    it("returns 503 when the server key is absent", async () => {
+    it("returns 503 when the proxy token is absent", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
         const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => undefined,
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            getAuthHeaders: () => undefined,
+            upstreamUrl: MODAL_URL,
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runProxy(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: "{}",
             ip: "10.1.0.2",
@@ -153,16 +164,31 @@ describe("basetenProxy wiring", () => {
         expect(fetchFn).not.toHaveBeenCalled();
     });
 
-    it("rejects cross origin requests with 403", async () => {
+    it("returns 503 when MODAL_CHAT_URL is missing (fail closed, no fallback)", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
         const handler = getHandler({
-            fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
+            getAuthHeaders: () => ({ authorization: `Bearer ${MODAL_TOKEN}` }),
+            limiter: new ModalRateLimiter(1000, 60 * 1000),
         });
         const out = await runProxy(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
+            headers: {},
+            body: "{}",
+            ip: "10.1.0.22",
+        });
+        expect(out.statusCode).toBe(503);
+        expect(fetchFn).not.toHaveBeenCalled();
+    });
+
+    it("rejects cross origin requests with 403", async () => {
+        const fetchFn = vi.fn(async () => jsonUpstream({}));
+        const handler = getHandler(testDeps({
+            fetchFn: fetchFn as unknown as typeof fetch,
+        }));
+        const out = await runProxy(handler, {
+            method: "POST",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: "{}",
             ip: "10.1.0.3",
@@ -174,30 +200,28 @@ describe("basetenProxy wiring", () => {
 
     it("rate limits the second request with 429", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
-        const limiter = new BasetenRateLimiter(1, 60 * 1000);
-        const handler = getHandler({ fetchFn: fetchFn as unknown as typeof fetch, getKey: () => "k", limiter });
+        const limiter = new ModalRateLimiter(1, 60 * 1000);
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch, limiter }));
         const first = await runProxy(handler, {
-            method: "POST", url: "/api/baseten/chat/completions", headers: {}, body: "{}", ip: "10.9.9.9",
+            method: "POST", url: "/api/modal/chat/completions", headers: {}, body: "{}", ip: "10.9.9.9",
         });
         expect(first.statusCode).toBe(200);
         const second = await runProxy(handler, {
-            method: "POST", url: "/api/baseten/chat/completions", headers: {}, body: "{}", ip: "10.9.9.9",
+            method: "POST", url: "/api/modal/chat/completions", headers: {}, body: "{}", ip: "10.9.9.9",
         });
         expect(second.statusCode).toBe(429);
     });
 
     it("rejects bodies over 64 KiB with 413", async () => {
         const fetchFn = vi.fn(async () => jsonUpstream({}));
-        const handler = getHandler({
+        const handler = getHandler(testDeps({
             fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        }));
         const out = await runProxy(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
-            body: JSON.stringify({ filler: "x".repeat(BASETEN_MAX_BODY_BYTES + 1) }),
+            body: JSON.stringify({ filler: "x".repeat(MODAL_MAX_BODY_BYTES + 1) }),
             ip: "10.1.0.4",
         });
         expect(out.statusCode).toBe(413);
@@ -211,14 +235,12 @@ describe("basetenProxy wiring", () => {
                 { status: 500, retryAfter: "3" }
             )
         );
-        const handler = getHandler({
+        const handler = getHandler(testDeps({
             fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        }));
         const out = await runProxy(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: JSON.stringify({ stream: false }),
             ip: "10.1.0.5",
@@ -233,14 +255,12 @@ describe("basetenProxy wiring", () => {
 
     it("maps a leaking stream path upstream error to generic JSON, not SSE", async () => {
         const fetchFn = vi.fn(async () => sseUpstream(["data: leak\n\n"], { status: 429 }));
-        const handler = getHandler({
+        const handler = getHandler(testDeps({
             fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        }));
         const out = await runProxy(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: JSON.stringify({ stream: true }),
             ip: "10.1.0.6",
@@ -254,14 +274,12 @@ describe("basetenProxy wiring", () => {
     it("delivers SSE chunks incrementally with SSE headers", async () => {
         const chunks = ['data: {"choices":[{"delta":{"content":"hel"}}]}\n\n', 'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n', "data: [DONE]\n\n"];
         const fetchFn = vi.fn(async () => sseUpstream(chunks));
-        const handler = getHandler({
+        const handler = getHandler(testDeps({
             fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        }));
         const out = await runProxy(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: JSON.stringify({ stream: true }),
             ip: "10.1.0.7",
@@ -282,14 +300,12 @@ describe("basetenProxy wiring", () => {
                     headers: { "content-type": "application/json", "content-length": String(2 * 1024 * 1024) },
                 })
         );
-        const handler = getHandler({
+        const handler = getHandler(testDeps({
             fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        }));
         const out = await runProxy(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: JSON.stringify({ stream: false }),
             ip: "10.1.0.8",
@@ -308,14 +324,12 @@ describe("basetenProxy wiring", () => {
             },
         });
         const fetchFn = vi.fn(async () => new Response(body, { status: 200, headers: { "content-type": "application/json" } }));
-        const handler = getHandler({
+        const handler = getHandler(testDeps({
             fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
-        });
+        }));
         const out = await runProxy(handler, {
             method: "POST",
-            url: "/api/baseten/chat/completions",
+            url: "/api/modal/chat/completions",
             headers: {},
             body: JSON.stringify({ stream: false }),
             ip: "10.1.0.9",
@@ -331,17 +345,15 @@ describe("basetenProxy wiring", () => {
             },
         });
         const fetchFn = vi.fn(async () => new Response(hanging, { status: 200, headers: { "content-type": "text/event-stream" } }));
-        const handler = getHandler({
+        const handler = getHandler(testDeps({
             fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
             timeoutMs: 50,
-        });
+        }));
         const out = await runProxy(
             handler,
             {
                 method: "POST",
-                url: "/api/baseten/chat/completions",
+                url: "/api/modal/chat/completions",
                 headers: {},
                 body: JSON.stringify({ stream: true }),
                 ip: "10.1.0.10",
@@ -364,17 +376,15 @@ describe("basetenProxy wiring", () => {
             },
         });
         const fetchFn = vi.fn(async () => new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }));
-        const handler = getHandler({
+        const handler = getHandler(testDeps({
             fetchFn: fetchFn as unknown as typeof fetch,
-            getKey: () => "test-key",
-            limiter: new BasetenRateLimiter(1000, 60 * 1000),
             timeoutMs: 5000,
-        });
+        }));
         await runProxy(
             handler,
             {
                 method: "POST",
-                url: "/api/baseten/chat/completions",
+                url: "/api/modal/chat/completions",
                 headers: {},
                 body: JSON.stringify({ stream: true }),
                 ip: "10.1.0.11",

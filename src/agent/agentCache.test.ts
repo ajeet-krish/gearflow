@@ -16,9 +16,9 @@ import {
     type AgentCacheStore,
     type ChatPort,
 } from "./agentCache";
-import type { BasetenChatResult, BasetenMessage } from "./basetenClient";
+import type { ModalChatResult, ModalMessage } from "./modalClient";
 
-function makeResult(text: string): BasetenChatResult {
+function makeResult(text: string): ModalChatResult {
     return {
         text,
         action: null,
@@ -43,10 +43,10 @@ function makeStore(): AgentCacheStore & { data: Record<string, string> } {
     };
 }
 
-function makePort(result: BasetenChatResult, fail?: Error): ChatPort & { calls: number } {
+function makePort(result: ModalChatResult, fail?: Error): ChatPort & { calls: number } {
     const port = {
         calls: 0,
-        chat: async (_messages: BasetenMessage[]) => {
+        chat: async (_messages: ModalMessage[]) => {
             port.calls += 1;
             if (fail !== undefined) throw fail;
             return result;
@@ -55,7 +55,7 @@ function makePort(result: BasetenChatResult, fail?: Error): ChatPort & { calls: 
     return port;
 }
 
-const MESSAGES: BasetenMessage[] = [
+const MESSAGES: ModalMessage[] = [
     { role: "system", content: "ctx" },
     { role: "user", content: "explain this run" },
 ];

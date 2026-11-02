@@ -6,7 +6,7 @@
 // is a potential flow estimate, only the LBM instantaneous snapshot may
 // be called solved, and n/a reads as pending. Never throws.
 
-import type { BasetenMessage } from "./basetenClient";
+import type { ModalMessage } from "./modalClient";
 import type { AgentContext } from "./agentContext";
 import type { TutorConcept, TutorFieldSuggestion } from "./tutorPolicy";
 import type { TutorTableRow } from "./tutorTable";
@@ -61,7 +61,7 @@ function cleanSecondary(v: unknown): string | null {
  * carries the concept plus the table plus the suggested field plus the
  * bounded live context. Never throws.
  */
-export function buildTutorMessages(input: BuildTutorMessagesInput): BasetenMessage[] {
+export function buildTutorMessages(input: BuildTutorMessagesInput): ModalMessage[] {
     try {
         const safe = (input ?? {}) as Partial<BuildTutorMessagesInput>;
         const concept = cleanConcept(safe.concept);
@@ -71,7 +71,7 @@ export function buildTutorMessages(input: BuildTutorMessagesInput): BasetenMessa
         const contextJson = safe.after === null || safe.after === undefined
             ? "{}"
             : JSON.stringify(safe.after).slice(0, 3500);
-        const system: BasetenMessage = {
+        const system: ModalMessage = {
             role: "system",
             content: [
                 `You are the GearFlow flow tutor (${TUTOR_PROMPT_VERSION}).`,
@@ -85,12 +85,12 @@ export function buildTutorMessages(input: BuildTutorMessagesInput): BasetenMessa
             ].join("\n"),
         };
         const rawHistory = Array.isArray(safe.history) ? safe.history : [];
-        const tail: BasetenMessage[] = rawHistory.slice(-6).map((turn): BasetenMessage => {
+        const tail: ModalMessage[] = rawHistory.slice(-6).map((turn): ModalMessage => {
             const role = turn.role === "user" ? "user" : "assistant";
             const text = typeof turn.text === "string" ? turn.text.slice(0, 2000) : "";
             return { role, content: text };
         });
-        const user: BasetenMessage = {
+        const user: ModalMessage = {
             role: "user",
             content: [
                 `Concept: ${concept}`,

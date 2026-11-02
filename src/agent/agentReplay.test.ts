@@ -1,7 +1,7 @@
 // R4 zero credit envelope replay plus mutation corpus. Pure replay of the
 // recorded Spark raw replies in fixtures/envelopes through
 // parseAgentEnvelope plus validateAgentAction with zero network. The global
-// fetch stub throws, so any live call fails loudly, and BasetenClient is
+// fetch stub throws, so any live call fails loudly, and ModalClient is
 // only built with an injected fetchFn fake. The mutation corpus applies
 // deterministic edits (digit duplication, transposition, vowel swaps like
 // naca to naka, dropped separators) over seed codes and pins three
@@ -16,7 +16,7 @@ import { parseAgentEnvelope, validateAgentAction } from "./agentActions";
 import { buildAirfoilEnvelope, parseAirfoilIntent } from "./airfoilIntent";
 import { isSchemaValidCode, parseNacaLoose } from "./nacaParse";
 import { validateParametricSpec } from "@/contracts/schema";
-import { BasetenClient } from "./basetenClient";
+import { ModalClient } from "./modalClient";
 import manifest from "./fixtures/envelopes/manifest.json";
 
 interface ManifestExpect {
@@ -119,7 +119,7 @@ describe("agent envelope replay (R4 zero credit)", () => {
         }
     });
 
-    it("serves BasetenClient through the injected fetchFn while global fetch throws", async () => {
+    it("serves ModalClient through the injected fetchFn while global fetch throws", async () => {
         let calls = 0;
         const fakeFetch = (async () => {
             calls += 1;
@@ -133,7 +133,7 @@ describe("agent envelope replay (R4 zero credit)", () => {
                 }),
             } as unknown as Response;
         }) as unknown as typeof fetch;
-        const client = new BasetenClient({ fetchFn: fakeFetch, baseUrl: "/api/baseten" });
+        const client = new ModalClient({ fetchFn: fakeFetch, baseUrl: "/api/modal" });
         const res = await client.chat([{ role: "user", content: "hello" }]);
         expect(res.text).toContain("injected fake reply");
         expect(calls).toBe(1);

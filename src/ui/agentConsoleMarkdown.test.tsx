@@ -25,7 +25,7 @@ function agentTurn(over: Partial<ChatTurn> = {}): ChatTurn {
         role: "assistant",
         text: "Run looks healthy at alpha 6.",
         at: new Date().toISOString(),
-        tool: "baseten",
+        tool: "modal",
         status: "live",
         ...over,
     };

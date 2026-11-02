@@ -1,14 +1,14 @@
 // Agent console wiring behavior. Drives the real AgentConsole component
 // through a hook dispatcher shim (zero new deps, zero live calls) plus the
-// real BasetenClient with fake fetch, so auto run, busy lock, offline, and
+// real ModalClient with fake fetch, so auto run, busy lock, offline, and
 // spend regressions fail instead of passing silently.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as React from "react";
-import AgentConsole, { BASETEN_FEATURE, PRESET_CHIPS, SPEND_SOFT_STOP_USD, spendExceeded } from "./AgentConsole";
+import AgentConsole, { MODAL_FEATURE, PRESET_CHIPS, SPEND_SOFT_STOP_USD, spendExceeded } from "./AgentConsole";
 import { parseAgentEnvelope } from "@/agent/agentActions";
 import { buildAgentContext } from "@/agent/agentContext";
-import { BasetenClient } from "@/agent/basetenClient";
+import { ModalClient } from "@/agent/modalClient";
 
 const INTERNALS = (
     React as unknown as {
@@ -201,7 +201,7 @@ function streamingPort(text: string, counter: { streams: number; chats: number }
     const result = () => ({
         text,
         action: null,
-        model: "meta-models/muse-spark-open-1026",
+        model: "gearflow-chat",
         usage: { inputTokens: 12, outputTokens: 24, cachedTokens: 0 },
         costUsd: 0.0001,
         latencyMs: 5,
@@ -241,7 +241,7 @@ function hangingPort(counter: { streams: number; chats: number }) {
             return {
                 text: "",
                 action: null,
-                model: "meta-models/muse-spark-open-1026",
+                model: "gearflow-chat",
                 usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
                 costUsd: 0,
                 latencyMs: 0,
@@ -252,7 +252,7 @@ function hangingPort(counter: { streams: number; chats: number }) {
             return {
                 text: "plain fallback",
                 action: null,
-                model: "meta-models/muse-spark-open-1026",
+                model: "gearflow-chat",
                 usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
                 costUsd: 0,
                 latencyMs: 0,
@@ -280,8 +280,8 @@ function statusResponse(status: number, retryAfter: string | null): Record<strin
         ok: status >= 200 && status < 300,
         status,
         headers: { get: (name: string) => (name.toLowerCase() === "retry-after" ? retryAfter : null) },
-        json: async () => ({ error: { message: "Baseten service unavailable" } }),
-        text: async () => JSON.stringify({ error: { message: "Baseten service unavailable" } }),
+        json: async () => ({ error: { message: "Modal service unavailable" } }),
+        text: async () => JSON.stringify({ error: { message: "Modal service unavailable" } }),
         body: null,
     };
 }
@@ -462,7 +462,7 @@ describe("agent console offline paths", () => {
         const fetchFn = vi.fn(async () => {
             throw new Error("network must stay idle while offline");
         });
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         const onAgentAction = vi.fn();
         const m = mountConsole({
             offline: true,
@@ -486,9 +486,9 @@ describe("agent console offline paths", () => {
         }
     });
 
-    it("renders the offline badge when the proxy answers 503", async () => {
+    it("renders an honest error turn when the proxy answers 503", async () => {
         const fetchFn = vi.fn(async () => statusResponse(503, "0"));
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         const onAgentAction = vi.fn();
         const m = mountConsole({
             offline: false,
@@ -504,21 +504,19 @@ describe("agent console offline paths", () => {
         try {
             expect(fetchFn).toHaveBeenCalled();
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("Before vs after");
-            expect(m.text()).toContain("Cl");
-            expect(m.text()).toContain("CpMin");
+            expect(m.text()).toContain("Live request failed");
             expect(m.text()).toContain("Canvas unchanged");
-            expect(badgeTexts(m.tree(), "offline").length).toBeGreaterThan(0);
+            expect(badgeTexts(m.tree(), "fallback").length).toBeGreaterThan(0);
         } finally {
             m.unmount();
         }
     });
 
-    it("renders the offline badge when fetch fails outright", async () => {
+    it("renders an honest error turn when fetch fails outright", async () => {
         const fetchFn = vi.fn(async () => {
             throw new TypeError("fetch failed");
         });
-        const client = new BasetenClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
+        const client = new ModalClient({ fetchFn: fetchFn as unknown as typeof fetch, offline: false });
         const onAgentAction = vi.fn();
         const m = mountConsole({
             offline: false,
@@ -534,17 +532,15 @@ describe("agent console offline paths", () => {
         try {
             expect(fetchFn).toHaveBeenCalled();
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("Before vs after");
-            expect(m.text()).toContain("Cl");
-            expect(m.text()).toContain("CpMin");
+            expect(m.text()).toContain("Live request failed");
             expect(m.text()).toContain("Canvas unchanged");
-            expect(badgeTexts(m.tree(), "offline").length).toBeGreaterThan(0);
+            expect(badgeTexts(m.tree(), "fallback").length).toBeGreaterThan(0);
         } finally {
             m.unmount();
         }
     });
 
-    it("falls back to the local invalid explanation with nearest on Baseten down for naca 2500", async () => {
+    it("lands an honest error turn with zero applies on Modal down for naca 2500", async () => {
         const counter = { streams: 0, chats: 0 };
         const onAgentAction = vi.fn();
         const m = mountConsole({
@@ -561,17 +557,15 @@ describe("agent console offline paths", () => {
         try {
             expect(counter.streams).toBeGreaterThan(0);
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("not a valid 4-digit section");
-            expect(m.text()).toContain("Did you mean NACA");
+            expect(m.text()).toContain("Live request failed");
             expect(m.text()).toContain("Canvas unchanged");
-            expect(m.text()).not.toContain("Baseten unreachable");
-            expect(badgeTexts(m.tree(), "offline").length).toBeGreaterThan(0);
+            expect(badgeTexts(m.tree(), "fallback").length).toBeGreaterThan(0);
         } finally {
             m.unmount();
         }
     });
 
-    it("falls back to the local tutor table on Baseten down for Explain this run", async () => {
+    it("lands an honest error turn on Modal down for Explain this run", async () => {
         const counter = { streams: 0, chats: 0 };
         const onAgentAction = vi.fn();
         const m = mountConsole({
@@ -588,12 +582,9 @@ describe("agent console offline paths", () => {
         try {
             expect(counter.streams).toBeGreaterThan(0);
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("Before vs after");
-            expect(m.text()).toContain("Cl");
-            expect(m.text()).toContain("CpMin");
+            expect(m.text()).toContain("Live request failed");
             expect(m.text()).toContain("Canvas unchanged");
-            expect(m.text()).not.toContain("Baseten unreachable");
-            expect(badgeTexts(m.tree(), "offline").length).toBeGreaterThan(0);
+            expect(badgeTexts(m.tree(), "fallback").length).toBeGreaterThan(0);
         } finally {
             m.unmount();
         }
@@ -647,15 +638,15 @@ describe("agent console spend gate", () => {
         try {
             expect(m.text()).not.toContain("local mode until reset");
             expect(buttonsByLabel(m.tree(), "Send chat message")).toHaveLength(1);
-            expect(BASETEN_FEATURE).toBe("baseten-chat");
+            expect(MODAL_FEATURE).toBe("modal-chat");
         } finally {
             m.unmount();
         }
     });
 });
 
-describe("agent console parser fast path (R3)", () => {
-    it("settles high confidence applies with zero port calls", async () => {
+describe("agent console live port (no parser fast path)", () => {
+    it("routes setup applies through the live port with validator gating", async () => {
         const ctx = buildAgentContext(pendingSnapshot() as never);
         expect(ctx.spec.naca?.code).toBe("2412");
         const onAgentAction = vi.fn();
@@ -672,14 +663,10 @@ describe("agent console parser fast path (R3)", () => {
         submitForm(m);
         await flush();
         try {
-            expect(counter.streams).toBe(0);
-            expect(counter.chats).toBe(0);
-            expect(onAgentAction).toHaveBeenCalledTimes(3);
-            expect(onAgentAction).toHaveBeenNthCalledWith(1, { kind: "set_body", body: "naca2412" });
-            expect(onAgentAction).toHaveBeenNthCalledWith(2, { kind: "set_alpha", alphaDeg: 6 });
-            expect(onAgentAction).toHaveBeenNthCalledWith(3, { kind: "set_reynolds", reynolds: 50000 });
-            expect(m.text()).toContain("Applying NACA 2412, alpha 6, Re 50000.");
-            expect(m.text()).toContain("Applied: body naca2412.");
+            expect(counter.streams).toBe(1);
+            expect(onAgentAction).toHaveBeenCalledTimes(1);
+            expect(onAgentAction).toHaveBeenNthCalledWith(1, { kind: "set_alpha", alphaDeg: 6 });
+            expect(m.text()).toContain("Applied: alpha 6.");
         } finally {
             m.unmount();
         }
@@ -722,9 +709,8 @@ describe("agent console parser fast path (R3)", () => {
             chatClient: streamingPort("Sure, setting that up now.", counter),
             initialTurns: [],
         });
-        // Alpha 200 misses the hard envelope, so the fast path yields to the
-        // model; the model answers with no envelope. The zero-rejection gate
-        // matches the pre-intercept rule: the valid subset stays unapplied,
+        // Alpha 200 misses the hard envelope: the live model answers with no
+        // envelope, then the rescue gate keeps the valid subset unapplied and
         // the model reply plus the alpha rejection render, canvas unchanged.
         typeText(m, "Set up NACA 2412 alpha 200 Re 50000");
         submitForm(m);
@@ -753,9 +739,9 @@ describe("agent console parser fast path (R3)", () => {
             chatClient: streamingPort("Noted, holding the current case.", counter),
             initialTurns: [],
         });
-        // Re 5 misses the [1000, 1000000] envelope, so the fast path yields
-        // to the model and the rescue must apply nothing while surfacing
-        // the reynolds rejection next to the model reply.
+        // Re 5 misses the [1000, 1000000] envelope: the live model answers,
+        // and the rescue must apply nothing while surfacing the reynolds
+        // rejection next to the model reply.
         typeText(m, "Set up NACA 2412 alpha 6 Re 5");
         submitForm(m);
         await flush();
