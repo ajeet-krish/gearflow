@@ -478,9 +478,14 @@ describe("agent console offline paths", () => {
         try {
             expect(fetchFn).not.toHaveBeenCalled();
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("engineer note, local only");
+            // Tutor-v2 offline copy: cached table only plus Retry, zero local prose.
+            expect(m.text()).toContain("Offline demo mode");
+            expect(m.text()).toContain("cached table only");
             expect(m.text()).toContain("Canvas unchanged");
-            expect(badgeTexts(m.tree(), "offline").length).toBeGreaterThan(0);
+            expect(m.text()).toContain("Retry");
+            expect(m.text()).not.toContain("engineer note, local only");
+            // Tutor-v2 offline turn carries the cached status badge.
+            expect(badgeTexts(m.tree(), "cached").length).toBeGreaterThan(0);
         } finally {
             m.unmount();
         }
@@ -617,9 +622,12 @@ describe("agent console spend gate", () => {
             expect(counter.streams).toBe(0);
             expect(counter.chats).toBe(0);
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("local mode until reset");
-            expect(m.text()).toContain("engineer note, local only");
+            // Tutor-v2 spend gate: demo mode note plus cached offline copy, never local prose.
+            expect(m.text()).toContain("demo mode until reset");
+            expect(m.text()).toContain("Spend cap");
             expect(m.text()).toContain("Canvas unchanged");
+            expect(m.text()).not.toContain("local mode until reset");
+            expect(m.text()).not.toContain("engineer note, local only");
         } finally {
             m.unmount();
         }

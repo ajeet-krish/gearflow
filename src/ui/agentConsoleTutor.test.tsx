@@ -263,8 +263,8 @@ async function flush(ticks = 80): Promise<void> {
 }
 
 function tutorPort(log: { chats: number; streams: number }, tutorText = "Spark tutor prose, plain words."): {
-    streamChat: (m: unknown, o?: unknown) => AsyncGenerator<{ delta: string; text: string; done: boolean }, { text: string; action: null; model: string; usage: { inputTokens: number; outputTokens: number; cachedTokens: number }; costUsd: number; latencyMs: number }, void>;
-    chat: (m: unknown, o?: unknown) => Promise<{ text: string; action: null; model: string; usage: { inputTokens: number; outputTokens: number; cachedTokens: number }; costUsd: number; latencyMs: number }>;
+    streamChat: (m: unknown, o?: unknown) => AsyncGenerator<{ delta: string; text: string; done: boolean }, { text: string; action: null; model: string; usage: { inputTokens: number; outputTokens: number; cachedTokens: number }; costUsd: number; latencyMs: number; reasoning: string }, void>;
+    chat: (m: unknown, o?: unknown) => Promise<{ text: string; action: null; model: string; usage: { inputTokens: number; outputTokens: number; cachedTokens: number }; costUsd: number; latencyMs: number; reasoning: string }>;
 } {
     const result = () => ({
         text: tutorText,
@@ -273,6 +273,7 @@ function tutorPort(log: { chats: number; streams: number }, tutorText = "Spark t
         usage: { inputTokens: 4, outputTokens: 8, cachedTokens: 0 },
         costUsd: 0,
         latencyMs: 2,
+        reasoning: "checked the table numbers, one teaching point for attached-lift",
     });
     return {
         async *streamChat(_m: unknown, _o?: unknown) {
@@ -370,6 +371,13 @@ describe("agent console tutor hook (T2)", () => {
             expect(textOf(tutorTables(m.tree())[0])).toContain(rows[0].before);
             expect(evalSink).toHaveBeenCalledWith({ feature: TUTOR_FEATURE, model: "test-spark" });
             expect(TUTOR_FEATURE).toBe("tutor");
+            // Tutor-v2 live contract: reasoning rides collapsed, rows render
+            // once, success carries no Retry and zero local prose.
+            expect(findAll(m.tree(), (el) => el.type === "details").length).toBeGreaterThan(0);
+            expect(m.text()).toContain("Reasoning");
+            expect(m.text()).toContain("checked the table numbers");
+            expect(buttonsByLabel(m.tree(), "Retry tutor request")).toHaveLength(0);
+            expect(m.text()).not.toContain("local mode");
             // Rerender with the same settled key fires nothing more.
             m.setProps({ ...base, agentContext: after });
             await flush();
@@ -380,12 +388,12 @@ describe("agent console tutor hook (T2)", () => {
         }
     });
 
-    it("answers offline with zero network and the identical table", async () => {
+    it("shows offline rows plus error plus Retry with zero local prose", async () => {
         const before = buildAgentContext(settledSnapshot() as never);
         const log = { chats: 0, streams: 0 };
         const onAgentAction = vi.fn();
         const base = {
-            offline: true,
+            offline: false,
             onOfflineChange: () => {},
             agentContext: before,
             onAgentAction,
@@ -397,6 +405,8 @@ describe("agent console tutor hook (T2)", () => {
             typeText(m, "Set up NACA 2412 alpha 6 Re 50000");
             submitForm(m);
             await flush();
+            // Live composer turn hits the Modal port once and arms the hook.
+            expect(log.streams).toBe(1);
             expect(onAgentAction).toHaveBeenCalledTimes(3);
             const after = buildAgentContext(
                 settledSnapshot({
@@ -408,21 +418,101 @@ describe("agent console tutor hook (T2)", () => {
                     offline: true,
                 }) as never
             );
-            m.setProps({ ...base, agentContext: after });
+            m.setProps({ ...base, offline: true, agentContext: after });
             await flush();
+            // Tutor-v2 offline failure: zero tutor Modal calls, no extra
+            // canvas writes beyond the armed live applies.
             expect(log.chats).toBe(0);
-            expect(log.streams).toBe(0);
+            expect(onAgentAction).toHaveBeenCalledTimes(3);
             expect(tutorBlocks(m.tree())).toHaveLength(1);
             const rows = buildTutorTable(snapshotLiteFor(before), snapshotLiteFor(after));
-            // T2 frontend renders rows as real tables, never raw pipes.
-            expect(tutorTables(m.tree()).length).toBeGreaterThan(0);
+            // Rows render once as the payload table, never raw pipes.
+            expect(tutorTables(m.tree())).toHaveLength(1);
             for (const row of rows) {
                 expect(m.text()).toContain(row.metric);
                 expect(m.text()).toContain(row.before);
             }
             expect(m.text()).toContain("Quantity");
             expect(m.text()).toContain("Change");
-            expect(m.text()).toContain("Caveat:");
+            // Failure shows rows plus the honest error plus Retry, zero local prose.
+            expect(m.text()).toContain("Tutor request failed");
+            expect(m.text()).toContain("offline demo mode");
+            expect(m.text()).toContain("Canvas unchanged");
+            expect(m.text()).toContain("Retry");
+            expect(buttonsByLabel(m.tree(), "Retry tutor request")).toHaveLength(1);
+            // Zero local prose on the failure turn: no retired local copy.
+            expect(m.text()).not.toContain("engineer note, local only");
+            expect(m.text()).not.toContain("solver bar");
+            expect(m.text()).not.toContain("Metric | Before");
+        } finally {
+            m.unmount();
+        }
+    });
+
+    it("shows live failure rows plus error plus Retry with zero local prose", async () => {
+        const before = buildAgentContext(settledSnapshot() as never);
+        const log = { chats: 0, streams: 0 };
+        const onAgentAction = vi.fn();
+        const failing = {
+            async *streamChat(_m: unknown, _o?: unknown) {
+                // Live composer succeeds so the rescue arms the pending hook.
+                log.streams += 1;
+                yield { delta: "x", text: "x", done: false };
+                return {
+                    text: "Spark tutor prose, plain words.",
+                    action: null,
+                    model: "test-spark",
+                    usage: { inputTokens: 4, outputTokens: 8, cachedTokens: 0 },
+                    costUsd: 0,
+                    latencyMs: 2,
+                    reasoning: "checked the table numbers, one teaching point",
+                };
+            },
+            async chat(_m: unknown, _o?: unknown) {
+                // Tutor-v2 failure: the tutor Modal call throws, rows plus
+                // error plus Retry render with zero local prose.
+                log.chats += 1;
+                throw new Error("Modal unavailable");
+            },
+        };
+        const base = {
+            offline: false,
+            onOfflineChange: () => {},
+            agentContext: before,
+            onAgentAction,
+            chatClient: failing,
+            initialTurns: [],
+        };
+        const m = mountTutor(base);
+        try {
+            typeText(m, "Set up NACA 2412 alpha 6 Re 50000");
+            submitForm(m);
+            await flush();
+            const after = buildAgentContext(
+                settledSnapshot({
+                    spec: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 },
+                    cl: 0.7,
+                    cpMin: -1.3,
+                    caseKey: "case-after-live-fail",
+                    frameSettled: true,
+                }) as never
+            );
+            m.setProps({ ...base, agentContext: after });
+            await flush();
+            // Every live turn hits Modal: the composer streamed once, the tutor chatted once and failed honestly.
+            expect(log.streams).toBe(1);
+            expect(log.chats).toBe(1);
+            expect(tutorBlocks(m.tree())).toHaveLength(1);
+            expect(tutorTables(m.tree())).toHaveLength(1);
+            expect(m.text()).toContain("Tutor request failed");
+            expect(m.text()).toContain("Modal unavailable");
+            expect(m.text()).toContain("Canvas unchanged");
+            expect(m.text()).toContain("Before versus after");
+            expect(m.text()).not.toContain("Metric | Before");
+            // Zero local prose on the failure turn: no retired local copy.
+            expect(m.text()).not.toContain("engineer note, local only");
+            expect(m.text()).not.toContain("solver bar");
+            expect(buttonsByLabel(m.tree(), "Retry tutor request")).toHaveLength(1);
         } finally {
             m.unmount();
         }
@@ -530,7 +620,7 @@ describe("agent console tutor hook (T2)", () => {
         }
     });
 
-    it("fires the timeout path with the loading line and zero network", async () => {
+    it("fires the timeout path with the loading line and one live port call", async () => {
         let now = 1_000_000;
         const spy = vi.spyOn(Date, "now").mockImplementation(() => now);
         try {
@@ -563,13 +653,15 @@ describe("agent console tutor hook (T2)", () => {
                 );
                 m.setProps({ ...base, agentContext: unsettled });
                 await flush();
-                expect(log.chats).toBe(0);
+                // Tutor-v2: even the timeout turn rides one live Modal port call.
+                expect(log.chats).toBe(1);
                 expect(tutorBlocks(m.tree())).toHaveLength(1);
                 expect(m.text()).toContain(TUTOR_LOADING_LINE);
                 // Single-table contract: prose pipe block stripped, payload
                 // table renders once with its accessible caption.
                 expect(m.text()).toContain("Before versus after");
                 expect(m.text()).not.toContain("Metric | Before");
+                expect(tutorTables(m.tree())).toHaveLength(1);
             } finally {
                 m.unmount();
             }
@@ -686,13 +778,15 @@ describe("agent console tutor hook (T2)", () => {
                 );
                 m.setProps({ ...base, agentContext: after });
                 await flush();
-                expect(log.chats).toBe(0);
+                // Tutor-v2: the timeout tutor turn rides one live Modal port call.
+                expect(log.chats).toBe(1);
                 expect(tutorBlocks(m.tree())).toHaveLength(1);
                 expect(m.text()).toContain(TUTOR_LOADING_LINE);
                 // Single-table contract: prose pipe block stripped, payload
                 // table renders once with its accessible caption.
                 expect(m.text()).toContain("Before versus after");
                 expect(m.text()).not.toContain("Metric | Before");
+                expect(tutorTables(m.tree())).toHaveLength(1);
                 expect(snapshotLiteFor(after).caseKey).toContain("fcp");
                 expect(snapshotLiteFor(after).caseKey).not.toBe(snapshotLiteFor(before).caseKey);
             } finally {

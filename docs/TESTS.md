@@ -933,3 +933,51 @@ Phase tests integrate with prior phase tests (all 1537 prior tests still pass pl
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-02 - Phase 2: Test Report (live Modal tutor tutor-v2, reasoning collapsed, rows once, Retry, zero local prose)
+
+### Test Results
+npm test: 116 files, 1550 tests, all passed. Baseline before this fix was 116 files, 1548 tests with 9 failures. Delta is 2 new tests (Baseten live path source contract plus tutor live failure Retry) plus 9 rewritten assertions to the tutor-v2 contract.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| tutorPrompt pins tutor-v2 plus reasoning_content | PASS | Was pinning tutor-v1, now pins tutor-v2 with reasoning_content and never put reasoning clauses |
+| Baseten soft stop demo mode until reset | PASS | Was pinning retired local mode until reset, now pins demo mode until reset |
+| Baseten localOfflineReply offline demo copy | PASS | Was pinning solver bar prose, now pins Offline demo mode plus cached table only plus Cl 0.600 plus Canvas unchanged |
+| Baseten live path source contract | PASS | New, asserts AgentConsole carries zero localAssistant imports and rides buildTutorMessages plus TUTOR_FEATURE |
+| Curriculum chip offline turn with Retry | PASS | Was pinning lowercase local, now pins chip prompt plus Offline demo mode plus cached table only plus Canvas unchanged plus Retry chat request plus zero port calls |
+| Tutor offline rows plus error plus Retry | PASS | Was expecting 3 local applies with zero network, now arms live then settles offline, 1 stream plus 0 tutor chats, 1 tutor block plus 1 table plus Tutor request failed plus offline demo mode plus Retry tutor request |
+| Tutor timeout with one live port call | PASS | Was expecting 0 chats, now 1 chat plus loading line plus Before versus after plus one table |
+| Tutor field-only timeout with one live port call | PASS | Was expecting 0 chats, now 1 chat plus loading line plus one table plus fcp key move |
+| Tutor live failure rows plus error plus Retry | PASS | New, stream success arms hook then chat throws Modal unavailable, 1 stream plus 1 chat, rows plus error plus Retry with zero local prose |
+| Tutor live success reasoning collapsed plus rows once | PASS | Extended, pins collapsed Reasoning details plus checked the table numbers plus zero Retry on success |
+| Wiring offline toggle offline demo copy | PASS | Was pinning engineer note local only, now pins Offline demo mode plus cached table only plus Retry plus cached badge |
+| Wiring spend gate demo mode until reset | PASS | Was pinning local mode plus engineer note, now pins demo mode until reset plus Spend cap plus Canvas unchanged |
+| npm test full suite (116 files, 1550 tests) | PASS | All green, zero failures |
+
+### Coverage Summary
+Happy path covered (tutor-v2 prompt with reasoning_content, live tutor success with collapsed reasoning plus rows once, every live composer plus tutor turn hits the Modal port).
+Edge cases covered (timeout with loading line plus one live call, field-only timeout with key move, offline settle after live arm, spend gate forced demo mode).
+Error conditions covered (offline failure rows plus error plus Retry with zero local prose, live Modal down rows plus Modal unavailable plus Retry, no localAssistant imports on the console live path).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1548 prior tests pass as rewritten plus 2 new, 1550 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| tutorPrompt version pin (initial) | Spec pinned tutor-v1 while tutorPrompt.ts already serves tutor-v2 | Pin tutor-v2 plus reasoning_content, fixed, now passes |
+| Baseten soft stop plus offline copy (initial) | Specs pinned retired local mode until reset and solver bar prose while AgentConsole serves demo mode until reset and Offline demo mode copy | Pin demo mode until reset and Offline demo mode copy, fixed, now passes |
+| Curriculum plus wiring offline copy (initial) | Specs pinned lowercase local and engineer note local only while console serves Offline demo mode plus cached table only plus Retry | Pin new copy plus Retry plus cached badge, fixed, now passes |
+| Tutor offline plus timeout plus field timeout (initial) | Specs pinned 3 offline applies and zero network timeouts while tutor-v2 needs live arm plus one Modal call per turn and failure shows rows plus error plus Retry | Arm live then settle offline, expect 1 stream plus 1 chat on timeouts, fixed, now passes |
+| Tutor offline plus live failure Retry (updated) | First rewrite expected tutor blocks without an armed pending hook and asserted whole transcript lacks live Modal prose | Arm pending via live stream success, scope zero prose to retired local copy, fixed, now passes |
+| Baseten source contract (new) | First draft asserted literal tutor-v2 in AgentConsole.tsx which only imports buildTutorMessages | Assert buildTutorMessages plus TUTOR_FEATURE with zero localAssistant, fixed, now passes |
+| Wiring offline badge (updated) | Spec expected an offline badge the renderer no longer emits (cached status badge instead) | Pin cached badge, fixed, now passes |
+
+### Verification Checklist
+- [x] All tests pass (116 files, 1550 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

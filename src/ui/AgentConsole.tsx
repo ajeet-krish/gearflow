@@ -1,13 +1,13 @@
-// Agent console: Modal Spark chat transcript over the live run context.
+// Agent console: Modal chat transcript over the live run context.
 // Composer streams through ModalClient with Stop plus a 30 s budget,
-// every live turn goes through the live Modal port (no parser shortcut),
-// and a live failure lands an honest error turn with zero canvas writes.
+// every live turn goes through the live Modal port, and a live failure
+// lands an honest error turn with zero canvas writes plus Retry.
 // Setup actions auto apply through onAgentAction, run and cancel render
 // as confirm chips only, rejections render as reason text. Transcript
 // persists capped at 50. React plus plain CSS classes from the Zenith
 // shell, react-markdown plus remark-gfm for agent and tutor prose (user
 // turns stay plain text). Tutor turns carry a badge plus a real before
-// vs after table.
+// vs after table plus a collapsed reasoning trace.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -18,20 +18,21 @@ import { ModalClient, type ModalChatResult, type ModalMessage, type ModalStreamC
 import { MODAL_MODEL_ID } from "@/agent/modalGate";
 import { actionContractSummary, parseAgentEnvelope, validateAgentAction, type AgentValidationContext } from "@/agent/agentActions";
 import { buildTutorTable, tutorRowsText, type TutorSnapshotLite, type TutorTableRow } from "@/agent/tutorTable";
-import { detectConcept, fieldForConcept, localTutorReply, type TutorConcept, type TutorFieldSuggestion } from "@/agent/tutorPolicy";
-import { buildTutorMessages } from "@/agent/tutorPrompt";
+import { detectConcept, fieldForConcept, type TutorConcept, type TutorFieldSuggestion } from "@/agent/tutorPolicy";
+import { buildTutorMessages, type TutorMisconceptionInput } from "@/agent/tutorPrompt";
+import { detectMisconception } from "@/agent/misconceptions";
 import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/agent/airfoilIntent";
 import { expandCasePreset } from "@/agent/casePresets";
-import { localReply } from "@/agent/localAssistant";
 import { describeSweepResult, isAlphaSweepIntent, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
-import { PROVISIONAL_NEURAL_ENVELOPE } from "@/flow/neuralDomain";
 import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
 import { appendTurns, loadTurns, saveTurns } from "@/agent/chatStore";
 import { resolveAgentFirst } from "@/config/agentFirst";
 import { g_evalLog } from "@/meta/evalLog";
 import { CURRICULUM_CHIPS } from "@/agent/curriculum";
 
-/** Minimal chat port so tests inject a fake with zero live calls. */
+/** Minimal chat port so tests inject a fake with zero live calls.
+ *  Reasoning rides the result (reasoning_content or reasoning) and never
+ *  feeds the action envelope. */
 export interface ModalChatPort {
     streamChat(
         messages: ModalMessage[],
@@ -79,12 +80,12 @@ export const MODAL_TIMEOUT_MS = 30000;
 export const STREAM_FLUSH_MS = 50;
 export const SPEND_SOFT_STOP_USD = SESSION_SPEND_CAP_USD;
 export const TRANSCRIPT_CAP = 50;
-/** Phase T2 tutor hook constants. The tutor fires once the settled case key
- *  moves past the applied key, or after the timeout with a loading line. */
+/** Phase 2 live tutor hook constants. The tutor fires once per settled
+ *  after-caseKey through the live Modal port with a 30 s budget, or after
+ *  the settle timeout with a loading line. No local prose fallback. */
 export const TUTOR_FEATURE = "tutor";
 export const TUTOR_TIMEOUT_MS = 2500;
 export const TUTOR_LOADING_LINE = "Prediction still loading, showing the pending table.";
-export const TUTOR_LOCAL_MODEL = "tutor-local";
 /** Parser apply floor: a high confidence apply (>= 0.9) settles through the
  *  shared validator on the post-model rescue path. Clarify, invalid,
  *  question, and low confidence results never apply. The pre-submit fast
@@ -124,6 +125,14 @@ export interface TurnExtra {
     sweepCancelled?: boolean;
     /** Live sweep progress marker on the running turn. */
     sweepProgress?: { done: number; total: number; current: number } | null;
+    /** Collapsed reasoning trace from result.reasoning. Never envelope
+     *  parsed, never persisted as prose. Hidden when empty. */
+    reasoning?: string;
+    /** Honest tutor failure detail. When set the tutor turn renders rows
+     *  plus the error plus a Retry chip, never local prose. */
+    tutorError?: string | null;
+    /** Honest chat failure detail for the main composer Retry chip. */
+    chatError?: string | null;
 }
 
 export interface SpendTotals {
@@ -217,8 +226,9 @@ export function snapshotLiteFor(ctx: AgentContext | null | undefined): TutorSnap
     }
 }
 
-/** Pending tutor capture: the turn that applied plus the before snapshot.
- *  The effect fires once the settled context moves past caseKeyBefore. */
+/** Pending tutor capture: the turn that applied plus the before snapshot
+ *  plus the triggering user text for misconception detection. The effect
+ *  fires once the settled context moves past caseKeyBefore. */
 export interface PendingTutor {
     turnId: string;
     before: TutorSnapshotLite;
@@ -226,6 +236,15 @@ export interface PendingTutor {
     actionsSummary: string;
     startedAt: number;
     beforeVariable: string;
+    triggerText: string;
+}
+
+/** Tutor retry payload: the same capture plus the settled after snapshot
+ *  so Retry refires one Modal call for the same after-caseKey. */
+interface TutorRetry {
+    capture: PendingTutor;
+    after: TutorSnapshotLite;
+    timedOut: boolean;
 }
 
 /** Effect shim: legacy wiring harnesses mock useState/useMemo/useRef only.
@@ -356,48 +375,20 @@ export function buildModalMessages(
     return [system, ...tail, { role: "user", content: input.slice(0, 2000) }];
 }
 
-/** Offline envelope label derived from the provisional envelope so copy
- *  cannot drift from the domain the app actually exposes. */
-function neuralEnvelopeLabel(): string {
-    const env = PROVISIONAL_NEURAL_ENVELOPE;
-    return `provisional neural envelope [${env.kinds.join(", ")}], alpha [${env.alphaMin}, ${env.alphaMax}], Re [${env.reMin}, ${env.reMax}], no weights yet`;
-}
-
-/** Minimal context for the metrics only offline path, so the shared local
- *  assistant cites the same numbers the embedded reply used to cite. */
-function metricsContext(metrics: { cl: number; cpMin: number; reynolds: number }): AgentContext {
-    const safe = (metrics ?? {}) as { cl?: unknown; cpMin?: unknown; reynolds?: unknown };
-    const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-    const re = num(safe.reynolds);
-    return {
-        spec: { kind: "unknown", alphaDeg: null, reynolds: re === null ? null : Math.round(re), naca: null },
-        reynolds: re === null ? null : Math.round(re),
-        regime: "unknown regime",
-        bodyLabel: "current body",
-        alphaDeg: null,
-        backend: "unknown backend",
-        engine: "analytic",
-        gridLabel: "unknown grid",
-        cl: num(safe.cl),
-        cpMin: num(safe.cpMin),
-        lbm: { status: "idle", hasSnapshot: false, effective: false, statsReady: false, stats: null },
-        field: { variable: "speed", effective: "speed", hasTke: false, hasRecirc: false },
-        validation: { pass: 0, warn: 0, fail: 0, info: 0 },
-        provenanceLabel: "unknown provenance",
-        offline: true,
-        honesty: [],
-        neural: {
-            available: false,
-            envelope: neuralEnvelopeLabel(),
-            path: "analytic",
-        },
-    };
-}
-
-/** Deterministic local reply. Zero network, zero canvas writes. Delegates to
- *  the shared local assistant so offline copy matches the console path. */
+/** Offline demo reply without local prose. Zero network, zero canvas
+ *  writes, zero imports from the local assistant. The live tutor path
+ *  never calls this; it renders an honest error turn with rows plus Retry
+ *  instead. Kept exported so older harnesses importing localOfflineReply
+ *  keep compiling while the console live path stays Modal only. */
 export function localOfflineReply(input: string, metrics: { cl: number; cpMin: number; reynolds: number }): string {
-    return localReply(input, metricsContext(metrics)).reply;
+    try {
+        const safe = (metrics ?? {}) as { cl?: unknown; cpMin?: unknown; reynolds?: unknown };
+        const num = (v: unknown): string => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(3) : "pending");
+        const text = typeof input === "string" ? input.slice(0, 120) : "";
+        return `Offline demo mode, cached table only. Cl ${num(safe.cl)} with CpMin ${num(safe.cpMin)}. You asked: ${text}. Canvas unchanged.`;
+    } catch {
+        return "Offline demo mode, cached table only. Canvas unchanged.";
+    }
 }
 
 function describeAction(a: AgentAction): string {
@@ -466,6 +457,48 @@ export function stripTutorPipeTable(text: string): string {
         return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
     } catch {
         return text;
+    }
+}
+
+/** Tutor fence contract: the prompt invites at most one set_field fence
+ *  for the suggested primary. The console parses exactly that fence from
+ *  the model prose, strips every action-json fence from the rendered
+ *  prose, and applies only when exactly one fence is present and its
+ *  field matches the deterministic suggestion (validated before apply).
+ *  Zero fences or any mismatch means no canvas write. Never throws. */
+const TUTOR_FENCE_RE = /```action-json\s*([\s\S]*?)```/g;
+
+export function tutorFenceField(raw: unknown): { stripped: string; field: string | null; fenceCount: number } {
+    try {
+        if (typeof raw !== "string") return { stripped: "", field: null, fenceCount: 0 };
+        let fenceCount = 0;
+        let field: string | null = null;
+        let sawOther = false;
+        for (const match of raw.matchAll(TUTOR_FENCE_RE)) {
+            fenceCount += 1;
+            const body = (match[1] ?? "").trim();
+            if (body.length === 0) {
+                sawOther = true;
+                continue;
+            }
+            try {
+                const parsed = JSON.parse(body) as unknown;
+                const rec = (parsed ?? {}) as Record<string, unknown>;
+                if (rec.kind === "set_field" && typeof rec.field === "string" && rec.field.length > 0) {
+                    if (field === null) field = rec.field;
+                    else sawOther = true;
+                } else {
+                    sawOther = true;
+                }
+            } catch {
+                sawOther = true;
+            }
+        }
+        const stripped = raw.replace(TUTOR_FENCE_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+        if (fenceCount !== 1 || sawOther || field === null) return { stripped, field: null, fenceCount };
+        return { stripped, field, fenceCount };
+    } catch {
+        return { stripped: typeof raw === "string" ? raw : "", field: null, fenceCount: 0 };
     }
 }
 
@@ -556,6 +589,8 @@ export default function AgentConsole({
     const lastVariableRef = useRef<string | null>(null);
     const ctxRef = useRef<AgentContext | null>(agentContext ?? null);
     ctxRef.current = agentContext ?? null;
+    const tutorRetryRef = useRef<Map<string, TutorRetry>>(new Map());
+    const chatRetryRef = useRef<Map<string, { messages: ModalMessage[]; userText: string }>>(new Map());
     // Phase T2 frontend: transcript scroll anchor. Ref callbacks never run
     // in the effect-less test harness, so the ref stays null there and the
     // scroll effect below is a silent no-op.
@@ -564,6 +599,8 @@ export default function AgentConsole({
     const validationCtx = useMemo(() => validationContextFor(agentContext ?? null), [agentContext]);
     const softStopped = spendExceeded(spend.costUsd, spendCapUsd);
     const forcedLocal = offline || envOffline() || softStopped;
+    const forcedRef = useRef(forcedLocal);
+    forcedRef.current = forcedLocal;
 
     const port: ModalChatPort = useMemo(() => {
         if (chatClient !== null && chatClient !== undefined) return chatClient;
@@ -576,7 +613,7 @@ export default function AgentConsole({
                         model: p.model,
                         latencyMs: p.latencyMs,
                         costUsd: p.costUsd,
-                        costEstimated: false,
+                        costEstimated: true,
                         cached: p.cachedTokens > 0,
                         ok: p.ok,
                         fallback: p.ok ? null : "modal",
@@ -610,7 +647,7 @@ export default function AgentConsole({
         }));
     }
 
-    function settleParsedEnvelope(id: string, envelope: { reply: string; actions: AgentAction[]; rejections: string[] }): void {
+    function settleParsedEnvelope(id: string, envelope: { reply: string; actions: AgentAction[]; rejections: string[] }, userText?: string): void {
         const applied: string[] = [];
         const pending: AgentAction[] = [];
         const appliedActions: AgentAction[] = [];
@@ -647,11 +684,12 @@ export default function AgentConsole({
                 return merged.slice(-TRANSCRIPT_CAP);
             });
         }
-        // Phase T2 tutor capture: run-only envelopes stay on the confirm
+        // Phase 2 tutor capture: run-only envelopes stay on the confirm
         // chip with zero tutor, auto applied envelopes arm the pending hook.
         // Applied plus rejection lines stay on this action turn, the tutor
         // renders later as its own assistant turn. P3 sweep gate: while the
-        // live staircase runs, per-step applies never arm the hook.
+        // live staircase runs, per-step applies never arm the hook. The
+        // triggering user text rides along for misconception detection.
         if (appliedActions.length > 0 && !sweepingRef.current) {
             try {
                 const before = snapshotLiteFor(agentContext ?? null);
@@ -662,6 +700,7 @@ export default function AgentConsole({
                     actionsSummary: appliedActions.map((a) => a.kind).join(", "),
                     startedAt: Date.now(),
                     beforeVariable: (agentContext?.field?.variable ?? "speed") as string,
+                    triggerText: typeof userText === "string" ? userText.slice(0, 2000) : appliedActions.map((a) => a.kind).join(", "),
                 };
                 pendingRef.current = next;
                 setPendingTutor(next);
@@ -721,32 +760,86 @@ export default function AgentConsole({
                 // the model reply, surfaces the rejections, canvas unchanged.
                 if (rescued.actions.length > 0 && rescued.rejections.length === 0) {
                     const reply = parsed.reply.trim().length > 0 ? parsed.reply : rescued.reply;
-                    settleParsedEnvelope(id, { reply, actions: rescued.actions, rejections: rescued.rejections });
+                    settleParsedEnvelope(id, { reply, actions: rescued.actions, rejections: rescued.rejections }, userText);
                     return;
                 }
                 if (rescued.rejections.length > 0) {
                     const reply = parsed.reply.trim().length > 0 ? parsed.reply : rescued.reply;
-                    settleParsedEnvelope(id, { reply, actions: [], rejections: rescued.rejections });
+                    settleParsedEnvelope(id, { reply, actions: [], rejections: rescued.rejections }, userText);
                     return;
                 }
             }
         }
-        settleParsedEnvelope(id, parsed);
+        settleParsedEnvelope(id, parsed, userText);
     }
 
-    /** Phase T2 tutor fire. Builds rows plus concept plus suggestion from the
-     *  before/after snapshots, renders one assistant turn with the tutor
-     *  payload, and rides at most one primary set_field through the same
-     *  validated settle path. Secondary stays chip data. Never throws. */
-    async function fireTutor(capture: PendingTutor, after: TutorSnapshotLite, timedOut: boolean): Promise<void> {
+    /** Read the reasoning trace from a Modal result without ever feeding it
+     *  to the action envelope. Empty string when absent. Never throws. */
+    function tutorReasoningOf(result: ModalChatResult | null | undefined): string {
+        try {
+            const raw = (result as unknown as { reasoning?: unknown } | null | undefined)?.reasoning;
+            if (typeof raw !== "string") return "";
+            const t = raw.trim();
+            if (t.length === 0) return "";
+            return t.slice(0, 2000);
+        } catch {
+            return "";
+        }
+    }
+
+    /** Build the misconception input for the tutor prompt from the
+     *  triggering user text. Deterministic table, never throws. */
+    function misconceptionFor(triggerText: string): TutorMisconceptionInput | null {
+        try {
+            const flow = detectMisconception(triggerText, null);
+            if (flow === null) return null;
+            const claim = typeof flow.claim === "string" ? flow.claim.trim() : "";
+            const correction = typeof flow.whatModelShows === "string" ? flow.whatModelShows.trim() : "";
+            const experimentText = typeof flow.experimentText === "string" ? flow.experimentText.trim() : "";
+            if (claim.length === 0 || correction.length === 0) return null;
+            return { claim, correction, experimentText };
+        } catch {
+            return null;
+        }
+    }
+
+    function tutorRowsPayload(rows: TutorTableRow[]) {
+        return rows.slice(0, 12).map((r) => ({
+            metric: String(r.metric).slice(0, 80),
+            before: String(r.before).slice(0, 80),
+            after: String(r.after).slice(0, 80),
+            delta: String(r.delta).slice(0, 80),
+        }));
+    }
+
+    /** Phase 2 live tutor fire. Builds deterministic rows plus concept plus
+     *  suggestion from the before/after snapshots, then fires one Modal
+     *  call per after-caseKey with a 30 s budget. Rows render once as the
+     *  structured payload table (prose pipe tables and action fences stay
+     *  stripped). Success applies at most one set_field only when the
+     *  model emits exactly one fence matching the suggested primary
+     *  (validated before apply); failure renders rows plus an honest
+     *  error plus Retry with zero canvas writes and never local prose.
+     *  When reuseTutorId is set the same turn is updated in place so a
+     *  Retry never orphans the clicked turn. Never throws. */
+    async function fireTutor(capture: PendingTutor, after: TutorSnapshotLite, timedOut: boolean, reuseTutorId?: string): Promise<void> {
+        const reuseId = typeof reuseTutorId === "string" && reuseTutorId.length > 0 ? reuseTutorId : null;
         // P3 sweep gate: per-step canvas moves never render a tutor turn.
         if (sweepingRef.current) {
             pendingRef.current = null;
             setPendingTutor(null);
+            if (reuseId !== null) {
+                try {
+                    tutorRetryRef.current.set(reuseId, { capture, after, timedOut });
+                } catch {
+                    // Retry restore never breaks the tutor path.
+                }
+                setExtra(reuseId, makeExtra({ streaming: false, model: MODAL_MODEL_ID, reasoning: "", tutorError: "sweep running, retry after the staircase" }));
+            }
             return;
         }
         const key = after.caseKey;
-        if (firedKeysRef.current.has(key)) {
+        if (firedKeysRef.current.has(key) && reuseId === null) {
             pendingRef.current = null;
             setPendingTutor(null);
             return;
@@ -797,95 +890,213 @@ export default function AgentConsole({
         } catch {
             // Suppression checks never break the tutor turn.
         }
-        if (!suppressed) {
-            try {
-                const currentVar = typeof ctx?.field?.variable === "string" ? ctx.field.variable : "speed";
-                if (suggestion.primary !== currentVar) {
-                    const checked = validateAgentAction({ kind: "set_field", field: suggestion.primary }, validationCtx);
-                    if (checked.ok && checked.action !== null) {
-                        try {
-                            onAgentAction?.(checked.action);
-                        } catch {
-                            // Tutor auto faults stay silent, the table still renders.
-                        }
-                    }
-                }
-            } catch {
-                // Tutor auto apply never breaks the tutor turn.
-            }
-        }
         const tableText = tutorRowsText(rows);
         const timedNote = timedOut ? `\n\n${TUTOR_LOADING_LINE}` : "";
-        const useLocal = forcedLocal || timedOut;
-        let text: string;
-        let model = TUTOR_LOCAL_MODEL;
-        if (useLocal) {
-            let local = "";
-            try {
-                local = localTutorReply(capture.before, after);
-            } catch {
-                local = "Local tutor note, local only. The run is pending, press Run for a clean solve.\n\nCaveat: pending, press Run for a clean solve.";
-            }
-            text = timedOut ? `${local}${timedNote}` : local;
-        } else {
-            try {
-                const messages = buildTutorMessages({ after: ctx, rows, concept: concept as never, suggestion });
-                const result = await port.chat(messages, { feature: TUTOR_FEATURE, timeoutMs: MODAL_TIMEOUT_MS });
-                model = result.model;
-                recordSpend(result);
-                text = `${result.text}\n\nBefore vs after\n${tableText}${timedNote}`;
-            } catch {
-                let local = "";
-                try {
-                    local = localTutorReply(capture.before, after);
-                } catch {
-                    local = "Local tutor note, local only. The run is pending, press Run for a clean solve.\n\nCaveat: pending, press Run for a clean solve.";
-                }
-                text = timedOut ? `${local}${timedNote}` : local;
-                model = TUTOR_LOCAL_MODEL;
-            }
-        }
-        const tutorId = nextId();
-        pushTurn({
-            id: tutorId,
-            role: "assistant",
-            at: nowIso(),
-            text: text.slice(0, 2000),
-            tool: "modal",
-            status: useLocal ? "offline" : "live",
-            tutor: {
+        function upsertTutorTurn(
+            tutorId: string,
+            text: string,
+            status: ChatTurn["status"],
+        ): void {
+            const payload = {
                 concept,
                 primary: suggestion.primary,
                 secondary: suggestion.secondary,
-                rows: rows.slice(0, 12).map((r) => ({
-                    metric: String(r.metric).slice(0, 80),
-                    before: String(r.before).slice(0, 80),
-                    after: String(r.after).slice(0, 80),
-                    delta: String(r.delta).slice(0, 80),
-                })),
+                rows: tutorRowsPayload(rows),
                 caseKey: key.slice(0, 80),
-            },
-        });
-        setExtra(tutorId, makeExtra({ streaming: false, model }));
-        try {
-            await g_evalLog.add({
-                feature: TUTOR_FEATURE,
-                model,
-                latencyMs: 0,
-                costUsd: 0,
-                costEstimated: true,
-                cached: false,
-                ok: true,
-                fallback: useLocal ? "tutor-local" : null,
-                hash: TUTOR_FEATURE,
+            };
+            setTurns((prev) => {
+                const exists = prev.some((t) => t.id === tutorId);
+                let merged: ChatTurn[];
+                if (exists) {
+                    merged = prev.map((t) =>
+                        t.id === tutorId
+                            ? { ...t, text, tool: "modal" as const, status, tutor: payload }
+                            : t
+                    );
+                } else {
+                    merged = [
+                        ...prev,
+                        { id: tutorId, role: "assistant" as const, at: nowIso(), text, tool: "modal" as const, status, tutor: payload },
+                    ];
+                }
+                try {
+                    saveTurns(merged.slice(-TRANSCRIPT_CAP));
+                } catch {
+                    // Persist faults never break the tutor path.
+                }
+                return merged.slice(-TRANSCRIPT_CAP);
             });
+        }
+        // Offline demo mode: zero network, rows plus an honest cached error
+        // with Retry, canvas unchanged, never local prose. Reuses the
+        // clicked turn id on retry so no dead Retry remains.
+        if (forcedRef.current) {
+            const detail = "offline demo mode, cached table only";
+            const tutorId = reuseId ?? nextId();
+            upsertTutorTurn(
+                tutorId,
+                `Tutor request failed (${detail}). Canvas unchanged.\n\nBefore vs after\n${tableText}${timedNote}`.slice(0, 2000),
+                "cached",
+            );
+            setExtra(tutorId, makeExtra({ streaming: false, model: MODAL_MODEL_ID, reasoning: "", tutorError: detail }));
+            try {
+                tutorRetryRef.current.set(tutorId, { capture, after, timedOut });
+            } catch {
+                // Retry registration never breaks the tutor path.
+            }
+            try {
+                await g_evalLog.add({
+                    feature: TUTOR_FEATURE,
+                    model: MODAL_MODEL_ID,
+                    latencyMs: 0,
+                    costUsd: 0,
+                    costEstimated: true,
+                    cached: true,
+                    ok: false,
+                    fallback: "modal",
+                    hash: TUTOR_FEATURE,
+                });
+            } catch {
+                // Eval faults never break the tutor path.
+            }
+            try {
+                if (evalSink !== undefined && evalSink !== null) evalSink({ feature: TUTOR_FEATURE, model: MODAL_MODEL_ID });
+            } catch {
+                // Optional test sink faults never break the tutor path.
+            }
+            return;
+        }
+        const misconception = misconceptionFor(capture.triggerText ?? "");
+        let messages: ModalMessage[] = [];
+        try {
+            messages = buildTutorMessages({ after: ctx, rows, concept: concept as never, suggestion, misconception });
         } catch {
-            // Eval faults never break the tutor path.
+            messages = [];
         }
         try {
-            if (evalSink !== undefined && evalSink !== null) evalSink({ feature: TUTOR_FEATURE, model });
+            const result = await port.chat(messages, { feature: TUTOR_FEATURE, timeoutMs: MODAL_TIMEOUT_MS });
+            recordSpend(result);
+            const reasoning = tutorReasoningOf(result);
+            const fence = tutorFenceField(result.text);
+            const prose = stripTutorPipeTable(fence.stripped);
+            const text = `${prose}\n\nBefore vs after\n${tableText}${timedNote}`;
+            const cached = (result.usage?.cachedTokens ?? 0) > 0;
+            // Success-only fence gated apply: exactly one set_field fence
+            // matching the deterministic suggestion, validated before the
+            // canvas write. Zero fences or any mismatch means no apply.
+            if (!suppressed && fence.fenceCount === 1 && fence.field === suggestion.primary) {
+                try {
+                    const currentVar = typeof ctx?.field?.variable === "string" ? ctx.field.variable : "speed";
+                    if (suggestion.primary !== currentVar) {
+                        const checked = validateAgentAction({ kind: "set_field", field: suggestion.primary }, validationCtx);
+                        if (checked.ok && checked.action !== null) {
+                            try {
+                                onAgentAction?.(checked.action);
+                            } catch {
+                                // Tutor auto faults stay silent, the table still renders.
+                            }
+                        }
+                    }
+                } catch {
+                    // Tutor auto apply never breaks the tutor turn.
+                }
+            }
+            const tutorId = reuseId ?? nextId();
+            upsertTutorTurn(tutorId, text.slice(0, 2000), cached ? "cached" : "live");
+            setExtra(tutorId, makeExtra({
+                streaming: false,
+                model: result.model,
+                inputTokens: result.usage?.inputTokens ?? 0,
+                outputTokens: result.usage?.outputTokens ?? 0,
+                costUsd: result.costUsd ?? 0,
+                reasoning,
+                tutorError: null,
+            }));
+            try {
+                tutorRetryRef.current.delete(tutorId);
+            } catch {
+                // Retry cleanup never breaks the tutor path.
+            }
+            try {
+                await g_evalLog.add({
+                    feature: TUTOR_FEATURE,
+                    model: result.model,
+                    latencyMs: result.latencyMs ?? 0,
+                    costUsd: result.costUsd ?? 0,
+                    costEstimated: true,
+                    cached,
+                    ok: true,
+                    fallback: null,
+                    hash: TUTOR_FEATURE,
+                });
+            } catch {
+                // Eval faults never break the tutor path.
+            }
+            try {
+                if (evalSink !== undefined && evalSink !== null) evalSink({ feature: TUTOR_FEATURE, model: result.model });
+            } catch {
+                // Optional test sink faults never break the tutor path.
+            }
+        } catch (err) {
+            const reason = err instanceof Error ? err.message : String(err);
+            const detail = (reason.length > 0 ? reason : "unknown error").slice(0, 160);
+            const tutorId = reuseId ?? nextId();
+            upsertTutorTurn(
+                tutorId,
+                `Tutor request failed (${detail}). Canvas unchanged.\n\nBefore vs after\n${tableText}${timedNote}`.slice(0, 2000),
+                "fallback",
+            );
+            setExtra(tutorId, makeExtra({ streaming: false, model: MODAL_MODEL_ID, reasoning: "", tutorError: detail }));
+            try {
+                tutorRetryRef.current.set(tutorId, { capture, after, timedOut });
+            } catch {
+                // Retry registration never breaks the tutor path.
+            }
+            try {
+                await g_evalLog.add({
+                    feature: TUTOR_FEATURE,
+                    model: MODAL_MODEL_ID,
+                    latencyMs: 0,
+                    costUsd: 0,
+                    costEstimated: true,
+                    cached: false,
+                    ok: false,
+                    fallback: "modal",
+                    hash: TUTOR_FEATURE,
+                });
+            } catch {
+                // Eval faults never break the tutor path.
+            }
+            try {
+                if (evalSink !== undefined && evalSink !== null) evalSink({ feature: TUTOR_FEATURE, model: MODAL_MODEL_ID });
+            } catch {
+                // Optional test sink faults never break the tutor path.
+            }
+        }
+    }
+
+    /** Retry one failed tutor turn through the live Modal port. Reuses the
+     *  clicked turn id so the original Retry never orphans and exactly one
+     *  live Retry exists: the button hides during the flight and returns
+     *  on the same turn only if the retry fails. Never throws. */
+    async function onRetryTutor(tutorId: string): Promise<void> {
+        try {
+            const saved = tutorRetryRef.current.get(tutorId);
+            if (saved === undefined) return;
+            try {
+                firedKeysRef.current.delete(saved.after.caseKey);
+            } catch {
+                // Dedupe reset never breaks retry.
+            }
+            tutorRetryRef.current.delete(tutorId);
+            try {
+                setExtra(tutorId, makeExtra({ streaming: true, model: MODAL_MODEL_ID, reasoning: "", tutorError: null }));
+            } catch {
+                // Retry marking never breaks the console.
+            }
+            await fireTutor(saved.capture, saved.after, saved.timedOut, tutorId);
         } catch {
-            // Optional test sink faults never break the tutor path.
+            // Retry faults never break the console.
         }
     }
 
@@ -985,16 +1196,35 @@ export default function AgentConsole({
 
     function pushOfflineAssistant(userText: string): void {
         const id = nextId();
-        const envelope = localReply(userText, agentContext ?? null);
-        pushTurn({ id, role: "assistant", at: nowIso(), text: envelope.reply, tool: "modal", status: "offline" });
-        setExtra(id, makeExtra({ streaming: false }));
-        settleParsedEnvelope(id, { reply: "", actions: envelope.actions, rejections: envelope.rejections });
+        const safeText = userText.slice(0, 200);
+        pushTurn({
+            id,
+            role: "assistant",
+            at: nowIso(),
+            text: `Offline demo mode, cached table only. You asked: ${safeText}. Canvas unchanged.`,
+            tool: "modal",
+            status: "cached",
+        });
+        setExtra(id, makeExtra({ streaming: false, model: MODAL_MODEL_ID, chatError: "offline demo mode" }));
+        try {
+            const ctx = agentContext ?? null;
+            const contextJson = ctx === null ? "{}" : JSON.stringify(ctx).slice(0, 3500);
+            chatRetryRef.current.set(id, {
+                messages: [
+                    { role: "system", content: `You are the GearFlow tunnel assistant. Live context: ${contextJson}` },
+                    { role: "user", content: userText.slice(0, 2000) },
+                ],
+                userText,
+            });
+        } catch {
+            // Retry registration never breaks the offline path.
+        }
     }
 
-    /** Honest live failure turn. Reuses the pending turn id, names the
-     *  failure reason, keeps zero canvas writes, and never falls back to
-     *  local prose on the live path. */
-    function settleLiveError(id: string, err: unknown): void {
+    /** Honest live failure turn with Retry. Reuses the pending turn id,
+     *  names the failure reason, keeps zero canvas writes, and never falls
+     *  back to local prose on the live path. */
+    function settleLiveError(id: string, err: unknown, retry?: { messages: ModalMessage[]; userText: string }): void {
         const reason = err instanceof Error ? err.message : String(err);
         const detail = reason.length > 0 ? reason.slice(0, 160) : "unknown error";
         const honest = `Live request failed (${detail}). Canvas unchanged.`;
@@ -1005,7 +1235,42 @@ export default function AgentConsole({
             saveTurns(merged.slice(-TRANSCRIPT_CAP));
             return merged.slice(-TRANSCRIPT_CAP);
         });
-        setExtra(id, { streaming: false });
+        setExtra(id, { streaming: false, model: MODAL_MODEL_ID, chatError: detail });
+        try {
+            if (retry !== undefined) chatRetryRef.current.set(id, retry);
+        } catch {
+            // Retry registration never breaks the error path.
+        }
+    }
+
+    /** Retry one failed live turn through the Modal port with the original
+     *  messages. Never throws. */
+    async function onRetryChat(turnId: string): Promise<void> {
+        try {
+            const saved = chatRetryRef.current.get(turnId);
+            if (saved === undefined || busyRef.current) return;
+            busyRef.current = true;
+            setBusy(true);
+            setStopping(false);
+            const controller = new AbortController();
+            abortRef.current = controller;
+            setExtra(turnId, makeExtra({ streaming: true, model: MODAL_MODEL_ID, chatError: null }));
+            setTurns((prev) => {
+                const merged = prev.map((t) => (t.id === turnId ? { ...t, text: "", tool: "modal" as const, status: "live" as const } : t));
+                saveTurns(merged.slice(-TRANSCRIPT_CAP));
+                return merged.slice(-TRANSCRIPT_CAP);
+            });
+            try {
+                await runStream(turnId, saved.messages, controller, saved.userText);
+            } finally {
+                abortRef.current = null;
+                busyRef.current = false;
+                setBusy(false);
+                setStopping(false);
+            }
+        } catch {
+            // Retry faults never break the console.
+        }
     }
 
     async function runStream(id: string, messages: ModalMessage[], controller: AbortController, userText: string): Promise<void> {
@@ -1046,13 +1311,13 @@ export default function AgentConsole({
                 return;
             }
             // One direct non streaming retry on a stream failure, then an
-            // honest error turn. No local prose fallback on the live path.
+            // honest error turn with Retry. No local prose fallback on the live path.
             try {
                 const plain = await port.chat(messages, { feature: MODAL_FEATURE, signal: controller.signal, timeoutMs: MODAL_TIMEOUT_MS });
                 lastResult = plain;
                 fullText = plain.text;
             } catch (retryErr) {
-                settleLiveError(id, retryErr);
+                settleLiveError(id, retryErr, { messages, userText });
                 return;
             }
         }
@@ -1062,12 +1327,12 @@ export default function AgentConsole({
                 lastResult = plain;
                 fullText = plain.text;
             } catch (retryErr) {
-                settleLiveError(id, retryErr);
+                settleLiveError(id, retryErr, { messages, userText });
                 return;
             }
         }
         if (fullText.trim().length === 0) {
-            settleLiveError(id, new Error("empty reply"));
+            settleLiveError(id, new Error("empty reply"), { messages, userText });
             return;
         }
         const cached = lastResult !== null && lastResult.usage.cachedTokens > 0;
@@ -1086,6 +1351,7 @@ export default function AgentConsole({
                 outputTokens: lastResult.usage.outputTokens,
                 costUsd: lastResult.costUsd,
                 streaming: false,
+                reasoning: tutorReasoningOf(lastResult),
             });
         } else {
             setExtra(id, { streaming: false });
@@ -1172,7 +1438,7 @@ export default function AgentConsole({
             try {
                 narration = describeSweepResult(result);
             } catch {
-                narration = "Local sweep note, local only. The sweep summary is unavailable, canvas unchanged.";
+                narration = "Sweep summary is unavailable, canvas unchanged.";
             }
             let rows: Array<{ metric: string; before: string; after: string; delta: string }> = [];
             try {
@@ -1315,7 +1581,7 @@ export default function AgentConsole({
             const id = nextId();
             pushTurn({ id, role: "assistant", at: nowIso(), text: `Applying alpha ${alphaDeg} deg from the sweep.`, tool: "modal", status: "offline" });
             setExtra(id, makeExtra({ streaming: false }));
-            settleParsedEnvelope(id, { reply: "", actions: [checked.action], rejections: [] });
+            settleParsedEnvelope(id, { reply: "", actions: [checked.action], rejections: [] }, `Apply alpha ${alphaDeg} deg from the sweep.`);
         } catch {
             // Validation faults never break the chip control.
         }
@@ -1382,7 +1648,7 @@ export default function AgentConsole({
                     />
                     <label htmlFor="agentOffline">
                         Go offline
-                        <span className="mSub">Local only, zero network, canvas unchanged.</span>
+                        <span className="mSub">Demo only, zero network, canvas unchanged.</span>
                     </label>
                     <span className={`mDot ${offline ? "off" : "on"}`} aria-hidden="true" />
                 </div>
@@ -1407,6 +1673,9 @@ export default function AgentConsole({
                     const proseText = hasTutorRows ? stripTutorPipeTable(t.text) : t.text;
                     const toolText = typeof t.tool === "string" && t.tool.length > 0 ? t.tool : "legacy";
                     const statusText = typeof t.status === "string" && t.status.length > 0 ? t.status : "fallback";
+                    const reasoningText = typeof extra?.reasoning === "string" ? extra.reasoning.trim() : "";
+                    const tutorErrorText = typeof extra?.tutorError === "string" ? extra.tutorError.trim() : "";
+                    const chatErrorText = typeof extra?.chatError === "string" ? extra.chatError.trim() : "";
                     return (
                         <div key={t.id} className={`chatTurn ${t.role} ${t.role === "user" ? "chatRight" : "chatLeft"}${isTutor ? " tutorTurn" : ""}`}>
                             <div className="chatHead">
@@ -1421,6 +1690,12 @@ export default function AgentConsole({
                                 {extra?.stopped === true && <span className="badge status-warn">stopped</span>}
                                 {(extra?.applied.length ?? 0) > 0 && <span className="badge status-pass">applied</span>}
                             </div>
+                            {isAssistant && reasoningText.length > 0 && (
+                                <details className="reasoningTrace">
+                                    <summary className="mSub mono">Reasoning</summary>
+                                    <p className="mSub mono">{reasoningText}</p>
+                                </details>
+                            )}
                             {t.role === "user" ? (
                                 <p className="chatText">{t.text.length > 0 ? t.text : "Composing reply"}</p>
                             ) : t.text.length > 0 ? (
@@ -1431,6 +1706,29 @@ export default function AgentConsole({
                                 ) : null
                             ) : (
                                 <p className="chatText">Composing reply</p>
+                            )}
+                            {isAssistant && tutorErrorText.length > 0 && (
+                                <p className="mSub mono" role="note">Tutor error: {tutorErrorText}. Canvas unchanged.</p>
+                            )}
+                            {isAssistant && isTutor && tutorErrorText.length > 0 && (
+                                <button
+                                    type="button"
+                                    className="chip retryChip"
+                                    onClick={() => void onRetryTutor(t.id)}
+                                    aria-label="Retry tutor request"
+                                >
+                                    Retry
+                                </button>
+                            )}
+                            {isAssistant && !isTutor && chatErrorText.length > 0 && (
+                                <button
+                                    type="button"
+                                    className="chip retryChip"
+                                    onClick={() => void onRetryChat(t.id)}
+                                    aria-label="Retry chat request"
+                                >
+                                    Retry
+                                </button>
                             )}
                             {(extra?.applied ?? []).map((note, i) => (
                                 <p key={`applied-${i}`} className="mSub mono">{note}</p>
@@ -1574,10 +1872,10 @@ export default function AgentConsole({
                     Session {spend.model} in {spend.inputTokens} out {spend.outputTokens} est ${spend.costUsd.toFixed(4)}.
                 </p>
                 {softStopped && (
-                    <p className="mSub mono">Spend cap ${spendCapUsd.toFixed(2)} reached, local mode until reset.</p>
+                    <p className="mSub mono">Spend cap ${spendCapUsd.toFixed(2)} reached, demo mode until reset.</p>
                 )}
                 {forcedLocal && !softStopped && (
-                    <p className="mSub mono">Local mode, zero network, canvas unchanged.</p>
+                    <p className="mSub mono">Demo mode, cached table only, zero network, canvas unchanged.</p>
                 )}
             </div>
             <div className="chatSam">

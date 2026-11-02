@@ -74,6 +74,10 @@ export interface ModalChatResult {
     usage: ModalUsage;
     costUsd: number;
     latencyMs: number;
+    /** Visible reasoning trace from reasoning_content or reasoning. Never
+     *  feeds the action envelope and never persists as prose. Optional so
+     *  older fakes and callers without reasoning keep compiling. */
+    reasoning?: string;
 }
 
 export interface ModalStreamChunk {
@@ -333,6 +337,25 @@ function readText(json: unknown): string {
     return typeof message?.content === "string" ? message.content : "";
 }
 
+/** Read the reasoning trace: reasoning_content first, then reasoning.
+ *  Never feeds the action envelope, rendered only as a collapsed trace. */
+function readReasoning(json: unknown): string {
+    try {
+        const root = json as Record<string, unknown>;
+        const choices = root.choices as Array<Record<string, unknown>> | undefined;
+        const message = choices?.[0]?.message as Record<string, unknown> | undefined;
+        if (typeof message?.reasoning_content === "string" && message.reasoning_content.length > 0) {
+            return message.reasoning_content;
+        }
+        if (typeof message?.reasoning === "string" && message.reasoning.length > 0) {
+            return message.reasoning;
+        }
+    } catch {
+        // Reasoning faults never break the chat path.
+    }
+    return "";
+}
+
 /** Map an HTTP status to a typed error. Any 503 (missing proxy token,
  *  missing upstream URL, or the MODAL_DISABLED kill switch) maps to the
  *  offline code, so the console can label the failure honestly. */
@@ -498,13 +521,14 @@ export class ModalClient {
             }
             const usage = readUsage(json);
             const costUsd = estimateModalCost(usage.inputTokens, usage.outputTokens, usage.cachedTokens);
+            const reasoning = readReasoning(json);
             const latencyMs = Date.now() - t0;
             this.report({
                 feature, model: MODAL_MODEL_ID, latencyMs,
                 inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
                 cachedTokens: usage.cachedTokens, costUsd, ok: true,
             });
-            return { text, action, model: MODAL_MODEL_ID, usage, costUsd, latencyMs };
+            return { text, action, model: MODAL_MODEL_ID, usage, costUsd, latencyMs, reasoning };
         }
     }
 
@@ -707,6 +731,6 @@ export class ModalClient {
             cachedTokens: usage.cachedTokens, costUsd, ok: true,
         });
         yield { delta: "", text, done: true };
-        return { text, action, model: MODAL_MODEL_ID, usage, costUsd, latencyMs };
+        return { text, action, model: MODAL_MODEL_ID, usage, costUsd, latencyMs, reasoning };
     }
 }

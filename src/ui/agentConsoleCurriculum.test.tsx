@@ -217,10 +217,18 @@ describe("agent console curriculum chips", () => {
         (found[0].props.onClick as () => void)();
         await flush();
         try {
+            // Offline demo copy through the tutor-v2 console: zero Modal
+            // calls, rows plus honest cached error plus Retry, canvas unchanged.
             expect(counter.streams).toBe(0);
             expect(counter.chats).toBe(0);
+            expect(onAgentAction).not.toHaveBeenCalled();
             expect(m.text()).toContain(chip.prompt);
-            expect(m.text().toLowerCase()).toContain("local");
+            expect(m.text()).toContain("Offline demo mode");
+            expect(m.text()).toContain("cached table only");
+            expect(m.text()).toContain("Canvas unchanged");
+            expect(m.text()).toContain("Retry");
+            expect(buttonsByLabel(m.tree(), "Retry chat request").length).toBeGreaterThan(0);
+            expect(m.text()).not.toContain("engineer note, local only");
         } finally {
             m.unmount();
         }

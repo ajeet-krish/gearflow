@@ -43,8 +43,8 @@ describe("buildTutorMessages", () => {
         });
         expect(messages.length).toBeGreaterThanOrEqual(2);
         const system = messages[0].content;
-        expect(TUTOR_PROMPT_VERSION).toBe("tutor-v1");
-        expect(system).toContain("tutor-v1");
+        expect(TUTOR_PROMPT_VERSION).toBe("tutor-v2");
+        expect(system).toContain("tutor-v2");
         expect(system).toContain("GearFlow flow tutor");
         expect(system).toContain("one idea per reply");
         expect(system).toContain("grade 8 to 10");
@@ -52,6 +52,10 @@ describe("buildTutorMessages", () => {
         expect(system).toContain("vorticity");
         expect(system).toContain("suction");
         expect(system).toContain("separation");
+        // Live Modal port only: reasoning stays in reasoning_content and
+        // never leaks into the final content.
+        expect(system).toContain("reasoning_content");
+        expect(system).toContain("Never put reasoning");
     });
 
     it("pins the honesty clauses and the structure plus fence rules", () => {

@@ -3,6 +3,9 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import AgentConsole, {
     MODAL_FEATURE,
     PRESET_CHIPS,
@@ -88,7 +91,9 @@ describe("modal console chrome", () => {
         const html = renderToStaticMarkup(
             <AgentConsole offline={false} onOfflineChange={() => {}} spendCapUsd={0} />
         );
-        expect(html).toContain("local mode until reset");
+        // Live tutor-v2 contract: demo mode note, never the retired local mode copy.
+        expect(html).toContain("demo mode until reset");
+        expect(html).not.toContain("local mode until reset");
     });
 
     it("marks offline turns with the offline badge plus local note", () => {
@@ -155,9 +160,12 @@ describe("modal console helpers", () => {
     });
 
     it("answers offline deterministically with zero canvas writes", () => {
+        // Offline demo copy: cached table only, zero local prose, canvas unchanged.
         const reply = localOfflineReply("How do I change Re", { cl: 0.6, cpMin: -1.2, reynolds: 50000 });
-        expect(reply).toContain("solver bar");
+        expect(reply).toContain("Offline demo mode");
+        expect(reply).toContain("cached table only");
         expect(reply).toContain("Canvas unchanged");
+        expect(reply).not.toContain("solver bar");
         const explain = localOfflineReply("Explain this run", { cl: 0.6, cpMin: -1.2, reynolds: 50000 });
         expect(explain).toContain("Cl 0.600");
     });
@@ -225,8 +233,7 @@ describe("modal console helpers", () => {
         expect(merged[0].id).toBe("t-5");
     });
 
-    it("accepts the App wiring props with zero executor calls on mount", () => {
-        const onAgentAction = vi.fn();
+    it("accepts the App wiring props with zero executor calls on mount", () => {        const onAgentAction = vi.fn();
         const { port, calls } = fakePort("Tuning alpha now.");
         const ctx = buildAgentContext({
             spec: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 },
@@ -428,5 +435,16 @@ describe("modal console agent-first prompt", () => {
     it("omits the analytic-only line for legacy snapshots", () => {
         const messages = buildModalMessages("Explain this run", legacyCtx(), []);
         expect(messages[0].content).not.toContain("Agent-first analytic mode");
+    });
+});
+
+describe("modal console live path (tutor-v2, Modal port only)", () => {
+    it("carries no localAssistant imports on the console live path", async () => {
+        const here = dirname(fileURLToPath(import.meta.url));
+        const src = await readFile(resolve(here, "./AgentConsole.tsx"), "utf8");
+        // Console live path rides the Modal port plus tutorPrompt only.
+        expect(src).not.toContain("localAssistant");
+        expect(src).toContain("buildTutorMessages");
+        expect(src).toContain("TUTOR_FEATURE");
     });
 });
