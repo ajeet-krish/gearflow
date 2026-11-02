@@ -214,3 +214,36 @@ Solo Indie Push the Frontier: one owner, one core loop, one wow moment, accelera
 ## Team status license
 
 Solo Indie entry. Name and contact: [TODO, add name, email, profile link]. Status: shipped behavior described above with file anchors, no phase counts. License: [TODO, add license and LICENSE file before publishing].
+
+## Live endpoint runbook (Modal gearflow-chat)
+
+1) Start (scale from zero):
+
+```sh
+set -a
+source .env
+set +a
+curl -s "$MODAL_CHAT_URL" -H "Authorization: Bearer $MODAL_PROXY_TOKEN" -H "Content-Type: application/json" -d '{"model":"gearflow-chat","messages":[{"role":"user","content":"hello"}],"max_tokens":1}'
+```
+
+First hit often returns no upstreams available. That is normal. It triggers the cold boot, about 14 min. Send once, then move to logs.
+
+2) Watch logs:
+
+```sh
+uvx modal endpoint logs gearflow-chat --follow
+```
+
+Wait for fired up and ready, then a POST 200 OK. After that, chat in the app streams normally.
+
+3) 60s keepalive loop (only while debugging or recording):
+
+```sh
+while true; do date; curl -s "$MODAL_CHAT_URL" -H "Authorization: Bearer $MODAL_PROXY_TOKEN" -H "Content-Type: application/json" -d '{"model":"gearflow-chat","messages":[{"role":"user","content":"hello"}],"max_tokens":1}'; echo; sleep 60; done
+```
+
+Stop the loop when done. It only prevents idle scale to zero during the session.
+
+Config notes: `MODAL_CHAT_URL` must end in `/v1/chat/completions`. Token is the `wk` plus `ws` combined value in `MODAL_PROXY_TOKEN`. Keep `VITE_MODAL_URL=/api/modal`. Restart `npm run dev` after any `.env` change.
+
+Cost note: min 0 (scale to zero) is cheapest for daily use. Use min 1 only for the demo window, then stop it after Nov 9.
