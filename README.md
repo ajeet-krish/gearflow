@@ -22,7 +22,7 @@ One core loop: describe a case in chat, the tunnel solves it, you read honest nu
 
 ## Meet the agent
 
-The canonical chat path is live Baseten Muse Spark (`src/agent/*`, `src/ui/AgentConsole.tsx`, model `meta-models/muse-spark-open-1026` via `/api/baseten/chat/completions`). Legacy `src/meta/*` (client, sparkChat, sparkSpec, cache, offlinePack) is fallback only.
+The canonical chat path is live Modal Muse Spark (`src/agent/*`, `src/ui/AgentConsole.tsx`, model `gearflow-chat` via `POST /api/modal/chat/completions`). Legacy `src/meta/*` (client, sparkChat, sparkSpec, cache, offlinePack) is fallback only. No Baseten path remains, no dual upstream, no local prose fallback.
 
 What it does: creates cases from plain language, runs sims through guarded actions, and explains the live run with real Cl, CpMin, and regime context. Setup presets auto apply through the App executor, run and cancel render as confirm chips only, rejections arrive as honest reason text.
 
@@ -49,7 +49,7 @@ Phase 20 presets (`src/agent/casePresets.ts`, expansion is atomic, all or nothin
 
 Note: `setup_high_re_wake` lives in the preset library (`expandCasePreset` plus the App executor) but is absent from `SETUP_KINDS`, the envelope validator (`src/agent/agentActions.ts`), and the AgentConsole prompt kinds, so chat through AgentConsole cannot trigger it.
 
-Guardrails: per action bounds on alpha and Re (presets carry their own validated Re), confirm chips for `run_lbm` and `cancel_lbm` that never auto run, 15s stream budget with Stop (`BASETEN_TIMEOUT_MS` in `src/ui/AgentConsole.tsx`), offline `localAssistant` fallback with badge, and `preflightLbm` hard blocks Run when predicted tau is at or below the 0.505 floor (`src/flow/lbmRunConfig.ts`).
+Guardrails: per action bounds on alpha and Re (presets carry their own validated Re), confirm chips for `run_lbm` and `cancel_lbm` that never auto run, 30s stream budget with Stop (`MODAL_TIMEOUT_MS` in `src/ui/AgentConsole.tsx`), honest error turn with Retry reusing the turn id and zero canvas writes on live failure, and `preflightLbm` hard blocks Run when predicted tau is at or below the 0.505 floor (`src/flow/lbmRunConfig.ts`). No local prose fallback for chat or tutor.
 
 ## See it
 
@@ -115,20 +115,16 @@ sequenceDiagram
     participant User
     participant Console as AgentConsole
     participant Guard as Guardrails
-    participant Spark as Spark Baseten proxy
-    participant Local as Local assistant
+    participant Modal as Modal proxy
     participant App as App executor
-    participant Pre as Preflight plus engine
     User->>Console: prompt with live run context
-    Console->>Spark: streamChat with 15s budget
-    alt offline toggle or timeout or spend cap
-        Console->>Local: localReply with offline badge
-    end
-    Spark->>Console: reply plus action-json envelope
+    Console->>Modal: streamChat with 30s budget
+    Modal->>Console: reply plus action-json envelope plus reasoning_content
     Console->>Guard: parse envelope max 5 plus validate
     Guard->>App: expand presets atomically
     App->>Pre: run_lbm confirm chip then tau check
     Pre->>App: block at floor 0.505 or run D2Q9 solved
+    Note over Console,Modal: live failure lands an honest error turn with Retry, zero canvas writes, no local prose fallback
 ```
 
 ```mermaid
@@ -148,13 +144,18 @@ flowchart TD
 
 ## Meta orchestration
 
-* Live: Muse Spark reasoning over the live run via Baseten (case setup plus coach explanations), plus the EvalLog ledger and agentCache.
-* Legacy fallback (`src/meta/*`, unmounted `MetaPanel`, not wired by App): SAM 3.1 stays cached and offline only (the AgentConsole SAM control only toggles an explanatory note and never routes through Baseten), the Muse Image poster renders only on explicit action, and HashCache TTLs serve stale on fault.
+* Live: Muse Spark reasoning over the live run via Modal (`POST /api/modal/chat/completions`, model `gearflow-chat`, tutor prompt `tutor-v2` with collapsed `reasoning_content` plus before versus after table), plus the EvalLog ledger and agentCache. Every turn forces Modal, missing or hostile config fails closed to 503 with an honest Retry turn.
+* Legacy fallback (`src/meta/*`, unmounted `MetaPanel`, not wired by App): SAM 3.1 stays cached and offline only (the AgentConsole SAM control only toggles an explanatory note and never routes through Modal), the Muse Image poster renders only on explicit action, and HashCache TTLs serve stale on fault.
 
 ## Run it in 5 minutes
 
 ```sh
 cp .env.example .env
+```
+
+Set the Modal chat env in `.env` (server only, never `VITE` prefixed): `MODAL_CHAT_URL` to the full https Modal Shared Endpoint URL, `MODAL_PROXY_TOKEN` to the Bearer token, optional `MODAL_MODEL_ID` when the endpoint is renamed (default `gearflow-chat`). Keep `VITE_MODAL_URL=/api/modal` as the same origin client base. `VITE_DEMO_OFFLINE=true` marks the booth copy as offline aware, it never replaces the Modal failure path which stays an honest error turn with Retry.
+
+```sh
 npm install
 npm run dev
 ```
@@ -171,7 +172,7 @@ npm run wasm:build
 npm run wasm:test
 ```
 
-Then open with `?wasm=1` or `?engine=wasm`. For the judged booth copy with no network:
+Then open with `?wasm=1` or `?engine=wasm`. For Vercel, set the same server only env (`MODAL_CHAT_URL`, `MODAL_PROXY_TOKEN`, optional `MODAL_MODEL_ID`) in the project env, keep `VITE_MODAL_URL=/api/modal`. For the judged booth copy with no network:
 
 ```sh
 VITE_DEMO_OFFLINE=true npm run build

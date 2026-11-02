@@ -75,6 +75,14 @@ Design goal: visible multi model value (Spark reasoning, SAM segmentation, Image
 * Controls: preset picker, Spark explain button, SAM overlay toggle, Poster regenerate button, offline toggle, low bandwidth toggle.
 * Trust copy: labels what Meta did (spec from text, mask from SAM, art from Image) and what is analytic (Cl, Cp from Hess Smith or surrogate). Consent line for Standard mode.
 
+### Agent chat (Modal only, Phase 13 plus Modal revamp)
+* Single upstream: POST /api/modal/chat/completions through the same origin proxy (Vite dev middleware plus Vercel handler). No second upstream, no dual routing.
+* Server only config: MODAL_CHAT_URL (full https URL on a Modal serving host, allowlist checked, hostile or missing values fail closed to 503) plus MODAL_PROXY_TOKEN (Bearer token, never bundled, never logged). Optional server only MODAL_MODEL_ID renames the endpoint, default gearflow-chat. Client base is VITE_MODAL_URL with default /api/modal.
+* Model contract: gearflow-chat with forced n 1, max_tokens capped at 700, temperature forced to 0 (src/agent/modalGate.ts forceModel). Upstream bodies never echo to the browser, generic errors only, 64 KiB body cap, 1 MiB response cap, per IP rate limit, same origin check.
+* Tutor path (tutor-v2, src/agent/tutorPrompt.ts): system teaches one idea in plain grade 8 to 10 language, cites only the tutor table, allows at most one set_field fence for the suggested primary. Private reasoning stays in reasoning_content only and renders collapsed, never parsed as an envelope and never persisted as prose. Final order is fixed: What changed, Why, Misconception, What to look at, Try next, Caveat. What changed uses only before versus after table numbers from tutorTable, n/a reads as pending. Honesty pinned: neural is predicted not validated, analytic is a potential flow estimate, only an LBM instantaneous snapshot may be called solved.
+* Console behavior (src/ui/AgentConsole.tsx): every live turn goes through the live Modal port with a 30 s budget and Stop. A live failure lands an honest error turn with zero canvas writes plus a Retry chip that reuses the turn id. No local prose fallback for chat or tutor, tutor failures render rows plus the error plus Retry. Deterministic helpers stay local and credit free: NACA parser plus airfoil intent plus curriculum chips plus misconception detector plus analytic alpha sweep, with envelope parse plus validateAgentAction capping at 5 actions. Transcript persists capped at 50, spend cap plus EvalLog ledger unchanged.
+* Meta /api/meta orchestration below is unchanged legacy scope and stays separate from the Modal chat path.
+
 ## Data Flow (Phase 4)
 1. User picks fixture plus alpha and thickness, or types a preset prompt in MetaPanel.
 2. SparkSpec path (optional): text to spec JSON, schema validated, applied to frame source on accept. Template fallback on invalid output.
