@@ -19,12 +19,24 @@ export const MODAL_MAX_MESSAGES = 32;
 export const MODAL_MAX_MESSAGE_CHARS = 8000;
 export const MODAL_MAX_TOTAL_MESSAGE_CHARS = 48000;
 
+/** Browser safe process.env read. Default params evaluate at call time,
+ *  so direct process.env access throws ReferenceError in browsers where
+ *  process is undefined (Live request failed). Returns {} there. */
+function safeProcessEnv(): Record<string, string | undefined> {
+    try {
+        if (typeof process !== "undefined" && process.env) {
+            return process.env as Record<string, string | undefined>;
+        }
+    } catch {
+        // process is undefined in the browser, fall through to {}.
+    }
+    return {};
+}
+
 /** Resolve the Modal model name: trimmed non empty MODAL_MODEL_ID env wins
  *  (endpoint renames), otherwise the pinned gearflow-chat default. Pure
  *  with an injectable env map for tests; never throws. */
-export function resolveModalModelId(
-    env: Record<string, string | undefined> = process.env as Record<string, string | undefined>
-): string {
+export function resolveModalModelId(env: Record<string, string | undefined> = safeProcessEnv()): string {
     try {
         const raw = env.MODAL_MODEL_ID;
         if (typeof raw === "string" && raw.trim().length > 0) return raw.trim();
@@ -73,9 +85,7 @@ export function isAllowedModalUpstreamUrl(value: unknown): boolean {
  * Modal allowlist, otherwise null (fail closed, no fallback upstream).
  * Pure with an injectable env map for tests; never throws.
  */
-export function resolveModalUpstreamUrl(
-    env: Record<string, string | undefined> = process.env as Record<string, string | undefined>
-): string | null {
+export function resolveModalUpstreamUrl(env: Record<string, string | undefined> = safeProcessEnv()): string | null {
     try {
         const raw = env.MODAL_CHAT_URL;
         if (typeof raw === "string" && isAllowedModalUpstreamUrl(raw)) return raw.trim();
@@ -170,12 +180,8 @@ export function sanitizeModalMessages(value: unknown): ModalSanitizedMessage[] {
  * renames), force n to 1, cap max_tokens at 700, and force temperature
  * to 0. Returns a new object, never mutates input. The optional env map
  * keeps the override pure and testable; production callers omit it so
- * process.env is read.
- */
-export function forceModel(
-    body: unknown,
-    env: Record<string, string | undefined> = process.env as Record<string, string | undefined>
-): unknown {
+ * safeProcessEnv() is read. */
+export function forceModel(body: unknown, env: Record<string, string | undefined> = safeProcessEnv()): unknown {
     const model = resolveModalModelId(env);
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
         return { messages: [], stream: false, model, n: 1, max_tokens: MODAL_MAX_TOKENS, temperature: 0 };
