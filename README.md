@@ -147,6 +147,18 @@ flowchart TD
 * Live: Muse Spark reasoning over the live run via Modal (`POST /api/modal/chat/completions`, model `gearflow-chat`, tutor prompt `tutor-v2` with collapsed `reasoning_content` plus before versus after table), plus the EvalLog ledger and agentCache. Every turn forces Modal, missing or hostile config fails closed to 503 with an honest Retry turn.
 * Legacy fallback (`src/meta/*`, unmounted `MetaPanel`, not wired by App): SAM 3.1 stays cached and offline only (the AgentConsole SAM control only toggles an explanatory note and never routes through Modal), the Muse Image poster renders only on explicit action, and HashCache TTLs serve stale on fault.
 
+### Model usage status (honest, judged surface)
+
+| Status | Model or path | How it ships |
+|--------|---------------|--------------|
+| Live | Muse Spark Open via Modal (`gearflow-chat`) | Single live Meta model in the judged loop, chat plus tutor, fail closed with Retry |
+| Built but cut, code present, unmounted | Muse Image poster path | Explicit action only, not part of the judged loop, labeled cached when shown |
+| Built but cut, code present, unmounted | SAM overlay | Cached and offline only, visual layer only, physics mask stays authoritative |
+| Deferred | Glimmer local | No live path in this submission |
+| Deferred | Wonder second voice | No live voice path in this submission |
+
+Video and README label every Meta moment as live versus cached versus fallback. Single model submission accepts Meta Tooling 25 percent risk in exchange for stability and trust.
+
 ## Run it in 5 minutes
 
 ```sh

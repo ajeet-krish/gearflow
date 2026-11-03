@@ -1,11 +1,16 @@
 # Video Script: GearFlow 3 Minute Demo (384 words spoken)
 
 ## Full Spoken Script (read verbatim, 384 words)
-Watch this. I picked the Stall demo tutorial, and the flow field is stepping live.
-I am Ajeet, a solo builder working on scientific tools. I build GearFlow, a browser lab where chat sets up aerodynamics. Solo Indie entry, pushing what chat can do for physics.
-CFD tools are powerful but setup is friction. Meshing, solvers, and plots take hours. Students guess instead of seeing. Intuition never builds because trying one angle takes too long. Teachers cannot demo stall live in class. Engineers wait for clusters to test simple ideas.
-GearFlow fixes that. Type a case in chat and the agent builds it. It runs on a Meta text model for reasoning, with cached responses and an eval ledger for every call. You see metaClient, modalGate, cache, and evalLog here. That is the harness. Image and audio inputs are future work. Today chat is text only, and every result carries an honest label.
-Let us set up NACA 2412 at alpha 6. I pick the Example prompts chip, Set up NACA 2412 at angle of attack alpha 6. The agent parses airfoil, angle, and field. In 2 milliseconds we get a potential flow estimate on a 512 grid with 118 panels.
+
+What if you could setup computational fluid dynamics simulations in seconds without spending hours lost in menus.
+
+My name is Ajeet and I built GearFlow, an interactive wind tunnel simulator controlled through natural language. Describe a case to a live agent and watch them set up the simulation and explain the physics. 
+
+CFD tools are extremely powerful, but setting up meshes, solvers, and plots can take hours. Students can ask questions about aerodynamics concepts and get instant feedback and visual response. Teachers can run instant parameter sweeps, like an angle of attack comparison, without spending hours building simulators and extracting plots. Engineers can test simple ideas without wasting compute resources.
+
+GearFlow fixes that. Type a case in chat and the agent builds it. It runs on Meta Spark Open model for reasoning, served through Modal.
+
+Let us set up NACA 2412 at angle of attack alpha 6. The agent parses airfoil, angle, and field. In 2 milliseconds we get a potential flow estimate.
 Here is the RUN card. Lift coefficient 0.9750, minimum pressure minus 2.4880. Purple suction on top, cyan recovery below. The vertical colorbar is the only legend. Everything stays readable with sound off. I toggle field to pressure, then velocity.
 Now the wow moment. I click the Stall demo tutorial. Watch nine points step live with progress and Stop control. Then the tutor explains what changed, why, and what to try next, with a Before versus After table. Cylinder shedding is one phrase away. Show me vortex shedding behind the cylinder.
 Note the label. Served by analytic preview, potential flow estimate, not validated. That honesty matters. Spark cache lives 24 hours, spend capped at 5 dollars. If the network drops, calls fail honest with Retry, and the sweep still steps the canvas live.

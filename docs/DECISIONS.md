@@ -254,3 +254,10 @@ Append only. Add new entries at bottom with date. Never rewrite history.
 * Options considered: Stay on Vercel with server env versus move to GitHub Pages static export.
 * Decision: Stay on Vercel, reject GitHub Pages for the live build. `/api/modal` serverless proxy hides `MODAL_PROXY_TOKEN` in server env, so live Tutor keeps working. A Pages static export would kill live Tutor or force an unsafe client token. Optional Pages static build shows cached demo only with no live Tutor.
 * Impact (judging link): Demo (live Tutor works on the judged URL) and Technical Depth (token stays server side, no client secret).
+
+### 2026-11-03 Stay single model (Muse Spark Open via Modal) for submission
+* Date: 2026-11-03
+* Context: One day left before Nov 4 submission. Second model candidates were assessed for live wiring cost, credit risk, and demo stability. Only Muse Spark Open via Modal is live and stable in the judged path.
+* Options considered: Meta Image poster slice (explicit action render, code present, unmounted from judged loop) cut from live story. Wonder second voice cut, no live voice path. Live SAM overlay cut, SAM stays cached and offline only with physics mask authoritative. Glimmer local cut, deferred with no live path. All cut to protect the single working live path.
+* Decision: Ship single live Meta model (Muse Spark Open via Modal, model gearflow-chat). Keep README plus video honest about what is live versus cached versus fallback. Accept Meta Tooling 25 percent risk in exchange for a stable demo and truthful labels.
+* Impact (judging link): Demo (stable single live path with honest Retry, no multiclip theater) and Meta Tooling (one live integration shown clearly, other paths labeled cached or fallback, partial credit with trust intact).
