@@ -186,7 +186,7 @@ describe("modalServerHandler wiring", () => {
         const sent = JSON.parse(seenBody) as Record<string, unknown>;
         expect(sent.model).toBe(MODAL_MODEL_ID);
         expect(sent.n).toBe(1);
-        expect(sent.max_tokens).toBe(700);
+        expect(sent.max_tokens).toBe(400);
         expect(sent.temperature).toBe(0);
         expect(out.statusCode).toBe(200);
     });

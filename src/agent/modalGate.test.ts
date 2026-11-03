@@ -82,14 +82,14 @@ describe("forceModel", () => {
         expect(out.temperature).toBe(0);
     });
 
-    it("caps max_tokens at 700 and keeps smaller values", () => {
+    it("caps max_tokens at 400 and keeps smaller values", () => {
         const capped = forceModel({ model: "x", max_tokens: 4096 }) as Record<string, unknown>;
         expect(capped.max_tokens).toBe(MODAL_MAX_TOKENS);
-        expect(MODAL_MAX_TOKENS).toBe(700);
+        expect(MODAL_MAX_TOKENS).toBe(400);
         const kept = forceModel({ model: "x", max_tokens: 300 }) as Record<string, unknown>;
         expect(kept.max_tokens).toBe(300);
         const missing = forceModel({ model: "x" }) as Record<string, unknown>;
-        expect(missing.max_tokens).toBe(700);
+        expect(missing.max_tokens).toBe(400);
     });
 
     it("does not mutate the input object", () => {

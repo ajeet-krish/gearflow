@@ -1,7 +1,7 @@
 // Modal transport gate, pure module for the Muse Spark proxy.
 // Pinned live contract: OpenAI compatible chat completions over the
 // operator configured MODAL_CHAT_URL (a https Modal serving host) with
-// n fixed to 1, max_tokens capped at 700, temperature forced to 0, and
+// n fixed to 1, max_tokens capped at 400, temperature forced to 0, and
 // the pinned gearflow-chat endpoint model. Modal-only: invalid or
 // missing upstream config fails closed, never falls back. No React,
 // no DOM, no secrets in this module.
@@ -10,8 +10,8 @@ export const MODAL_MODEL_ID = "gearflow-chat";
 export const MODAL_PATH = "/api/modal/chat/completions";
 export const MODAL_MAX_BODY_BYTES = 64 * 1024;
 export const MODAL_MAX_RESPONSE_BYTES = 1 * 1024 * 1024;
-export const MODAL_MAX_TOKENS = 700;
-export const MODAL_TIMEOUT_MS = 30000;
+export const MODAL_MAX_TOKENS = 400;
+export const MODAL_TIMEOUT_MS = 60000;
 export const MODAL_RATE_LIMIT_MAX = 10;
 export const MODAL_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 export const MODAL_RATE_LIMIT_MAX_ENTRIES = 5000;
@@ -177,7 +177,7 @@ export function sanitizeModalMessages(value: unknown): ModalSanitizedMessage[] {
 /**
  * Overwrite any client supplied model with the pinned gearflow-chat id
  * (overridable via the server only MODAL_MODEL_ID env for endpoint
- * renames), force n to 1, cap max_tokens at 700, and force temperature
+ * renames), force n to 1, cap max_tokens at 400, and force temperature
  * to 0. Returns a new object, never mutates input. The optional env map
  * keeps the override pure and testable; production callers omit it so
  * safeProcessEnv() is read. */

@@ -2,13 +2,12 @@
 // Covers the orchestrator requested contract: live send plus stream with
 // reasoning split, envelope from content only, model pinned gearflow-chat,
 // DONE without finish_reason, both reasoning keys, 429 retry, hostile URL
-// fail 503, missing token 503, 30 s timeout, SSE flood cap, malformed envelope.
+// fail 503, missing token 503, 60 s timeout, SSE flood cap, malformed envelope.
 
 import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
-  MODAL_TIMEOUT_MS,
   ModalClient,
   ModalError,
   extractActionJson,
@@ -17,6 +16,7 @@ import {
 import {
   MODAL_MAX_RESPONSE_BYTES,
   MODAL_MODEL_ID,
+  MODAL_TIMEOUT_MS,
   ModalRateLimiter,
 } from "./modalGate";
 import { createModalServerHandler } from "./modalServerHandler";
@@ -244,8 +244,8 @@ describe("phase1 modal edge cases", () => {
 });
 
 describe("phase1 modal error conditions", () => {
-  it("pins the 30 s default timeout", () => {
-    expect(MODAL_TIMEOUT_MS).toBe(30000);
+  it("pins the 60 s default timeout", () => {
+    expect(MODAL_TIMEOUT_MS).toBe(60000);
     expect(MODAL_MAX_RESPONSE_BYTES).toBe(1 * 1024 * 1024);
   });
 

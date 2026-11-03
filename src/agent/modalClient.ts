@@ -1,6 +1,6 @@
 // Modal chat client for Muse Spark. All browser calls go through the
 // same origin proxy at /api/modal so the server only MODAL_PROXY_TOKEN
-// never reaches the bundle. Non streaming chat plus SSE streamChat, 30 s
+// never reaches the bundle. Non streaming chat plus SSE streamChat, 60 s
 // timeout with one retry before the first token only, fenced JSON envelope
 // parsing from content text only, and an eval hook reporting model,
 // latency, usage, and cost.
@@ -10,6 +10,7 @@ import {
     MODAL_MAX_TOKENS,
     MODAL_MODEL_ID,
     MODAL_PATH,
+    MODAL_TIMEOUT_MS,
     forceModel,
     isRetryable,
 } from "./modalGate";
@@ -86,7 +87,6 @@ export interface ModalStreamChunk {
     done: boolean;
 }
 
-export const MODAL_TIMEOUT_MS = 30000;
 export const MODAL_RETRY_CAP_MS = 8000;
 export const MODAL_RETRY_DEFAULT_MS = 500;
 export const MODAL_PRICE_INPUT_PER_M = 1.25;
@@ -538,7 +538,7 @@ export class ModalClient {
      * accumulator that never feeds the action envelope. Stops on the
      * terminal DONE line even when no finish_reason arrived, retries once
      * on 429 or 5xx before the first token only, plus one documented
-     * connect timeout retry. The read loop keeps the 30 s idle and total
+     * connect timeout retry. The read loop keeps the 60 s idle and total
      * stream deadline wired through every read and cancels the reader
      * when the caller aborts, so a stalled stream cannot hang past the
      * client timeout.

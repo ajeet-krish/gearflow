@@ -1,5 +1,5 @@
 // Agent console: Modal chat transcript over the live run context.
-// Composer streams through ModalClient with Stop plus a 30 s budget,
+// Composer streams through ModalClient with Stop plus a 60 s budget,
 // every live turn goes through the live Modal port, and a live failure
 // lands an honest error turn with zero canvas writes plus Retry.
 // Setup actions auto apply through onAgentAction, run and cancel render
@@ -15,7 +15,7 @@ import remarkGfm from "remark-gfm";
 import type { AgentAction, ChatTurn, FieldMode } from "@/contracts/types";
 import type { AgentContext } from "@/agent/agentContext";
 import { ModalClient, type ModalChatResult, type ModalMessage, type ModalStreamChunk } from "@/agent/modalClient";
-import { MODAL_MODEL_ID } from "@/agent/modalGate";
+import { MODAL_MODEL_ID, MODAL_TIMEOUT_MS } from "@/agent/modalGate";
 import { actionContractSummary, parseAgentEnvelope, validateAgentAction, type AgentValidationContext } from "@/agent/agentActions";
 import { buildTutorTable, tutorRowsText, type TutorSnapshotLite, type TutorTableRow } from "@/agent/tutorTable";
 import { detectConcept, fieldForConcept, type TutorConcept, type TutorFieldSuggestion } from "@/agent/tutorPolicy";
@@ -76,12 +76,11 @@ export interface AgentConsoleProps {
 }
 
 export const MODAL_FEATURE = "modal-chat";
-export const MODAL_TIMEOUT_MS = 30000;
 export const STREAM_FLUSH_MS = 50;
 export const SPEND_SOFT_STOP_USD = SESSION_SPEND_CAP_USD;
 export const TRANSCRIPT_CAP = 50;
 /** Phase 2 live tutor hook constants. The tutor fires once per settled
- *  after-caseKey through the live Modal port with a 30 s budget, or after
+ *  after-caseKey through the live Modal port with a 60 s budget, or after
  *  the settle timeout with a loading line. No local prose fallback. */
 export const TUTOR_FEATURE = "tutor";
 export const TUTOR_TIMEOUT_MS = 2500;
@@ -814,7 +813,7 @@ export default function AgentConsole({
 
     /** Phase 2 live tutor fire. Builds deterministic rows plus concept plus
      *  suggestion from the before/after snapshots, then fires one Modal
-     *  call per after-caseKey with a 30 s budget. Rows render once as the
+     *  call per after-caseKey with a 60 s budget. Rows render once as the
      *  structured payload table (prose pipe tables and action fences stay
      *  stripped). Success applies at most one set_field only when the
      *  model emits exactly one fence matching the suggested primary

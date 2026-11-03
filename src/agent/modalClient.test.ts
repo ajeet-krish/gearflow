@@ -3,7 +3,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
     MODAL_RETRY_DEFAULT_MS,
-    MODAL_TIMEOUT_MS,
     ModalClient,
     ModalError,
     estimateModalCost,
@@ -11,7 +10,7 @@ import {
     resolveModalBaseUrl,
     retryDelayMs,
 } from "./modalClient";
-import { MODAL_MODEL_ID } from "./modalGate";
+import { MODAL_MODEL_ID, MODAL_TIMEOUT_MS } from "./modalGate";
 import type { ModalMessage } from "./modalClient";
 
 const MESSAGES: ModalMessage[] = [{ role: "user", content: "propose a spec" }];
@@ -84,8 +83,8 @@ describe("chat success envelope", () => {
         expect(evals[0].costUsd).toBeCloseTo(0.002275, 6);
     });
 
-    it("pins the default 30 s timeout", () => {
-        expect(MODAL_TIMEOUT_MS).toBe(30000);
+    it("pins the default 60 s timeout", () => {
+        expect(MODAL_TIMEOUT_MS).toBe(60000);
     });
 });
 

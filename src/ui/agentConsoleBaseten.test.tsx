@@ -193,7 +193,7 @@ describe("modal console helpers", () => {
         let chunks = 0;
         const gen = port.streamChat(
             [{ role: "user", content: "hi" }],
-            { feature: MODAL_FEATURE, timeoutMs: 30000 }
+            { feature: MODAL_FEATURE, timeoutMs: 60000 }
         );
         for (;;) {
             const step = await gen.next();
