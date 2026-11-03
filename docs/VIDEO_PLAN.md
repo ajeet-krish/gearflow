@@ -56,6 +56,6 @@
 * YouTube chapters to paste: 0:00 Cold open, chat sets up an airfoil. 0:07 Intro. 0:38 Live demo, four cases. 2:01 Agent architecture. 2:29 Honest labels and limits. 2:40 Next steps and close.
 * Code B roll files in order: src/agent/modalGate.ts (single completion, capped tokens, zero temperature, low reasoning, fail closed), src/agent/agentActions.ts (contract validator, five action cap), src/ui/AgentConsole.tsx (executor plus tutor), src/agent/sessionSpend.ts (5 dollar soft cap).
 * Captions: export SRT from the editor and upload it, in addition to burned in captions, for judging accessibility.
-* Slide files in order: slides/01-intro.png, slides/02-problem-friction.png, slides/03-problem-intuition.png, slides/04-solution-harness.png, slides/05-constraints.png, slides/06-next-steps.png, slides/07-end-card.png.
+* Slide files in order: slides/01-cover.png, slides/02-problem.png, slides/03-product.png, slides/04-users.png, slides/05-harness.png, slides/06-future.png, slides/07-end-card.png.
 * Go or no go 30 min before recording: send each of the 10 verbatim prompts live and confirm the canvas changes as expected. Any misfire swaps to its backup prompt. Confirm warm cache.
 * Keep a local MP4 backup plus slide images in case of upload retry.
