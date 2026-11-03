@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { COLORMAPS, type ColormapName } from "@/flow/colormap";
-import { DEFAULT_DISPLAY_PREFS, PARTICLE_SIZE_MAX, PARTICLE_SIZE_MIN, type DisplayPrefs, type FieldMode, type ParticleColorMode } from "@/contracts/types";
+import { DEFAULT_DISPLAY_PREFS, PARTICLE_COUNT_MAX, PARTICLE_COUNT_MIN, PARTICLE_COUNT_STEP, PARTICLE_SIZE_MAX, PARTICLE_SIZE_MIN, type DisplayPrefs, type FieldMode, type ParticleColorMode } from "@/contracts/types";
 import { PARTICLE_COLOR_OPTIONS } from "@/render/particleColor";
 import { parseCustomGrid, type GridMode } from "@/flow/gridController";
 import type { GridSize } from "@/contracts/types";
@@ -30,10 +30,12 @@ const THEMES: Array<{ value: DisplayPrefs["theme"]; label: string }> = [
     { value: "light", label: "Light" },
 ];
 
-const PARTICLE_COUNTS = [0, 1200, 2000, 3000];
-
-function countLabel(n: number): string {
-    return n === 0 ? "Off" : String(n);
+/** Particle count slider commit: finite input rounds into the envelope,
+ *  garbage holds the previous count. Never throws. */
+export function decideParticleCountCommit(raw: unknown, fallback: number): number {
+    const n = typeof raw === "string" ? Number(raw.trim()) : typeof raw === "number" ? raw : Number.NaN;
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(PARTICLE_COUNT_MAX, Math.max(PARTICLE_COUNT_MIN, Math.round(n)));
 }
 
 /**
@@ -51,7 +53,7 @@ export function decideSettingsCustomCommit(raw: unknown, fallbackSize: number): 
     return {
         fire: false,
         size: fallbackSize,
-        message: parsed.reason ?? "Custom grid needs a number in [32, 512].",
+        message: parsed.reason ?? "Custom grid needs a number in [128, 1024].",
     };
 }
 
@@ -62,7 +64,7 @@ export default function SettingsModal({
     onPatch,
     gridMode,
     activeGrid,
-    customSize = 128,
+    customSize = 256,
     gridNotice = null,
     onGridMode,
     variable,
@@ -273,32 +275,27 @@ export default function SettingsModal({
                             <label htmlFor="settingsStream">Streamlines <span className="settingsSource mono">{overlaySource}</span></label>
                         </div>
                         <p className="hint mono" role="status">Overlays: {overlaySource}.</p>
-                        <div className="settingsRow toggleRow">
-                            <input
-                                id="settingsMeanFields"
-                                type="checkbox"
-                                checked={prefs.meanFields}
-                                onChange={(e) => onPatch({ meanFields: e.target.checked })}
-                            />
-                            <label htmlFor="settingsMeanFields">Time mean velocity fields</label>
-                        </div>
-                        <p className="hint mono">Mean plots the time averaged u and v once an LBM run samples them.</p>
                     </section>
                     <section className="settingsSection" aria-label="Particles">
                         <h3>PARTICLES</h3>
                         <div className="settingsRow">
-                            <label className="settingsLabel" htmlFor="settingsParticles">Count</label>
-                            <select
+                            <label className="settingsLabel" htmlFor="settingsParticles">
+                                Count <output htmlFor="settingsParticles" className="mono">{prefs.particleCount === 0 ? "Off" : prefs.particleCount.toLocaleString("en-US")}</output>
+                            </label>
+                            <input
                                 id="settingsParticles"
-                                className="barSelect"
+                                type="range"
+                                min={PARTICLE_COUNT_MIN}
+                                max={PARTICLE_COUNT_MAX}
+                                step={PARTICLE_COUNT_STEP}
                                 value={prefs.particleCount}
-                                onChange={(e) => onPatch({ particleCount: Number(e.target.value) })}
-                                aria-label="Particle count"
-                            >
-                                {PARTICLE_COUNTS.map((n) => (
-                                    <option key={n} value={n}>{n === 0 ? "Off" : n}</option>
-                                ))}
-                            </select>
+                                onChange={(e) => onPatch({ particleCount: decideParticleCountCommit(e.target.value, prefs.particleCount) })}
+                                aria-label="Particle count, 0 parks the layer off, up to 8000"
+                                aria-describedby="settingsParticlesValue"
+                            />
+                            <output id="settingsParticlesValue" className="mono" htmlFor="settingsParticles">
+                                {prefs.particleCount === 0 ? "Off" : prefs.particleCount.toLocaleString("en-US")}
+                            </output>
                         </div>
                         <div className="settingsRow">
                             <label className="settingsLabel" htmlFor="settingsParticleSize">Particle size</label>
@@ -359,21 +356,21 @@ export default function SettingsModal({
                                 aria-describedby="settingsGridHint"
                             >
                                 <option value="auto">Auto (512, fallback to 256)</option>
+                                <option value="1024">1024 x 1024 pinned</option>
+                                <option value="512">512 x 512 pinned</option>
                                 <option value="256">256 x 256 pinned</option>
-                                <option value="128">128 x 128 pinned</option>
-                                <option value="64">64 x 64 pinned</option>
                                 <option value="custom">Custom square</option>
                             </select>
                         </div>
                         {gridMode === "custom" && (
                             <div className="settingsRow">
-                                <label className="settingsLabel" htmlFor="settingsCustomGrid">Custom square side, 32 to 512</label>
+                                <label className="settingsLabel" htmlFor="settingsCustomGrid">Custom square side, 128 to 1024</label>
                                 <input
                                     id="settingsCustomGrid"
                                     className="barSelect"
                                     type="number"
-                                    min={32}
-                                    max={512}
+                                    min={128}
+                                    max={1024}
                                     step={1}
                                     value={customText}
                                     onChange={(e) => setCustomText(e.target.value)}
@@ -393,7 +390,7 @@ export default function SettingsModal({
                                             setCustomError(null);
                                         }
                                     }}
-                                    aria-label="Custom square grid side, 32 to 512"
+                                    aria-label="Custom square grid side, 128 to 1024"
                                 />
                                 {customError !== null && (
                                     <p className="mError" role="alert">{customError}</p>

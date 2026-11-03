@@ -9,7 +9,7 @@ import {
     setGridMode,
     SLOW_SOLVE_MS,
 } from "./gridController";
-import { GRID_128, GRID_256, GRID_512 } from "@/contracts/types";
+import { GRID_1024, GRID_256, GRID_512 } from "@/contracts/types";
 
 describe("gridController", () => {
     beforeEach(() => {
@@ -60,9 +60,9 @@ describe("gridController", () => {
         expect(resolveGridSize(state)).toBe(GRID_256);
     });
 
-    it("pins 128 directly with no notice", () => {
-        const state = setGridMode(initialResolution("auto"), "128");
-        expect(resolveGridSize(state)).toBe(GRID_128);
+    it("pins 1024 directly with no notice", () => {
+        const state = setGridMode(initialResolution("auto"), "1024");
+        expect(resolveGridSize(state)).toBe(GRID_1024);
         expect(state.notice).toBeNull();
         const next = recordSolve(state, SLOW_SOLVE_MS + 900);
         expect(next.fellBack).toBe(false);

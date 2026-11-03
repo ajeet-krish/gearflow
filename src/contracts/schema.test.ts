@@ -181,14 +181,17 @@ describe("pack file paths (traversal)", () => {
 describe("allocation caps", () => {
     it("rejects oversized grids in validateDemoPack", () => {
         const pack = goodPack();
-        pack.grid = { ...pack.grid, nx: 1024 };
-        expect(() => validateDemoPack(pack)).toThrow(/512|cells/);
+        pack.grid = { ...pack.grid, nx: 2048 };
+        expect(() => validateDemoPack(pack)).toThrow(/1024|cells/);
         const pack2 = goodPack();
-        pack2.grid = { ...pack2.grid, nx: 512, ny: 513 };
-        expect(() => validateDemoPack(pack2)).toThrow(/512|cells/);
+        pack2.grid = { ...pack2.grid, nx: 1024, ny: 1025 };
+        expect(() => validateDemoPack(pack2)).toThrow(/1024|cells/);
         const pack3 = goodPack();
         pack3.grid = { ...pack3.grid, nx: 512, ny: 512 };
         expect(() => validateDemoPack(pack3)).not.toThrow();
+        const pack4 = goodPack();
+        pack4.grid = { ...pack4.grid, nx: 1024, ny: 1024 };
+        expect(() => validateDemoPack(pack4)).not.toThrow();
     });
 
     it("rejects oversized nPoints", () => {
@@ -209,7 +212,7 @@ describe("allocation caps", () => {
                 omega: [],
                 obstacle: [],
             })
-        ).toThrow(/512|cells/);
+        ).toThrow(/1024|cells/);
     });
 });
 

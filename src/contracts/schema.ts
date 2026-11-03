@@ -18,12 +18,24 @@ function checkStringLength(value: string, field: string, max: number): void {
     }
 }
 
-/** Allocation caps: crafted manifests must not force huge typed arrays or textures. */
+/** Allocation caps: crafted manifests must not force huge typed arrays or textures.
+ *  These stay at the LBM envelope (512 per side, 262144 cells). The analytic
+ *  flow grid has its own higher ceiling below (ANALYTIC_MAX_*); LBM derives
+ *  its grid separately in engineMode and never follows the raised cap. */
 export const MAX_NX = 512;
 export const MAX_NY = 512;
 export const MAX_CELLS = 262144;
 export const MAX_NPOINTS = 4096;
 export const MAX_AIRFOIL_POINTS = 8192;
+
+/** Analytic flow grid ceiling. The analytic (potential flow plus wake)
+ *  solve may use up to 1024 per side (1048576 cells) for crisp shear
+ *  layers; the Settings rail offers 1024 as the top pinned preset. LBM
+ *  never follows this ceiling: it derives its own square-cell grid capped
+ *  at MAX_* in engineMode (LBM_MAX_*). */
+export const ANALYTIC_MAX_NX = 1024;
+export const ANALYTIC_MAX_NY = 1024;
+export const ANALYTIC_MAX_CELLS = 1048576;
 
 /** Chord normalized envelope: chord is always 1, magnitudes stay bounded. */
 export const CHORD_VALUE = 1;
@@ -220,10 +232,10 @@ export function validateGridSpec(g: unknown): asserts g is GridSpec {
     const spec = g as Record<string, unknown>;
     if (!Number.isInteger(spec.nx) || (spec.nx as number) < 4) throw new Error("GridSpec.nx must be an integer >= 4");
     if (!Number.isInteger(spec.ny) || (spec.ny as number) < 4) throw new Error("GridSpec.ny must be an integer >= 4");
-    if ((spec.nx as number) > MAX_NX) throw new Error(`GridSpec.nx must be <= ${MAX_NX}`);
-    if ((spec.ny as number) > MAX_NY) throw new Error(`GridSpec.ny must be <= ${MAX_NY}`);
-    if ((spec.nx as number) * (spec.ny as number) > MAX_CELLS) {
-        throw new Error(`GridSpec nx*ny must be <= ${MAX_CELLS}`);
+    if ((spec.nx as number) > ANALYTIC_MAX_NX) throw new Error(`GridSpec.nx must be <= ${ANALYTIC_MAX_NX}`);
+    if ((spec.ny as number) > ANALYTIC_MAX_NY) throw new Error(`GridSpec.ny must be <= ${ANALYTIC_MAX_NY}`);
+    if ((spec.nx as number) * (spec.ny as number) > ANALYTIC_MAX_CELLS) {
+        throw new Error(`GridSpec nx*ny must be <= ${ANALYTIC_MAX_CELLS}`);
     }
     const d = spec.domain as Record<string, unknown> | undefined;
     if (!d) throw new Error("GridSpec.domain is required");

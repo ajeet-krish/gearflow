@@ -140,7 +140,7 @@ function closedLinePts(poly: Point[]): THREE.Vector3[] {
 }
 
 // Adaptive particle steps. The FPS EMA drops a tier after 60 slow frames.
-const PARTICLE_STEPS = [3000, 2000, 1200];
+const PARTICLE_STEPS = [8000, 4000, 2000];
 const SLOW_FPS = 55;
 const SLOW_FRAMES = 60;
 

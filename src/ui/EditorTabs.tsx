@@ -1,8 +1,9 @@
 // EditorTabs: Body selector tab strip above the FIELD bar. One tab per
-// body (NACA Airfoil, Cylinder, Rectangle, Orifice), active tab carries the
-// top border accent. No close buttons: tabs are body memories, never
-// closable documents. The dot renders only when the memory is dirty. Full
-// keyboard support, no vendored code.
+// body (NACA Airfoil, Cylinder, Rectangle, Orifice), the active tab carries
+// the shared outlined-box selected style (Dracula purple border, no fill
+// change), exactly matching the Field chips. No close buttons: tabs are
+// body memories, never closable documents. The dot renders only when the
+// memory is dirty. Full keyboard support, no vendored code.
 
 import type { CaseTabMemory } from "./caseTabs";
 

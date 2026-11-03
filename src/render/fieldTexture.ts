@@ -6,7 +6,7 @@
 
 import * as THREE from "three";
 import type { FieldMode, FlowField } from "@/contracts/types";
-import { MAX_CELLS, MAX_NX, MAX_NY } from "@/contracts/schema";
+import { ANALYTIC_MAX_CELLS, ANALYTIC_MAX_NX, ANALYTIC_MAX_NY } from "@/contracts/schema";
 import { buildLut, kLogScaleFor, normalizeKLogValue, normalizeRecircValue, readQuantity, variableRange, type ColormapName } from "@/flow/colormap";
 
 export interface FieldTextures {
@@ -32,8 +32,8 @@ export function createFieldTextures(
     if (!Number.isInteger(nx) || !Number.isInteger(ny) || nx < 1 || ny < 1) {
         throw new Error(`Field grid must be positive integers, got ${nx}x${ny}`);
     }
-    if (nx > MAX_NX || ny > MAX_NY || nx * ny > MAX_CELLS) {
-        throw new Error(`Field grid ${nx}x${ny} exceeds cap ${MAX_NX}x${MAX_NY} / ${MAX_CELLS} cells`);
+    if (nx > ANALYTIC_MAX_NX || ny > ANALYTIC_MAX_NY || nx * ny > ANALYTIC_MAX_CELLS) {
+        throw new Error(`Field grid ${nx}x${ny} exceeds cap ${ANALYTIC_MAX_NX}x${ANALYTIC_MAX_NY} / ${ANALYTIC_MAX_CELLS} cells`);
     }
     if (u.length !== nx * ny || v.length !== nx * ny || flow.obstacle.length !== nx * ny) {
         throw new Error("Field channels length does not match nx*ny");

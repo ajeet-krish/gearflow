@@ -53,6 +53,28 @@ describe("SettingsModal", () => {
         expect(html).toContain('role="radio"');
     });
 
+    it("renders particle count as a wide range slider with an Off readout", () => {
+        const html = render();
+        expect(html).toContain('id="settingsParticles"');
+        expect(html).toContain('type="range"');
+        expect(html).toContain('min="0"');
+        expect(html).toContain('max="8000"');
+        expect(html).toContain('id="settingsParticlesValue"');
+        const off = renderToStaticMarkup(
+            <SettingsModal
+                open={true}
+                onClose={noop}
+                prefs={{ ...DEFAULT_DISPLAY_PREFS, particleCount: 0 }}
+                onPatch={noop}
+                gridMode="auto"
+                activeGrid={512}
+                onGridMode={noop}
+                variable="speed"
+            />,
+        );
+        expect(off).toContain("Off");
+    });
+
     it("groups the particle color swatches as a radiogroup", () => {
         const html = render();
         expect(html).toContain('role="radiogroup"');
@@ -83,7 +105,7 @@ describe("SettingsModal", () => {
         expect(html).toContain('id="settingsParticleSize"');
         expect(html).toContain('id="settingsParticleSizeValue"');
         expect(html).toContain('min="0.008"');
-        expect(html).toContain('max="0.036"');
+        expect(html).toContain('max="0.12"');
     });
 
     it("offers Reset defaults", () => {

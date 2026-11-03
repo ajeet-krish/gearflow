@@ -2,20 +2,21 @@
 // try/catch throughout so private mode never throws. Dark theme default.
 
 import { useCallback, useState } from "react";
-import { DEFAULT_DISPLAY_PREFS, PARTICLE_SIZE_DEFAULT, PARTICLE_SIZE_MAX, PARTICLE_SIZE_MIN, type DisplayPrefs, type ParticleColorMode } from "@/contracts/types";
+import { DEFAULT_DISPLAY_PREFS, PARTICLE_COUNT_MAX, PARTICLE_COUNT_MIN, PARTICLE_SIZE_DEFAULT, PARTICLE_SIZE_MAX, PARTICLE_SIZE_MIN, type DisplayPrefs, type ParticleColorMode } from "@/contracts/types";
 import type { ColormapName } from "@/flow/colormap";
 import type { FieldMode } from "@/contracts/types";
 
 // Renaming this key would orphan deployed payloads, so the v1 string stays
-// even though DISPLAY_VERSION is now 4.
+// even though DISPLAY_VERSION is now 5.
 export const DISPLAY_STORAGE_KEY = "gearflow:display:v1";
-export const DISPLAY_VERSION = 4;
+export const DISPLAY_VERSION = 5;
 
 const COLORMAPS: ColormapName[] = [
     "viridis", "turbo", "plasma", "inferno", "magma", "cividis", "jet", "rdbu", "coolwarm", "grayscale",
 ];
 const VARIABLES: FieldMode[] = ["speed", "cp", "omega", "u", "v", "k", "recirc"];
-const PARTICLE_COUNTS = [0, 1200, 2000, 3000];
+/** Particle count is a free slider in [0, 8000], not an enum: any finite
+ *  count in the envelope round trips, out of envelope clamps. */
 const PARTICLE_COLORS: ParticleColorMode[] = ["auto", "white", "black", "cyan", "magenta", "orange"];
 
 function sanitize(raw: unknown): DisplayPrefs {
@@ -32,8 +33,9 @@ function sanitize(raw: unknown): DisplayPrefs {
     const contours = typeof r.contours === "boolean" ? r.contours : DEFAULT_DISPLAY_PREFS.contours;
     const showStreamlines = typeof r.showStreamlines === "boolean" ? r.showStreamlines : DEFAULT_DISPLAY_PREFS.showStreamlines;
     const meanFields = typeof r.meanFields === "boolean" ? r.meanFields : DEFAULT_DISPLAY_PREFS.meanFields;
-    const particleCount = typeof r.particleCount === "number" && PARTICLE_COUNTS.includes(r.particleCount)
-        ? r.particleCount
+    const particleCountRaw = r.particleCount;
+    const particleCount = typeof particleCountRaw === "number" && Number.isFinite(particleCountRaw)
+        ? Math.min(PARTICLE_COUNT_MAX, Math.max(PARTICLE_COUNT_MIN, Math.round(particleCountRaw)))
         : DEFAULT_DISPLAY_PREFS.particleCount;
     const particleColor: ParticleColorMode = typeof r.particleColor === "string" && (PARTICLE_COLORS as string[]).includes(r.particleColor)
         ? (r.particleColor as ParticleColorMode)
@@ -59,7 +61,7 @@ export function loadDisplayPrefs(): DisplayPrefs {
         const raw = localStorage.getItem(DISPLAY_STORAGE_KEY);
         if (raw === null) return { ...DEFAULT_DISPLAY_PREFS };
         const parsed = JSON.parse(raw) as { version?: unknown; prefs?: unknown };
-        if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4) return { ...DEFAULT_DISPLAY_PREFS };
+        if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5) return { ...DEFAULT_DISPLAY_PREFS };
         return sanitize(parsed.prefs);
     } catch {
         return { ...DEFAULT_DISPLAY_PREFS };

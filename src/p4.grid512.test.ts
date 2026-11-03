@@ -1,6 +1,7 @@
 // P4 verification: auto grid defaults 512 with fallback 256 after two slow
-// solves, pinned modes unchanged, 512 cap preserved, custom range intact,
-// plus docs notes (README Vercel stay, DECISIONS 2026-11-03).
+// solves, pinned modes unchanged, analytic 1024 cap with the LBM 512 envelope
+// intact, custom 128 to 1024, plus docs notes (README Vercel stay,
+// DECISIONS 2026-11-03).
 import { describe, expect, it, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -17,13 +18,12 @@ import {
 import {
     CUSTOM_GRID_MAX,
     CUSTOM_GRID_MIN,
-    GRID_128,
+    GRID_1024,
     GRID_256,
     GRID_512,
-    GRID_64,
     GRID_OPTIONS,
 } from "@/contracts/types";
-import { MAX_NX, MAX_NY } from "@/contracts/schema";
+import { ANALYTIC_MAX_CELLS, ANALYTIC_MAX_NX, ANALYTIC_MAX_NY } from "@/contracts/schema";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
@@ -99,15 +99,15 @@ describe("P4 pinned modes unchanged", () => {
     });
 
     it("keeps GRID_OPTIONS as the three pinned presets", () => {
-        expect(GRID_64).toBe(64);
-        expect(GRID_128).toBe(128);
         expect(GRID_256).toBe(256);
-        expect(GRID_OPTIONS).toEqual([64, 128, 256]);
-        expect(GRID_OPTIONS).not.toContain(512);
+        expect(GRID_512).toBe(512);
+        expect(GRID_1024).toBe(1024);
+        expect(GRID_OPTIONS).toEqual([256, 512, 1024]);
+        expect(GRID_OPTIONS).not.toContain(128);
     });
 
-    it("never falls back when pinned to 256, 128, 64, or custom", () => {
-        for (const mode of ["256", "128", "64"] as const) {
+    it("never falls back when pinned to 256, 512, 1024, or custom", () => {
+        for (const mode of ["256", "512", "1024"] as const) {
             let state = setGridMode(initialResolution("auto"), mode);
             for (let i = 0; i < 4; i++) {
                 const next = recordSolve(state, SLOW_SOLVE_MS + 500);
@@ -116,14 +116,14 @@ describe("P4 pinned modes unchanged", () => {
             }
             expect(state.autoDropped).toBe(false);
         }
-        let custom = setGridMode(initialResolution("auto"), "custom", 96);
-        expect(custom.active).toBe(96);
+        let custom = setGridMode(initialResolution("auto"), "custom", 256);
+        expect(custom.active).toBe(256);
         for (let i = 0; i < 3; i++) {
             const next = recordSolve(custom, SLOW_SOLVE_MS + 500);
             expect(next.fellBack).toBe(false);
             custom = next.state;
         }
-        expect(resolveGridSize(custom)).toBe(96);
+        expect(resolveGridSize(custom)).toBe(256);
     });
 
     it("pinning 256 clears a prior auto drop and pinning auto returns to 512", () => {
@@ -142,30 +142,32 @@ describe("P4 pinned modes unchanged", () => {
     });
 });
 
-describe("P4 512 cap preserved plus custom range intact", () => {
-    it("caps every grid surface at 512", () => {
-        expect(CUSTOM_GRID_MAX).toBe(512);
-        expect(CUSTOM_GRID_MIN).toBe(32);
-        expect(MAX_NX).toBe(512);
-        expect(MAX_NY).toBe(512);
+describe("P4 1024 analytic cap plus custom range intact", () => {
+    it("caps the analytic grid at 1024 with the LBM envelope unchanged", () => {
+        expect(CUSTOM_GRID_MAX).toBe(1024);
+        expect(CUSTOM_GRID_MIN).toBe(128);
+        expect(ANALYTIC_MAX_NX).toBe(1024);
+        expect(ANALYTIC_MAX_NY).toBe(1024);
+        expect(ANALYTIC_MAX_CELLS).toBe(1048576);
         expect(GRID_512).toBeLessThanOrEqual(CUSTOM_GRID_MAX);
+        expect(GRID_1024).toBeLessThanOrEqual(CUSTOM_GRID_MAX);
     });
 
-    it("accepts custom squares from 32 to 512 inclusive", () => {
-        expect(parseCustomGrid(32).ok).toBe(true);
-        expect(parseCustomGrid(512).ok).toBe(true);
-        expect(parseCustomGrid("32").ok).toBe(true);
-        expect(parseCustomGrid("512").ok).toBe(true);
-        expect(parseCustomGrid(96).ok).toBe(true);
-        const custom = setGridMode(initialResolution("auto"), "custom", 96);
-        expect(custom.active).toBe(96);
-        const edge = setGridMode(initialResolution("auto"), "custom", 512);
-        expect(edge.active).toBe(512);
+    it("accepts custom squares from 128 to 1024 inclusive", () => {
+        expect(parseCustomGrid(128).ok).toBe(true);
+        expect(parseCustomGrid(1024).ok).toBe(true);
+        expect(parseCustomGrid("128").ok).toBe(true);
+        expect(parseCustomGrid("1024").ok).toBe(true);
+        expect(parseCustomGrid(256).ok).toBe(true);
+        const custom = setGridMode(initialResolution("auto"), "custom", 256);
+        expect(custom.active).toBe(256);
+        const edge = setGridMode(initialResolution("auto"), "custom", 1024);
+        expect(edge.active).toBe(1024);
     });
 
-    it("rejects custom sides outside 32 to 512 with a helpful reason", () => {
-        expect(parseCustomGrid(31).ok).toBe(false);
-        expect(parseCustomGrid(513).ok).toBe(false);
+    it("rejects custom sides outside 128 to 1024 with a helpful reason", () => {
+        expect(parseCustomGrid(127).ok).toBe(false);
+        expect(parseCustomGrid(1025).ok).toBe(false);
         expect(parseCustomGrid(7).ok).toBe(false);
         expect(parseCustomGrid(0).ok).toBe(false);
         expect(parseCustomGrid(-4).ok).toBe(false);
@@ -174,9 +176,9 @@ describe("P4 512 cap preserved plus custom range intact", () => {
         expect(parseCustomGrid("").ok).toBe(false);
         expect(parseCustomGrid(Number.NaN).ok).toBe(false);
         const bad = setGridMode(initialResolution("auto"), "custom", 7);
-        expect(bad.notice).toContain("32");
-        const over = setGridMode(initialResolution("auto"), "custom", 513);
-        expect(over.notice).toContain("512");
+        expect(bad.notice).toContain("128");
+        const over = setGridMode(initialResolution("auto"), "custom", 1025);
+        expect(over.notice).toContain("1024");
     });
 
     it("SettingsModal and App copy name the 512 auto contract", () => {

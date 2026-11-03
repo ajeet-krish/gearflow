@@ -7,10 +7,11 @@
 // a judge can see the capability exists and why it is unavailable.
 // P1 agent-first: under the flag the TKE and RECIRC chips are hidden
 // outright, their disabled hint promises LBM statistics that cannot arrive
-// in analytic only mode. The active chip glows purple as the one bold
-// element; a quiet coupling note beside the chips names the auto overlay
-// (streamlines on for speed, contours on elsewhere) or MANUAL when the
-// overlays are pinned.
+// in analytic only mode. The active chip carries the shared outlined-box
+// selected style (Dracula purple border, no fill change, no glow),
+// exactly matching the Body tabs; a quiet coupling note beside the chips
+// names the auto overlay (streamlines on for speed, contours on elsewhere)
+// or MANUAL when the overlays are pinned.
 
 import type { FieldMode } from "@/contracts/types";
 import type { EffectiveOverlays } from "./fieldOverlay";

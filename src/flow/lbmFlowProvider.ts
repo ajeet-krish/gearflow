@@ -4,7 +4,7 @@
 // placeholder provenance says so and never claims LBM numbers.
 
 import type { FlowField, GeometrySpec, GridSpec, LbmStats } from "@/contracts/types";
-import { validateGeometrySpec, validateGridSpec } from "@/contracts/schema";
+import { MAX_CELLS, MAX_NX, MAX_NY, validateGeometrySpec, validateGridSpec } from "@/contracts/schema";
 import { cloneGeometry, type FrameSource } from "./frameSource";
 
 export function provenanceLbmShort(re: number): string {
@@ -42,6 +42,16 @@ export class LbmFlowProvider implements FrameSource {
             throw new Error(`LbmFlowProvider: Re must be a positive finite number, got ${String(Re)}`);
         }
         validateGridSpec(grid);
+        if (grid.nx > MAX_NX || grid.ny > MAX_NY) {
+            throw new Error(
+                `LbmFlowProvider: grid ${grid.nx}x${grid.ny} exceeds LBM envelope ${MAX_NX}x${MAX_NY} (shared GridSpec allows up to 1024 for analytic flow, LBM is capped at 512 per side)`
+            );
+        }
+        if (grid.nx * grid.ny > MAX_CELLS) {
+            throw new Error(
+                `LbmFlowProvider: grid ${grid.nx}x${grid.ny} (${grid.nx * grid.ny} cells) exceeds LBM envelope ${MAX_CELLS} cells (shared GridSpec allows up to 1048576 for analytic flow)`
+            );
+        }
         validateGeometrySpec(geom);
         this.grid = { nx: grid.nx, ny: grid.ny, domain: { ...grid.domain } };
         this.geom = cloneGeometry(geom);

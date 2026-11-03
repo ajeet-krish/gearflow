@@ -1226,3 +1226,43 @@ Phase tests integrate with prior phase tests (all 1614 non-targeted tests still 
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - Grid ceiling plus UI batch: Test Report (analytic 1024, LBM 512 cap, presets, selected style, analysis rail, particles, mean toggle, agent setups)
+
+### Test Results
+npm test: 127 files, 1706 tests, all passed. Baseline before this batch was 125 files, 1681 tests. Delta is src/gridUiBatch.verify.test.tsx (18 tests) plus 7 tests from parallel batch growth in existing suites.
+npm run build: tsc plus vite build succeeded.
+cargo test (rust/gearflow-wasm): not completed, timed out after 600 s in this environment. Prior logged result was 22 passed. No Rust sources were changed by this batch.
+
+New coverage in src/gridUiBatch.verify.test.tsx (18 tests):
+happy path analytic 1024 square accepted with 1024 per side plus 1048576 cell ceiling pinned, LBM 1024 request derives a grid within 512 per side, GridPreset 256 plus 512 plus 1024 with custom 128 to 1024 pinning, Body tabs plus Field chips share the outlined selected rule and render the shared classes, ANALYSIS rail mounts SIMULATION plus GEOMETRY with per-body conditional sections, particle sliders carry 0 to 8000 plus 0.12 max with an Off readout at zero, agent setups read live spec plus Re plus tab sources,
+error conditions analytic 1025 rejected, LBM protocol init plus snapshot reject nx over 512, custom 127 plus 1025 rejected, Rust LbmState constructor rejects over 512, Settings carries no time mean velocity control in either meanFields state.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| gridUiBatch.verify.test.tsx (18) | PASS | Analytic 1024 accept, LBM 512 reject (TS protocol plus Rust constructor), presets plus custom envelope, shared selected style, analysis rail plus per-body sections, particle envelopes, mean toggle gone, agent live sources |
+| all other Node suites (1688) | PASS | No regressions, 1706 total across 127 files |
+| npm run build | PASS | tsc plus vite, chunk size warning only (pre-existing pattern) |
+| cargo test gearflow-wasm | TIMEOUT | Exceeded 600 s, no Rust sources changed in this batch, prior result 22 passed |
+
+### Coverage Summary
+Happy path covered (analytic 1024 accepted, LBM 1024 request stays within 512, presets 256 plus 512 plus 1024, custom 128 plus 1024 pinning, shared outlined selected style on Body and Field, ANALYSIS rail with SIMULATION plus GEOMETRY, particle count 0 to 8000 plus size max 0.12 with Off at zero, agent setups reflected via live spec plus Re plus tab sources).
+Edge cases covered (custom 128 floor, custom 1024 ceiling, LBM derivation from a 1024 request, per-body GEOMETRY sections for cylinder plus orifice plus airfoil).
+Error conditions covered (analytic 1025 rejected, LBM init plus snapshot nx over 512 rejected, custom 127 plus 1025 rejected, Settings mean toggle absent in both meanFields states).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1688 pre-existing tests still pass, 1706 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| gridUiBatch Off readout (initial run) | Assertion expected Off with default prefs count 3000, which renders 3,000; Off renders only at count 0 | Render a second modal with particleCount 0 for the Off pin plus keep the parks the layer off aria label on the default render; fixed, now passes |
+| cargo test timeout | Rust suite exceeded the 600 s window in this environment with no output captured | Retry on a warm target dir or scope to cargo test --lib; no Rust sources changed in this batch so no correctness signal is lost |
+
+### Verification Checklist
+- [x] All tests pass (127 files, 1706 tests; Rust suite timed out, unchanged sources)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

@@ -2401,3 +2401,36 @@ Verdict: FAIL
 Checks detail: Deleted modules PASS (no src/ui/IdeSidebar.tsx or src/ui/ideData.ts on disk; grep over src finds IdeSidebar and ideData only in negative test assertions at canvasTop.test.ts:20-21, ideShell.test.tsx:140-144,187-192, p1IdeShell.ruthless.test.tsx:42-51). No dangling production imports PASS with the Minor above (App.tsx:1-60 imports none of them). Right rail unmounted PASS (only the left RailShell remains at App.tsx:2034-2083, main closes at 2218 after the removal comment at 2215-2217, no side right, gripRight, railRightBody, or AnalysisPanel mount in App.tsx; pinned at canvasTop.test.ts:53-61). EditorTabs as BODY selector above FieldBar PASS (EditorTabs mounted at App.tsx:2105 immediately above FieldBar at 2106 inside SceneBars at 2099-2114; EditorTabs.tsx:17-19 renders the BODY label and Body tablist; titles come from caseTabs BODY_TABS at caseTabs.ts:191-196 and defaultCaseTabs at 267-270: NACA Airfoil, Cylinder, Rectangle, Orifice, block reads as Rectangle; pinned at canvasTop.test.ts:36-51 and ideShell.test.tsx:31-37,121-137). Per-body memory PASS (defaultCaseTabs returns four isolated memories at caseTabs.ts:261-271, storeUpdate clones the patched spec and leaves sibling tabs untouched by reference at 313-333, App activation loads the active memory at 726-738 and mirrors live edits back by full key comparison at 739-751; pinned at ideShell.test.tsx:46-73 and p1IdeShell.ruthless.test.tsx:192-225). Agent set_body routing FAIL per Major row (executor calls ensureBodyTab then applyBodyPreset at App.tsx:1827-1831, setup presets do the same at 1772-1778,1802-1805, but the activation effect overwrites the applied spec on a cross-tab switch). No solver changes PASS by inspection of the scoped change set (no solver, flow, geometry, or render files in scope; the executor still delegates to the pre-existing applyBodyPreset at bodyPresets.ts:71-106 and the tab effects only move spec and Re state). Conventions PASS (4-space indent, PascalCase types, camelCase locals in EditorTabs.tsx and caseTabs.ts, no em dashes in scoped files). Tests inspected, not executed (reviewer has no shell tool in this session).
 
 Note recurring pattern: source-presence pins certify wiring that only fails as a state sequence across effects, the same isolated-pass gap flagged in earlier phases; cross-effect sequences need behavior tests, not indexOf assertions.
+
+## 2026-11-03 - Grid Ceiling and UI Batch Review
+
+Date: 2026-11-03
+Reviewer: code-reviewer
+Scope: Analytic 1024 cap with LBM pinned 512, GridPreset 256/512/1024 with custom 128 to 1024, shared outlined selected style, restored Analysis rail with conditional per-tab sections, particle slider 0 to 8000 plus size max 0.12, mean toggle removed, agent reflection, LBM isolation, dangling imports, conventions.
+Verdict: PASS
+
+| Check | Verdict | Details |
+|-------|---------|---------|
+| Analytic 1024 cap | PASS | src/contracts/schema.ts:36-38 ANALYTIC_MAX 1024 and 1048576 cells, validateGridSpec at schema.ts:235-239, src/contracts/types.ts:320-337 GridPreset and custom bounds |
+| LBM pinned 512 | PASS | src/flow/engineMode.ts:43-45 LBM_MAX 512 and 262144 cells, lbmGridFor caps at engineMode.ts:83-101, App derives LBM grid separately at src/App.tsx:809, worker and protocol caps at src/flow/lbmWorker.ts:144-145 and src/flow/lbmProtocol.ts:205-206 |
+| GridPreset and custom | PASS | src/contracts/types.ts:320-330 presets 256, 512, 1024, src/flow/gridController.ts:98-103 and parseCustomGrid 77-96 for 128 to 1024, Settings options at src/ui/SettingsModal.tsx:358-363 |
+| Shared outlined selected style | PASS | src/styles.css:653-666 chip active, 1605-1611 ideTab selected, 1354 segBtn active, 1372 swatch active, all purple 1px outline with transparent background and no shadow |
+| Analysis rail restored, conditional sections | PASS | src/App.tsx:2270-2334 RailShell ANALYSIS with SIMULATION and GEOMETRY sections, SimulationSection agentFirst conditional LBM block pinned at src/ui/railPanelRework.test.tsx:131-164, GeometrySection per body fields at railPanelRework.test.tsx:332-351 |
+| Particle slider and size | PASS | src/contracts/types.ts:370-378 size max 0.12 and count 0 to 8000, src/ui/SettingsModal.tsx:285-314 sliders, sanitize clamps at src/ui/displayStore.ts:36-46 |
+| Mean toggle removed | PASS | No settingsMeanFields control in src/ui/SettingsModal.tsx, pinned at src/ui/settingsModal12b.test.tsx:34-46, canvas meanFields prop persists by design |
+| Agent reflection | PASS | Rail reads live spec and reynolds at src/App.tsx:2291-2329, pinned at src/ui/railPanelRework.test.tsx:504-516 |
+| Dangling imports, conventions | PASS | No dangling imports found in the scoped SettingsModal, gridController, engineMode, SimulationSection, or GeometrySection surfaces, 4 space indent in scoped modules, no em dashes in scoped prose |
+
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Minor | src/styles.css:688 | Dead .chip.cyan.active rule keeps a cyan fill, contradicting the shared outlined selected contract at styles.css:649-666 if ever used, no current markup uses chip cyan | frontend-dev: remove the rule or align it to the shared purple outline. Delegate via orchestrator |
+| Minor | src/flow/lbmFlowProvider.ts:44 | Direct construction accepts the shared validateGridSpec analytic ceiling, so a non App caller could build a 1024 placeholder, App and worker paths remain capped at 512 | backend-dev: optionally assert the LBM envelope in the provider constructor. Delegate via orchestrator |
+
+### Verification Checklist
+- [x] All checks passed (two Minor findings, neither blocking)
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this review session (no shell tool available to the reviewer).

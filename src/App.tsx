@@ -11,6 +11,8 @@ import { useCaseTabs, CaseFrameCache, caseKeyFor, bodyTabIdForSpec } from "@/ui/
 import { LbmEntryNotice, LbmFailoverNotice } from "@/ui/LbmSetupRow";
 import { fallbackVariableFor } from "@/ui/FieldBar";
 import FieldBar from "@/ui/FieldBar";
+import SimulationSection from "@/ui/SimulationSection";
+import GeometrySection from "@/ui/GeometrySection";
 import { overlayPatchForFieldChange, resolveOverlays } from "@/ui/fieldOverlay";
 import VerticalColorbar from "@/ui/VerticalColorbar";
 import { buildPolygons, migrateDuctToOrifice } from "@/geometry/parametric";
@@ -485,6 +487,8 @@ export default function App() {
     // keeps its tunnel framing. Clamped to usable instrument widths.
     const LEFT_MIN = 280;
     const LEFT_MAX = 420;
+    const RIGHT_MIN = 280;
+    const RIGHT_MAX = 420;
     const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
     function loadRail(key: string, fallback: number, lo: number, hi: number): number {
         try {
@@ -499,6 +503,7 @@ export default function App() {
         return fallback;
     }
     const [leftW, setLeftW] = useState<number>(() => loadRail("gearflow:leftW", 320, LEFT_MIN, LEFT_MAX));
+    const [rightW, setRightW] = useState<number>(() => loadRail("gearflow:rightW", 320, RIGHT_MIN, RIGHT_MAX));
 
     useEffect(() => {
         try {
@@ -507,6 +512,14 @@ export default function App() {
             // Private mode: width still applies to this session.
         }
     }, [leftW]);
+
+    useEffect(() => {
+        try {
+            window.localStorage.setItem("gearflow:rightW", String(rightW));
+        } catch {
+            // Private mode: width still applies to this session.
+        }
+    }, [rightW]);
 
     // Collapsible shell toggles. Toggling any region while focus mode is on
     // releases focus mode first, so every visible handle always works.
@@ -518,6 +531,10 @@ export default function App() {
         if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
         else layoutPatch({ barsCollapsed: !layoutPrefs.barsCollapsed });
     }, [layoutPrefs.focusMode, layoutPrefs.barsCollapsed, layoutPatch]);
+    const toggleRight = useCallback(() => {
+        if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
+        else layoutPatch({ rightCollapsed: !layoutPrefs.rightCollapsed });
+    }, [layoutPrefs.focusMode, layoutPrefs.rightCollapsed, layoutPatch]);
     const toggleFocus = useCallback(() => {
         layoutPatch({ focusMode: !layoutPrefs.focusMode });
     }, [layoutPrefs.focusMode, layoutPatch]);
@@ -542,6 +559,9 @@ export default function App() {
             } else if (action === "left") {
                 e.preventDefault();
                 toggleLeft();
+            } else if (action === "right") {
+                e.preventDefault();
+                toggleRight();
             } else if (action === "exitFocus") {
                 e.preventDefault();
                 if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
@@ -549,7 +569,7 @@ export default function App() {
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [settingsOpen, layoutPrefs.focusMode, toggleFocus, toggleLeft, layoutPatch]);
+    }, [settingsOpen, layoutPrefs.focusMode, toggleFocus, toggleLeft, toggleRight, layoutPatch]);
 
     useEffect(() => {
         if (!offline) {
@@ -2230,9 +2250,89 @@ export default function App() {
                     )}
                 </section>
 
-                {/* Right IDE sidebar plus analysis rail removed. AnalysisPanel
-                    stays in code but unmounted, chat plus Body tabs plus
-                    FIELD bar plus settings remain. */}
+                {/* Right analysis rail: SIMULATION (live Re slider plus
+                    number) plus GEOMETRY (live spec: AoA slider, NACA
+                    thickness and camber, cylinder radius, rectangle dims,
+                    orifice gap and plate). Sections read the live spec and
+                    Re so an agent case setup paints immediately, the 120 ms
+                    debounced copies serve the solver only. GeometrySection
+                    filters its own fields per body kind, so only the
+                    matching controls render. Hidden in theory mode, where
+                    the companion page owns the center column. */}
+                {!theoryMode && !shell.right && (
+                    <ResizeHandle
+                        id="gripAnalysis"
+                        label="Resize analysis rail, left and right arrows adjust width"
+                        onNudge={(d) => setRightW((w) => clamp(d > 9000 ? RIGHT_MAX : d < -9000 ? RIGHT_MIN : w + d, RIGHT_MIN, RIGHT_MAX))}
+                        onDrag={(d) => setRightW((w) => clamp(w + d, RIGHT_MIN, RIGHT_MAX))}
+                    />
+                )}
+                {!theoryMode && (
+                    <RailShell
+                        side="right"
+                        label="Analysis: simulation plus geometry controls"
+                        region="analysis"
+                        bladeLabel="ANALYSIS"
+                        bodyId="analysisBody"
+                        collapsed={shell.right}
+                        onToggle={toggleRight}
+                        width={rightW}
+                    >
+                        <div className="railHead">
+                            <span className="railTitle">ANALYSIS</span>
+                        </div>
+                        <div className="analysisPanel">
+                            <div className="analysisScroll">
+                                <section className="asec" aria-label="Simulation controls">
+                                    <div className="railHead">
+                                        <span className="railTitle">SIMULATION</span>
+                                    </div>
+                                    <div className="asecBody">
+                                        <SimulationSection
+                                            agentFirst={agentFirst.agentFirst}
+                                            bodyLabel={bodyRowLabel}
+                                            alphaDeg={spec.alphaDeg}
+                                            reynolds={reynolds}
+                                            cl={frame.cl}
+                                            regime={regimeLabel(reynolds)}
+                                            lbmActive={lbmActive}
+                                            onCommitReynolds={onReynoldsBar}
+                                            lbmULattice={lbmULattice}
+                                            onLbmULattice={setLbmULattice}
+                                            lbmTargetSteps={lbmTargetSteps}
+                                            onLbmTargetSteps={setLbmTargetSteps}
+                                            lbmLesAuto={lbmLesAuto}
+                                            onLbmLesAuto={setLbmLesAuto}
+                                            lbmLesManual={lbmLesManual}
+                                            onLbmLesManual={setLbmLesManual}
+                                            lbmStatus={lbmStatus}
+                                            lbmProgressText={lbmProgressText}
+                                            onLbmRun={onLbmRun}
+                                            onLbmCancel={onLbmCancel}
+                                            preflightWarnings={simPreflightWarnings}
+                                            lbmNotice={lbmNotice}
+                                            onDismissLbmNotice={onLbmDismissNotice}
+                                            lbmFailed={lbmFailed}
+                                            onLbmRecover={onLbmRecoverRe}
+                                        />
+                                    </div>
+                                </section>
+                                <section className="asec" aria-label="Geometry controls" data-body={caseTabs.activeId}>
+                                    <div className="railHead">
+                                        <span className="railTitle">GEOMETRY</span>
+                                    </div>
+                                    <div className="asecBody">
+                                        <GeometrySection
+                                            spec={spec}
+                                            onSpec={setSpec}
+                                            orificeResolutionWarning={orificeResolutionWarning}
+                                        />
+                                    </div>
+                                </section>
+                            </div>
+                        </div>
+                    </RailShell>
+                )}
             </main>
             <SettingsModal
                 open={settingsOpen}

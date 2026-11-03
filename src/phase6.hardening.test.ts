@@ -45,7 +45,7 @@ import {
 } from "@/render/fieldShader";
 import { loadDisplayPrefs, storeDisplayPrefs } from "@/ui/displayStore";
 import { loadTheme, storeTheme, applyTheme } from "@/ui/theme";
-import { GRID_128, GRID_256, GRID_512, DEFAULT_DISPLAY_PREFS } from "@/contracts/types";
+import { GRID_256, GRID_512, GRID_1024, DEFAULT_DISPLAY_PREFS } from "@/contracts/types";
 import type { ChatTurn, FlowField } from "@/contracts/types";
 
 function installMemoryStorage(): Map<string, string> {
@@ -229,7 +229,7 @@ describe("phase6 hardening grid controller fallback", () => {
     const state = initialResolution("auto");
     expect(state.mode).toBe("auto");
     expect(resolveGridSize(state)).toBe(GRID_512);
-    expect(resolveGridSize(initialResolution("128"))).toBe(GRID_128);
+    expect(resolveGridSize(initialResolution("1024"))).toBe(GRID_1024);
   });
 
   it("falls back after two consecutive slow solves only in auto", () => {
@@ -271,12 +271,12 @@ describe("phase6 hardening grid controller fallback", () => {
     expect(repinned.notice).toBeNull();
   });
 
-  it("pins 128 directly and ignores further slow solves", () => {
-    const state = setGridMode(initialResolution("auto"), "128");
-    expect(resolveGridSize(state)).toBe(GRID_128);
+  it("pins 1024 directly and ignores further slow solves", () => {
+    const state = setGridMode(initialResolution("auto"), "1024");
+    expect(resolveGridSize(state)).toBe(GRID_1024);
     const next = recordSolve(state, SLOW_SOLVE_MS + 900);
     expect(next.fellBack).toBe(false);
-    expect(resolveGridSize(next.state)).toBe(GRID_128);
+    expect(resolveGridSize(next.state)).toBe(GRID_1024);
   });
 });
 
@@ -389,7 +389,7 @@ describe("phase6 hardening field texture errors", () => {
 
   it("rejects oversize grids before allocating", () => {
     const wide: FlowField = {
-      nx: 600,
+      nx: 2048,
       ny: 4,
       domain: { xMin: 0, xMax: 1, yMin: 0, yMax: 1 },
       u: new Float32Array(0),
@@ -399,6 +399,17 @@ describe("phase6 hardening field texture errors", () => {
       obstacle: new Float32Array(0),
     };
     expect(() => createFieldTextures(wide)).toThrow(/cap|exceed/);
+    const overCells: FlowField = {
+      nx: 1024,
+      ny: 1025,
+      domain: { xMin: 0, xMax: 1, yMin: 0, yMax: 1 },
+      u: new Float32Array(0),
+      v: new Float32Array(0),
+      p: new Float32Array(0),
+      omega: new Float32Array(0),
+      obstacle: new Float32Array(0),
+    };
+    expect(() => createFieldTextures(overCells)).toThrow(/cap|exceed/);
     const nMax = 512 * 512;
     const atCap: FlowField = {
       nx: 512,
@@ -608,7 +619,7 @@ describe("phase6 hardening shader fallback", () => {
   });
 
   it("pins grid constants for the resolution controller", () => {
-    expect(GRID_128).toBe(128);
+    expect(GRID_1024).toBe(1024);
     expect(GRID_256).toBe(256);
   });
 });

@@ -3,7 +3,6 @@
 // so the LBM grid is derived from the requested size, not copied verbatim.
 
 import type { Domain, GeometrySpec, GridSize } from "@/contracts/types";
-import { MAX_CELLS, MAX_NX, MAX_NY } from "@/contracts/schema";
 import { buildPolygons } from "@/geometry/parametric";
 
 export type EngineMode = "analytic" | "wasm" | "lbm";
@@ -32,6 +31,18 @@ export function readEngineMode(search: string): EngineMode {
     }
     return "analytic";
 }
+
+/**
+ * Hard LBM grid cap. LBM needs square cells and a bounded lattice, so it
+ * derives its own grid capped at 512 per side and 262144 cells. This cap
+ * is deliberately independent of the analytic ceiling (ANALYTIC_MAX_* in
+ * schema, up to 1024): raising the analytic grid must never grow the LBM
+ * lattice. LBM snapshots are validated against the same envelope in
+ * lbmProtocol/lbmWorker.
+ */
+export const LBM_MAX_NX = 512;
+export const LBM_MAX_NY = 512;
+export const LBM_MAX_CELLS = 262144;
 
 export interface LbmGrid {
     nx: number;
@@ -69,7 +80,7 @@ export function lbmGridFor(domain: Domain, baseGrid: GridSize | number): LbmGrid
     }
     // Try ny from the request down to 4 so extreme aspects still get a
     // chance at a small compliant grid before giving up.
-    const startNy = Math.min(target, MAX_NY);
+    const startNy = Math.min(target, LBM_MAX_NY);
     for (let ny = startNy; ny >= 4; ny--) {
         let nx = Math.round(aspect * (ny - 1)) + 1;
         // Nudge to the best neighbour so rounding never leaves a avoidable
@@ -77,7 +88,7 @@ export function lbmGridFor(domain: Domain, baseGrid: GridSize | number): LbmGrid
         let best = nx;
         let bestErr = squareError(w, h, nx, ny);
         for (const cand of [nx - 2, nx - 1, nx + 1, nx + 2]) {
-            if (cand < 4 || cand > MAX_NX) continue;
+            if (cand < 4 || cand > LBM_MAX_NX) continue;
             const err = squareError(w, h, cand, ny);
             if (err < bestErr) {
                 bestErr = err;
@@ -85,8 +96,8 @@ export function lbmGridFor(domain: Domain, baseGrid: GridSize | number): LbmGrid
             }
         }
         nx = best;
-        if (nx < 4 || nx > MAX_NX) continue;
-        if (nx * ny > MAX_CELLS) continue;
+        if (nx < 4 || nx > LBM_MAX_NX) continue;
+        if (nx * ny > LBM_MAX_CELLS) continue;
         if (bestErr > 0.01) continue;
         return { nx, ny, reason: null };
     }

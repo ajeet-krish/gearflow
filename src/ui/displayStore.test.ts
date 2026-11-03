@@ -39,8 +39,8 @@ describe("display store phase 9", () => {
         expect(DISPLAY_STORAGE_KEY).toBe("gearflow:display:v1");
     });
 
-    it("bumps the payload version to 4", () => {
-        expect(DISPLAY_VERSION).toBe(4);
+    it("bumps the payload version to 5", () => {
+        expect(DISPLAY_VERSION).toBe(5);
     });
 
     it("fills v1 payloads with new defaults", () => {
@@ -90,10 +90,35 @@ describe("display store phase 9", () => {
         expect(loadDisplayPrefs()).toEqual(DEFAULT_DISPLAY_PREFS);
     });
 
-    it("rejects a bad particle count", () => {
+    it("accepts any finite particle count inside the slider envelope", () => {
+        for (const count of [0, 999, 1200, 4500, 8000]) {
+            localStorage.setItem(
+                DISPLAY_STORAGE_KEY,
+                JSON.stringify({ version: 5, prefs: { ...DEFAULT_DISPLAY_PREFS, particleCount: count } }),
+            );
+            expect(loadDisplayPrefs().particleCount).toBe(count);
+        }
+    });
+
+    it("rounds and clamps out of envelope particle counts", () => {
         localStorage.setItem(
             DISPLAY_STORAGE_KEY,
-            JSON.stringify({ version: 2, prefs: { ...DEFAULT_DISPLAY_PREFS, particleCount: 999 } }),
+            JSON.stringify({ version: 5, prefs: { ...DEFAULT_DISPLAY_PREFS, particleCount: 1234.6 } }),
+        );
+        expect(loadDisplayPrefs().particleCount).toBe(1235);
+        localStorage.setItem(
+            DISPLAY_STORAGE_KEY,
+            JSON.stringify({ version: 5, prefs: { ...DEFAULT_DISPLAY_PREFS, particleCount: 99999 } }),
+        );
+        expect(loadDisplayPrefs().particleCount).toBe(8000);
+        localStorage.setItem(
+            DISPLAY_STORAGE_KEY,
+            JSON.stringify({ version: 5, prefs: { ...DEFAULT_DISPLAY_PREFS, particleCount: -5 } }),
+        );
+        expect(loadDisplayPrefs().particleCount).toBe(0);
+        localStorage.setItem(
+            DISPLAY_STORAGE_KEY,
+            JSON.stringify({ version: 5, prefs: { ...DEFAULT_DISPLAY_PREFS, particleCount: "lots" } }),
         );
         expect(loadDisplayPrefs().particleCount).toBe(3000);
     });
@@ -184,7 +209,7 @@ describe("display store v3/v4 particleSize and overlay pin", () => {
             DISPLAY_STORAGE_KEY,
             JSON.stringify({ version: 4, prefs: { ...DEFAULT_DISPLAY_PREFS, particleSize: 10 } }),
         );
-        expect(loadDisplayPrefs().particleSize).toBe(0.036);
+        expect(loadDisplayPrefs().particleSize).toBe(0.12);
         localStorage.setItem(
             DISPLAY_STORAGE_KEY,
             JSON.stringify({ version: 3, prefs: { ...DEFAULT_DISPLAY_PREFS, particleSize: -5 } }),

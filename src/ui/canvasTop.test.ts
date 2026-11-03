@@ -1,9 +1,9 @@
 // Body selector canvas top contract: TopNav is the sole topmost bar, the
 // tunnel column keeps the Body tabs above the FIELD bar inside the
-// collapsible SceneBars plus the run card. IdeSidebar plus the right
-// RailShell plus the right ResizeHandle are deleted, AnalysisPanel stays in
-// code but unmounted. Reads App.tsx source so the contract cannot drift
-// without a test failure. No DOM needed.
+// collapsible SceneBars plus the run card. IdeSidebar is deleted, the right
+// analysis RailShell (SIMULATION plus GEOMETRY) is mounted with its own
+// resize grip, AnalysisPanel stays in code but unmounted. Reads App.tsx
+// source so the contract cannot drift without a test failure. No DOM needed.
 
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
@@ -50,13 +50,19 @@ describe("Body selector canvas top", () => {
         expect(editorSrc).toContain('aria-label="Body selector"');
     });
 
-    it("unmounts the right sidebar, right rail, and analysis panel", async () => {
+    it("unmounts the right sidebar while the analysis rail and panel stay mounted apart", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).not.toContain("<IdeSidebar");
         expect(src).not.toContain("gripRight");
         expect(src).not.toContain("<AnalysisPanel");
         expect(src).not.toContain("from \"@/ui/AnalysisPanel\"");
-        expect(src).not.toContain('side="right"');
+        // Restored right analysis rail: SIMULATION plus GEOMETRY sections
+        // in a right RailShell with its own body id and resize grip.
+        expect(src).toContain('side="right"');
+        expect(src).toContain('bodyId="analysisBody"');
+        expect(src).toContain('id="gripAnalysis"');
+        expect(src).toContain("<SimulationSection");
+        expect(src).toContain("<GeometrySection");
         expect(src).not.toContain("railRightBody");
     });
 

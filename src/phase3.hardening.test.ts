@@ -274,7 +274,7 @@ describe("phase3 error: oversize fixtures rejected before allocation", () => {
     expect(() => validateGeometrySpec({ ...TINY_GEOM, nPoints: 8192 })).toThrow(/nPoints/);
     expect(() =>
       coerceFlowField({ nx: 4096, ny: 4096, domain: { ...DEFAULT_DOMAIN }, u: [], v: [], p: [], omega: [], obstacle: [] })
-    ).toThrow(/512|cells/);
+    ).toThrow(/1024|cells/);
   });
 
   it("surrogate guards reject shape mismatches and bad manifests", () => {

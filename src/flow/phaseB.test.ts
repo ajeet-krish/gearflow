@@ -96,21 +96,21 @@ describe("alpha band", () => {
 });
 
 describe("grid presets plus custom", () => {
-    it("parses the 64 preset and square custom sides from 32 to 512", () => {
-        expect(CUSTOM_GRID_MIN).toBe(32);
-        expect(CUSTOM_GRID_MAX).toBe(512);
-        expect(parseCustomGrid(64).ok).toBe(true);
-        expect(parseCustomGrid("128").ok).toBe(true);
-        expect(parseCustomGrid(31).ok).toBe(false);
-        expect(parseCustomGrid(513).ok).toBe(false);
+    it("parses the 1024 preset and square custom sides from 128 to 1024", () => {
+        expect(CUSTOM_GRID_MIN).toBe(128);
+        expect(CUSTOM_GRID_MAX).toBe(1024);
+        expect(parseCustomGrid(1024).ok).toBe(true);
+        expect(parseCustomGrid("256").ok).toBe(true);
+        expect(parseCustomGrid(96).ok).toBe(false);
+        expect(parseCustomGrid(1025).ok).toBe(false);
         expect(parseCustomGrid("abc").ok).toBe(false);
         expect(parseCustomGrid("").ok).toBe(false);
-        const pinned = setGridMode(initialResolution("auto"), "64");
-        expect(pinned.active).toBe(64);
-        const custom = setGridMode(initialResolution("auto"), "custom", 96);
-        expect(custom.active).toBe(96);
+        const pinned = setGridMode(initialResolution("auto"), "1024");
+        expect(pinned.active).toBe(1024);
+        const custom = setGridMode(initialResolution("auto"), "custom", 256);
+        expect(custom.active).toBe(256);
         const badCustom = setGridMode(initialResolution("auto"), "custom", 7);
-        expect(badCustom.notice).toContain("32");
+        expect(badCustom.notice).toContain("128");
     });
 });
 

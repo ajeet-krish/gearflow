@@ -220,7 +220,7 @@ describe("Settings effective rows and slider", () => {
         expect(html).toContain('id="settingsParticleSize"');
         expect(html).toContain('type="range"');
         expect(html).toContain('min="0.008"');
-        expect(html).toContain('max="0.036"');
+        expect(html).toContain('max="0.12"');
         expect(html).toContain('step="0.002"');
         expect(html).toContain("0.024");
     });

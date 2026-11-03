@@ -646,11 +646,23 @@ html, body, #root {
   white-space: nowrap;
 }
 .chip:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
-.chip.active { background: rgba(189, 147, 249, 0.3); color: var(--purple); }
+/* Selected controls share one outlined-box style: Dracula purple border,
+   no fill change, no glow. Body tabs and Field chips carry the exact same
+   selected rule, so the active body and the active field always read as one
+   system. The tunnel hero (colorbar, latch notch) keeps the only glow. */
+.chip.active {
+  background: transparent;
+  color: var(--purple);
+  border: 1px solid var(--purple);
+  box-shadow: none;
+  text-shadow: none;
+}
 .sceneBar.fieldBar .chip.active {
-  border-color: rgba(189, 147, 249, 0.6);
-  box-shadow: 0 0 8px rgba(189, 147, 249, 0.55);
-  text-shadow: 0 0 8px rgba(189, 147, 249, 0.6);
+  background: transparent;
+  color: var(--purple);
+  border: 1px solid var(--purple);
+  box-shadow: none;
+  text-shadow: none;
 }
 /* FIELD bar coupling note: the quiet readout beside the glowing chips.
    Cyan for the auto overlay, amber while a manual pin holds. */
@@ -673,7 +685,6 @@ html, body, #root {
   color: var(--comment);
   margin-left: 8px;
 }
-.chip.cyan.active { background: rgba(139, 233, 253, 0.2); color: var(--cyan); }
 .chip:disabled {
   color: var(--comment);
   opacity: 0.45;
@@ -1339,7 +1350,7 @@ html, body, #root {
   cursor: pointer;
 }
 .segBtn:hover { color: var(--text); }
-.segBtn.active { background: rgba(189, 147, 249, 0.3); color: var(--purple); border-color: var(--purple); }
+.segBtn.active { background: transparent; color: var(--purple); border: 1px solid var(--purple); box-shadow: none; }
 .swatchRow { display: flex; gap: 8px; flex-wrap: wrap; }
 .swatch {
   display: grid;
@@ -1357,7 +1368,7 @@ html, body, #root {
   cursor: pointer;
 }
 .swatch:hover { color: var(--text); }
-.swatch.active { border-color: var(--purple); color: var(--text); }
+.swatch.active { border: 1px solid var(--purple); color: var(--purple); box-shadow: none; }
 .swatchChip {
   display: block;
   width: 28px;
@@ -1591,9 +1602,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   max-width: 220px;
 }
 .ideTab.selected {
-  background: var(--ide-tab-active);
-  color: #ffffff;
-  border-top: 1px solid var(--ide-accent);
+  background: transparent;
+  color: var(--purple);
+  border: 1px solid var(--purple);
+  box-shadow: none;
+  text-shadow: none;
 }
 .ideTab:hover { color: #ffffff; }
 .ideTabDot { width: 8px; height: 8px; border-radius: 50%; background: #4ec9b0; flex: none; }

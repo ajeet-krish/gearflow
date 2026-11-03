@@ -1,13 +1,13 @@
 // Resolution controller. Analytic solves default to 512x512; two consecutive
 // solves slower than 800 ms at 512 drop to 256 with a notice. The mode is
 // persisted to localStorage. Surrogate always stays at 128 and never goes
-// through this controller. Phase B adds the 64 preset plus a custom square
-// (32 to 512) parsed by parseCustomGrid.
+// through this controller. Pinned presets are 256, 512, and 1024 plus a
+// custom square (128 to 1024) parsed by parseCustomGrid.
 
 import { useCallback, useRef, useState } from "react";
-import { CUSTOM_GRID_MAX, CUSTOM_GRID_MIN, GRID_128, GRID_256, GRID_512, GRID_64, type GridSize } from "@/contracts/types";
+import { CUSTOM_GRID_MAX, CUSTOM_GRID_MIN, GRID_1024, GRID_256, GRID_512, type GridSize } from "@/contracts/types";
 
-export type GridMode = "auto" | "256" | "128" | "64" | "custom";
+export type GridMode = "auto" | "256" | "512" | "1024" | "custom";
 
 export const GRID_MODE_KEY = "gearflow:gridMode";
 export const GRID_CUSTOM_KEY = "gearflow:gridCustom";
@@ -27,7 +27,7 @@ function readMode(): GridMode {
     try {
         if (typeof localStorage === "undefined") return "auto";
         const raw = localStorage.getItem(GRID_MODE_KEY);
-        if (raw === "256" || raw === "128" || raw === "64" || raw === "auto" || raw === "custom") return raw;
+        if (raw === "256" || raw === "512" || raw === "1024" || raw === "auto" || raw === "custom") return raw;
     } catch {
         // Private mode: fall through to auto.
     }
@@ -45,14 +45,14 @@ function storeMode(mode: GridMode): void {
 
 function readCustomSize(): number {
     try {
-        if (typeof localStorage === "undefined") return GRID_128;
+        if (typeof localStorage === "undefined") return GRID_256;
         const raw = localStorage.getItem(GRID_CUSTOM_KEY);
         const parsed = parseCustomGrid(raw);
         if (parsed.ok) return parsed.size;
     } catch {
         // Private mode: fall through to the default.
     }
-    return GRID_128;
+    return GRID_256;
 }
 
 function storeCustomSize(size: number): void {
@@ -72,10 +72,10 @@ export interface CustomGridParse {
 
 /**
  * Parse a custom square grid side. Accepts numbers and numeric strings.
- * Must be an integer in [32, 512]. Never throws.
+ * Must be an integer in [128, 1024]. Never throws.
  */
 export function parseCustomGrid(raw: unknown): CustomGridParse {
-    const fail = (reason: string): CustomGridParse => ({ ok: false, size: GRID_128, reason });
+    const fail = (reason: string): CustomGridParse => ({ ok: false, size: GRID_256, reason });
     if (typeof raw === "string") {
         if (raw.trim().length === 0) {
             return fail(`custom grid needs a number in [${CUSTOM_GRID_MIN}, ${CUSTOM_GRID_MAX}], got empty input`);
@@ -96,8 +96,8 @@ export function parseCustomGrid(raw: unknown): CustomGridParse {
 }
 
 function activeFor(mode: GridMode, customSize: number): GridSize {
-    if (mode === "128") return GRID_128;
-    if (mode === "64") return GRID_64;
+    if (mode === "1024") return GRID_1024;
+    if (mode === "512") return GRID_512;
     if (mode === "custom") return customSize;
     if (mode === "256") return GRID_256;
     return GRID_512;
@@ -108,7 +108,7 @@ export function initialResolution(mode?: GridMode): ResolutionState {
     const customSize = readCustomSize();
     return {
         mode: m,
-        active: m === "128" ? GRID_128 : m === "64" ? GRID_64 : m === "custom" ? customSize : m === "256" ? GRID_256 : GRID_512,
+        active: m === "1024" ? GRID_1024 : m === "512" ? GRID_512 : m === "custom" ? customSize : m === "256" ? GRID_256 : GRID_512,
         customSize,
         slowStreak: 0,
         autoDropped: false,
@@ -160,11 +160,11 @@ export function setGridMode(state: ResolutionState, mode: GridMode, customRaw?: 
     if (mode === "256") {
         return { ...state, mode, active: GRID_256, slowStreak: 0, autoDropped: false, notice: null };
     }
-    if (mode === "128") {
-        return { ...state, mode, active: GRID_128, notice: null };
+    if (mode === "512") {
+        return { ...state, mode, active: GRID_512, slowStreak: 0, autoDropped: false, notice: null };
     }
-    if (mode === "64") {
-        return { ...state, mode, active: GRID_64, notice: null };
+    if (mode === "1024") {
+        return { ...state, mode, active: GRID_1024, slowStreak: 0, notice: null };
     }
     if (mode === "custom") {
         const parsed = parseCustomGrid(customRaw ?? state.customSize);

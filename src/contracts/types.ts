@@ -313,21 +313,28 @@ export type AgentAction =
 /** Selectable field quantity rendered on the tunnel canvas. */
 export type FieldMode = "speed" | "cp" | "omega" | "u" | "v" | "k" | "recirc";
 
-/** Supported solve grid sizes. Surrogate stays at 128, analytic may use 64, 128, 256, or 512. Auto defaults to 512 with fallback to 256. */
-export type GridPreset = 64 | 128 | 256;
+/** Supported solve grid sizes. Surrogate stays at 128, the analytic grid may
+ *  use pinned 256, 512, or 1024, or a custom square. Auto defaults to 512
+ *  with fallback to 256. LBM never follows this ceiling: it derives its own
+ *  square-cell grid capped at 512 per side (see engineMode LBM_MAX_*). */
+export type GridPreset = 256 | 512 | 1024;
 /** Effective solve grid size: a preset or a custom square side. */
 export type GridSize = GridPreset | (number & {});
 
-export const GRID_64: GridPreset = 64;
-export const GRID_128: GridPreset = 128;
 export const GRID_256: GridPreset = 256;
-/** Auto mode default grid. A GridSize (not a pinned preset) capped by CUSTOM_GRID_MAX. */
-export const GRID_512: GridSize = 512;
-export const GRID_OPTIONS: GridPreset[] = [GRID_64, GRID_128, GRID_256];
+/** Auto mode default grid, also offered as a pinned preset. */
+export const GRID_512: GridPreset = 512;
+/** Top pinned preset for crisp shear layers (orifice jet, wake detail).
+ *  Analytic only: about 1M cells, LBM stays capped at 512 per side. */
+export const GRID_1024: GridPreset = 1024;
+export const GRID_OPTIONS: GridPreset[] = [GRID_256, GRID_512, GRID_1024];
 
-/** Custom square grid bounds. Squares from 32 to 512 inclusive. */
-export const CUSTOM_GRID_MIN = 32;
-export const CUSTOM_GRID_MAX = 512;
+/** Custom square grid bounds. Squares from 128 to 1024 inclusive. The
+ *  floor stays at 128 (not 32): below that the analytic wake and blockage
+ *  model is under-resolved and alias-prone, while 128 remains a cheap
+ *  fast-check size. The ceiling matches the 1024 pinned preset. */
+export const CUSTOM_GRID_MIN = 128;
+export const CUSTOM_GRID_MAX = 1024;
 
 /** Orifice plate bounds. Width is plate thickness, height is the gap opening. */
 export const ORIFICE_GAP_MIN = 0.05;
@@ -357,10 +364,18 @@ export interface DisplayPrefs {
     overlayPinnedField: FieldMode | null;
 }
 
-/** Particle point size in world units. Clamped to the usable band below. */
+/** Particle point size in world units. Clamped to the usable band below.
+ *  The max sits well above the 0.018 default so slider moves read clearly
+ *  on the tunnel canvas instead of landing within a pixel of each other. */
 export const PARTICLE_SIZE_DEFAULT = 0.018;
 export const PARTICLE_SIZE_MIN = 0.008;
-export const PARTICLE_SIZE_MAX = 0.036;
+export const PARTICLE_SIZE_MAX = 0.12;
+
+/** Particle count slider envelope. Zero parks the layer off, 8000 is the
+ *  live render ceiling the canvas honors without clamping. */
+export const PARTICLE_COUNT_MIN = 0;
+export const PARTICLE_COUNT_MAX = 8000;
+export const PARTICLE_COUNT_STEP = 100;
 
 /** Default Phase 6 display preferences. Dark is the default; the theme toggle also offers light. */
 export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {

@@ -7,6 +7,7 @@
 // regenerates each committed fixture in-process and compares channels.
 
 import type { FlowField, GeometrySpec, GridSpec } from "@/contracts/types";
+import { ANALYTIC_MAX_CELLS, ANALYTIC_MAX_NX, ANALYTIC_MAX_NY } from "@/contracts/schema";
 import { pointInPolygon, naca4Airfoil, transformPoints } from "@/geometry/parametric";
 import type { Point } from "@/geometry/parametric";
 import { wakeSlopeForAlpha } from "./wake";
@@ -102,8 +103,8 @@ export function wakeProfile(geom: GeometrySpec, poly: Point[] | null): WakeProfi
 /** Deterministic fixture flow. Same inputs always give same outputs. */
 export function generateFakeFlow(grid: GridSpec, geom: GeometrySpec, seedKey: string): FlowField {
     const { nx, ny, domain } = grid;
-    if (!Number.isInteger(nx) || !Number.isInteger(ny) || nx < 4 || ny < 4 || nx > 512 || ny > 512 || nx * ny > 262144) {
-        throw new Error(`Grid must satisfy 4 <= nx,ny <= 512 and nx*ny <= 262144, got ${nx}x${ny}`);
+    if (!Number.isInteger(nx) || !Number.isInteger(ny) || nx < 4 || ny < 4 || nx > ANALYTIC_MAX_NX || ny > ANALYTIC_MAX_NY || nx * ny > ANALYTIC_MAX_CELLS) {
+        throw new Error(`Grid must satisfy 4 <= nx,ny <= ${ANALYTIC_MAX_NX} and nx*ny <= ${ANALYTIC_MAX_CELLS}, got ${nx}x${ny}`);
     }
     const n = nx * ny;
     const u = new Float32Array(n);

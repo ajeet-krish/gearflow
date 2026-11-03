@@ -71,12 +71,13 @@ describe("LBM App wiring", () => {
         expect(barSrc).toContain("max={maxRe}");
     });
 
-    it("routes parametric applies through the LBM cap with no rail mounts", async () => {
+    it("routes parametric applies through the LBM cap with the rail mounted", async () => {
         const src = await readFile(appPath, "utf8");
-        // Right rail removed: no SIMULATION JSX, but the shared Re funnel
-        // plus the parametric LBM cap stay for the agent executor.
-        expect(src).not.toContain("<SimulationSection");
-        expect(src).not.toContain("onCommitReynolds={onReynoldsBar}");
+        // Right analysis rail restored: SIMULATION JSX commits Re through
+        // the shared funnel, and parametric plus agent applies clamp under
+        // LBM and note it.
+        expect(src).toContain("<SimulationSection");
+        expect(src).toContain("onCommitReynolds={onReynoldsBar}");
         expect(src).toContain("commitReynoldsValue(raw, lbmActive, reynolds)");
         // Parametric applies (MetaPanel, agent set_spec) clamp under LBM and note it.
         expect(src).toContain("clampReForEngine(next.reynolds, lbmActive)");

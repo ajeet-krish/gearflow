@@ -440,55 +440,79 @@ describe("Settings grid extension", () => {
         );
     }
 
-    it("offers 64 and Custom beyond auto, 256, and 128", () => {
+    it("offers 1024 and Custom beyond auto, 512, and 256", () => {
         const html = renderSettings();
-        for (const label of ["Auto (512, fallback to 256)", "256 x 256 pinned", "128 x 128 pinned", "64 x 64 pinned", "Custom square"]) {
+        for (const label of ["Auto (512, fallback to 256)", "1024 x 1024 pinned", "512 x 512 pinned", "256 x 256 pinned", "Custom square"]) {
             expect(html).toContain(label);
         }
     });
 
     it("shows the Custom input while Custom is active", () => {
-        const html = renderSettings({ gridMode: "custom", customSize: 96 });
+        const html = renderSettings({ gridMode: "custom", customSize: 256 });
         expect(html).toContain('id="settingsCustomGrid"');
-        expect(html).toContain('value="96"');
+        expect(html).toContain('value="256"');
     });
 
     it("Custom invalid keeps the last good size", () => {
-        expect(decideSettingsCustomCommit("abc", 96)).toEqual({
+        expect(decideSettingsCustomCommit("abc", 256)).toEqual({
             fire: false,
-            size: 96,
-            message: expect.stringContaining("32"),
+            size: 256,
+            message: expect.stringContaining("128"),
         });
-        expect(decideSettingsCustomCommit("", 96).fire).toBe(false);
-        expect(decideSettingsCustomCommit("96", 128)).toEqual({ fire: true, size: 96, message: null });
-        expect(decideSettingsCustomCommit(513, 128).fire).toBe(false);
+        expect(decideSettingsCustomCommit("", 256).fire).toBe(false);
+        expect(decideSettingsCustomCommit("256", 512)).toEqual({ fire: true, size: 256, message: null });
+        expect(decideSettingsCustomCommit(1025, 256).fire).toBe(false);
     });
 });
 
-describe("panel rework leftovers", () => {
-    it("App unmounts the SIMULATION and GEOMETRY rails but keeps the funnel", async () => {
+describe("panel rework rail contract", () => {
+    it("App mounts the SIMULATION and GEOMETRY sections in the right analysis rail", async () => {
+        const src = await readFile(appPath, "utf8");
+        expect(src).toContain("<SimulationSection");
+        expect(src).toContain("<GeometrySection");
+        expect(src).toContain('bodyId="analysisBody"');
+        expect(src).toContain('bladeLabel="ANALYSIS"');
+        expect(src).toContain('aria-label="Simulation controls"');
+        expect(src).toContain('aria-label="Geometry controls"');
+        expect(src).not.toContain("railRightBody");
+        expect(src).not.toContain("gripRight");
+    });
+
+    it("App wires the SIMULATION section through the Re and LBM funnels", async () => {
+        const src = await readFile(appPath, "utf8");
+        expect(src).toContain("onCommitReynolds={onReynoldsBar}");
+        expect(src).toContain("onLbmRun={onLbmRun}");
+        expect(src).toContain("onLbmCancel={onLbmCancel}");
+        expect(src).toContain("onLbmRecover={onLbmRecoverRe}");
+        expect(src).toContain("preflightWarnings={simPreflightWarnings}");
+        expect(src).not.toContain("<FlowControls");
+        expect(src).toContain("commitReynoldsValue(raw, lbmActive, reynolds)");
+        expect(src).toContain("preflightLbm(");
+        expect(src).toContain("Run blocked");
+    });
+
+    it("App keeps the legacy solver tokens out of the rail", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).not.toMatch(/LBM_MAX_RE,/);
         expect(src).not.toContain("LBM_MAX_RE");
         expect(src).not.toContain("solveGrid.nx === 256 ? 256 : 128");
         expect(src).not.toContain("activeGrid={flow.nx}");
-        expect(src).not.toContain("<SimulationSection");
-        expect(src).not.toContain("<GeometrySection");
         expect(src).not.toContain('id: "simulation"');
         expect(src).not.toContain('id: "geometry"');
     });
 
-    it("App keeps the Re and LBM funnels with no rail mounts", async () => {
+    it("rail sections read live state so agent case setups paint without staleness", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).not.toContain("<SimulationSection");
-        expect(src).not.toContain("<GeometrySection");
-        expect(src).not.toContain("onCommitReynolds={onReynoldsBar}");
-        expect(src).not.toContain("onLbmRun={onLbmRun}");
-        expect(src).not.toContain("onLbmRecover={onLbmRecoverRe}");
-        expect(src).not.toContain("<FlowControls");
-        expect(src).toContain("commitReynoldsValue(raw, lbmActive, reynolds)");
-        expect(src).toContain("preflightLbm(");
-        expect(src).toContain("Run blocked");
+        // Live spec and Re feed the rail controls, the debounced copies
+        // serve the solver only, so an agent set_body, set_alpha, or
+        // set_reynolds reflects on the next render with no manual refresh.
+        expect(src).toContain("reynolds={reynolds}");
+        expect(src).toContain("alphaDeg={spec.alphaDeg}");
+        expect(src).toContain("spec={spec}");
+        // The scene bars mirror the same live sources: the active Body tab
+        // owns the agent case, the Field chip owns the agent field.
+        expect(src).toContain("activeId={caseTabs.activeId}");
+        expect(src).toContain("variable={effectiveVariable}");
     });
 
     it("App passes the extended grid state into SettingsModal", async () => {

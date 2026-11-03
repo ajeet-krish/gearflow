@@ -272,9 +272,11 @@ describe("edge: oversize rejected before allocation", () => {
     expect(MAX_NX).toBe(512);
     expect(MAX_NY).toBe(512);
     expect(MAX_CELLS).toBe(262144);
-    expect(() => coerceFlowField({ ...jsonFlow(600, 4), nx: 600, ny: 4 })).toThrow(/512|cells/);
-    expect(() => coerceFlowField({ ...jsonFlow(), nx: 512, ny: 513 })).toThrow(/512|cells/);
-    // Boundary 512x512 exceeds cells cap (262144): 512*512 = 262144 exactly, allowed
+    expect(() => coerceFlowField({ ...jsonFlow(2048, 4), nx: 2048, ny: 4 })).toThrow(/1024|cells/);
+    expect(() => coerceFlowField({ ...jsonFlow(), nx: 512, ny: 2049 })).toThrow(/1024|cells/);
+    // Boundary 512x512 is inside the analytic cap (1024 per side, 1048576
+    // cells): 512*512 = 262144 exactly, allowed, so the empty channels fail
+    // on length instead.
     const edge = jsonFlow(4, 4);
     edge.nx = 512;
     edge.ny = 512;
@@ -305,7 +307,7 @@ describe("edge: oversize rejected before allocation", () => {
 
   it("generateFakeFlow rejects oversized grids", () => {
     expect(() =>
-      generateFakeFlow({ nx: 1024, ny: 4, domain: GRID_128.domain }, GEOM_2412_6, "big")
+      generateFakeFlow({ nx: 2048, ny: 4, domain: GRID_128.domain }, GEOM_2412_6, "big")
     ).toThrow();
   });
 });

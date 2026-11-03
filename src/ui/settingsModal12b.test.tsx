@@ -1,6 +1,7 @@
-// SettingsModal Phase 13: the time mean velocity toggle renders and
-// reflects the persisted preference; the FIELD section carries effective
-// overlay checkboxes with their source instead of quantity chips.
+// SettingsModal Phase 13: the FIELD section carries effective overlay
+// checkboxes with their source instead of quantity chips. The retired time
+// mean velocity toggle stays out of the panel; the canvas prop persists but
+// no Settings control owns it.
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -30,24 +31,18 @@ function render(
 }
 
 describe("SettingsModal mean fields", () => {
-    it("renders the time mean velocity toggle unchecked by default", () => {
-        const html = render(false);
-        expect(html).toContain("Time mean velocity fields");
-        expect(html).toContain('id="settingsMeanFields"');
+    it("retires the time mean velocity toggle and its copy", () => {
+        for (const html of [render(false), render(true)]) {
+            expect(html).not.toContain("Time mean velocity fields");
+            expect(html).not.toContain('id="settingsMeanFields"');
+            expect(html).not.toContain("time averaged u and v");
+        }
     });
 
-    it("checks the toggle when mean fields are on", () => {
+    it("still accepts a meanFields pref without rendering a control", () => {
         const html = render(true);
-        const at = html.indexOf('id="settingsMeanFields"');
-        expect(at).toBeGreaterThan(-1);
-        expect(html.slice(at, at + 160)).toContain("checked");
-    });
-
-    it("leaves the toggle unchecked when mean fields are off", () => {
-        const html = render(false);
-        const at = html.indexOf('id="settingsMeanFields"');
-        expect(at).toBeGreaterThan(-1);
-        expect(html.slice(at, at + 160)).not.toContain("checked");
+        expect(html).toContain("FIELD");
+        expect(html).toContain("PARTICLES");
     });
 });
 

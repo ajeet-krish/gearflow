@@ -250,15 +250,15 @@ describe("phase5 exportPdf mock", () => {
 });
 
 describe("phase5 adaptive particle edge cases", () => {
-    it("declares the 3000, 2000, 1200 step down tiers with a slow frame guard", () => {
+    it("declares the 8000, 4000, 2000 step down tiers with a slow frame guard", () => {
         const src = readFileSync(process.cwd() + "/src/render/FlowCanvas.tsx", "utf8");
-        expect(src).toContain("PARTICLE_STEPS = [3000, 2000, 1200]");
+        expect(src).toContain("PARTICLE_STEPS = [8000, 4000, 2000]");
         expect(src).toContain("SLOW_FPS = 55");
         expect(src).toContain("SLOW_FRAMES = 60");
         expect(src).toContain("setDrawRange");
     });
     it("supports every adaptive tier count deterministically", () => {
-        for (const count of [3000, 2000, 1200]) {
+        for (const count of [8000, 4000, 2000]) {
             const a = createParticles(count, 20261026);
             const b = createParticles(count, 20261026);
             expect(a.count).toBe(count);
