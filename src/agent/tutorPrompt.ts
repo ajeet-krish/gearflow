@@ -1,14 +1,14 @@
 // Phase 2 live Modal tutor prompt. Pure message builder for the Explain
 // path, no React, no DOM, no network. Tutor first and agent applied: the
 // system teaches one idea in plain grade 8 to 10 language, cites only the
-// tutor table, and allows at most one set_field fence matching the
-// suggested primary. Reasoning stays in reasoning_content only (check
-// numbers against the table, pick the teaching point, verify the
-// misconception) and never leaks into the final content. Final order is
-// fixed: What changed, Why, Misconception, What to look at, Try next,
-// Caveat. Honesty is pinned: neural is predicted not validated, analytic
-// is a potential flow estimate, only the LBM instantaneous snapshot may
-// be called solved, and n/a reads as pending. Never throws.
+// tutor table, and answers with no action fence. Reasoning stays in
+// reasoning_content only (check numbers against the table, pick the
+// teaching point, verify the misconception) and never leaks into the
+// final content. Final order is fixed: What changed, Why, Misconception,
+// Try next, plus a short physics note only when the idea needs it (the
+// potential flow picture omits separation and stall). No solver or tech
+// stack talk, no field suggestions, no vorticity or omega copy. Never
+// throws.
 
 import type { ModalMessage } from "./modalClient";
 import type { AgentContext } from "./agentContext";
@@ -17,7 +17,7 @@ import type { TutorTableRow } from "./tutorTable";
 import { tutorRowsText } from "./tutorTable";
 
 /** Prompt version pinned into the system line for drift tests. */
-export const TUTOR_PROMPT_VERSION = "tutor-v2";
+export const TUTOR_PROMPT_VERSION = "tutor-v3";
 
 /** Prose word cap, not counting the table or the action fence. */
 export const TUTOR_MAX_WORDS = 120;
@@ -96,22 +96,54 @@ function cleanMisconception(v: TutorMisconceptionInput | null | undefined): Tuto
 
 /**
  * Build Modal chat messages for the live tutor path only. System carries
- * the tutor voice plus the reasoning_content contract plus the honesty
- * clauses plus the one fence rule, user carries the concept plus the
- * misconception plus the table plus the suggested field plus the bounded
- * live context. Never throws.
+ * the tutor voice plus the reasoning_content contract plus the physics
+ * only rules plus the no fence rule, user carries the concept plus the
+ * misconception plus the table plus the bounded live context. Never
+ * throws.
  */
+export interface PhysicsView {
+    body: string;
+    alphaDeg: number | null;
+    reynolds: number | null;
+    cl: number | null;
+    cpMin: number | null;
+    regime: string;
+}
+
+export function physicsViewFor(ctx: AgentContext | null | undefined): PhysicsView {
+    try {
+        const c = (ctx ?? {}) as Partial<AgentContext>;
+        const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+        const text = (v: unknown, fallback: string): string => {
+            if (typeof v !== "string") return fallback;
+            const t = v.trim().replace(/\s+/g, " ");
+            return t.length > 0 ? t.slice(0, 80) : fallback;
+        };
+        const spec = (c.spec ?? {}) as { alphaDeg?: unknown };
+        const alpha = num(c.alphaDeg ?? spec.alphaDeg);
+        const reynoldsRaw = num(c.reynolds);
+        return {
+            body: text(c.bodyLabel, "unknown body"),
+            alphaDeg: alpha,
+            reynolds: reynoldsRaw === null ? null : Math.round(reynoldsRaw),
+            cl: num(c.cl),
+            cpMin: num(c.cpMin),
+            regime: text(c.regime, "unknown regime"),
+        };
+    } catch {
+        return { body: "unknown body", alphaDeg: null, reynolds: null, cl: null, cpMin: null, regime: "unknown regime" };
+    }
+}
+
 export function buildTutorMessages(input: BuildTutorMessagesInput): ModalMessage[] {
     try {
         const safe = (input ?? {}) as Partial<BuildTutorMessagesInput>;
         const concept = cleanConcept(safe.concept);
-        const primary = cleanPrimary(safe.suggestion?.primary);
-        const secondary = cleanSecondary(safe.suggestion?.secondary);
+        void cleanPrimary(safe.suggestion?.primary);
+        void cleanSecondary(safe.suggestion?.secondary);
         const mis = cleanMisconception(safe.misconception ?? null);
         const table = tutorRowsText(Array.isArray(safe.rows) ? safe.rows : []);
-        const contextJson = safe.after === null || safe.after === undefined
-            ? "{}"
-            : JSON.stringify(safe.after).slice(0, 3500);
+        const contextJson = JSON.stringify(physicsViewFor(safe.after ?? null)).slice(0, 3500);
         const misBlock = mis !== null
             ? `Misconception under test: claim "${mis.claim}", correction "${mis.correction}", experiment "${mis.experimentText}".`
             : "Misconception under test: none flagged. Write No misconception spotted in the Misconception section.";
@@ -119,20 +151,20 @@ export function buildTutorMessages(input: BuildTutorMessagesInput): ModalMessage
             role: "system",
             content: [
                 `You are the GearFlow flow tutor (${TUTOR_PROMPT_VERSION}).`,
-                "Teach one idea per reply in plain grade 8 to 10 language.",
-                "When you use vorticity, suction, or separation, define the word in the same sentence you use it: vorticity means spinning motion in the flow, suction means low pressure pulling on the surface, separation means flow leaving the surface.",
+                "Teach one idea per reply in plain grade 8 to 10 language, like an interactive textbook.",
+                "First mention per turn expands each term, then symbols after: lift coefficient (Cl), pressure coefficient (Cp), angle of attack (alpha), Reynolds number (Re). Spell each full name once, then use the short form.",
+                "When you use suction or separation, define the word in the same sentence you use it: suction means low pressure pulling on the surface, separation means flow leaving the surface.",
                 "First write private reasoning in reasoning_content only: check every number against the Before vs after table, pick one teaching point for the concept, verify the misconception against the table. Never put reasoning in the final content.",
                 "Final reply uses exactly this order, each on its own line or block:",
-                "What changed (table numbers only), Why (one cause and effect), Misconception (named correction or No misconception spotted), What to look at (the suggested field), Try next (one analytic experiment, never run_lbm), Caveat (analytic estimate with the path label, n/a is pending).",
-                "What changed uses only the table numbers below, never invent numbers. When a value reads n/a or loading, call it pending.",
+                "What changed (table numbers only), Why (one cause and effect), Misconception (named correction or No misconception spotted), Try next (one physics thought experiment), plus a short physics note only when the idea needs it.",
+                "What changed uses only the table numbers below, never invent numbers. When a value reads n/a or loading, call it pending. Tie lift coefficient (Cl) and minimum pressure coefficient numbers to the table cells only.",
                 "Why is one cause and effect in grade 8 to 10 language.",
                 "Misconception names the correction from the misconception block, or writes No misconception spotted when none is flagged.",
-                "What to look at names the suggested field below.",
-                "Try next is one analytic-only experiment (a field view or an alpha nudge, never run_lbm, cancel_lbm, or a viscous solve). Prefer the misconception experiment when one is flagged.",
-                "Caveat names the analytic estimate path label below, or pending when the path reads n/a.",
-                "Neural frames are predicted, not validated. Analytic frames are a potential flow estimate, not validated. Only an LBM instantaneous snapshot (viscous D2Q9, not time averaged) may be called solved.",
-                `Keep the prose under ${TUTOR_MAX_WORDS} words, not counting the table or the action fence.`,
-                `You may append at most one set_field fence for the suggested primary field (${primary}), and no other action fence. Otherwise answer with no fence. Example fence:\n\`\`\`action-json\n{"kind":"set_field","field":"${primary}"}\n\`\`\``,
+                "Try next is one physics-only thought experiment: nudge angle of attack (alpha) by 1 deg and compare, or change Reynolds number (Re) and reason about the effect. Never a field switch, never a view change, never a run.",
+                "Physics note only when the idea needs it, one line: the potential flow picture omits separation and stall.",
+                "No solver or tech stack talk: teach flow physics only, no solver names, no statistics, no spinning-flow copy, no field views.",
+                `Keep the prose under ${TUTOR_MAX_WORDS} words, not counting the table.`,
+                "Answer with no action fence and no field suggestion.",
             ].join("\n"),
         };
         const rawHistory = Array.isArray(safe.history) ? safe.history : [];
@@ -153,7 +185,6 @@ export function buildTutorMessages(input: BuildTutorMessagesInput): ModalMessage
             content: [
                 `Concept: ${concept}`,
                 misBlock,
-                `Suggested field: ${primary} (secondary: ${secondary ?? "none"})`,
                 "Before vs after table:",
                 table,
                 `Live context: ${contextJson}`,

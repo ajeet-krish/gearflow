@@ -300,15 +300,15 @@ function buildGlossary(lower: string, ctx: AgentContext | null): string | null {
         if (/\blift\b|\bcl\b/.test(lower)) {
             const cl = ctx === null ? null : finiteOrNull(ctx.cl);
             parts.push(
-                "Cl is the lift coefficient, lift divided by dynamic pressure times chord. Higher means more lift for the same size and speed." +
-                (cl === null ? "" : ` Current case: Cl ${cl.toFixed(3)}.`)
+                "lift coefficient (Cl) is lift divided by dynamic pressure times chord. Higher means more lift for the same size and speed." +
+                (cl === null ? "" : ` Current case: lift coefficient (Cl) ${cl.toFixed(3)}.`)
             );
         }
         if (/\bcpmin\b|\bpressure\b|\bcp\b/.test(lower)) {
             const cp = ctx === null ? null : finiteOrNull(ctx.cpMin);
             parts.push(
-                "Cp is the pressure coefficient, local pressure minus freestream over dynamic pressure. Negative means suction, and CpMin is the lowest value, the strongest suction peak." +
-                (cp === null ? "" : ` Current case: CpMin ${cp.toFixed(3)}.`)
+                "pressure coefficient (Cp) is local pressure minus freestream over dynamic pressure. Negative means suction, and minimum pressure coefficient is the lowest value, the strongest suction peak." +
+                (cp === null ? "" : ` Current case: minimum pressure coefficient ${cp.toFixed(3)}.`)
             );
         }
         if (/\bvorticity\b|\bomega\b|\bswirl\b/.test(lower)) {
@@ -319,15 +319,15 @@ function buildGlossary(lower: string, ctx: AgentContext | null): string | null {
         if (/\breynolds\b|\bre\b/.test(lower)) {
             const re = ctx === null ? null : finiteOrNull(ctx.reynolds);
             parts.push(
-                "Re is the Reynolds number, inertial over viscous forces. Higher means a thinner boundary layer and more tendency to unsteadiness." +
-                (re === null ? "" : ` Current case: Re ${Math.round(re)}.`)
+                "Reynolds number (Re) is inertial over viscous forces. Higher means a thinner boundary layer and more tendency to unsteadiness." +
+                (re === null ? "" : ` Current case: Reynolds number (Re) ${Math.round(re)}.`)
             );
         }
         if (/\balpha\b|\bangle of attack\b|\baoa\b/.test(lower)) {
             const alpha = ctx === null ? null : finiteOrNull(ctx.alphaDeg);
             parts.push(
-                "Alpha is the angle of attack in degrees, nose up positive. More alpha means more lift until stall." +
-                (alpha === null ? "" : ` Current case: alpha ${alpha.toFixed(1)} deg.`)
+                "angle of attack (alpha) is in degrees, nose up positive. More angle means more lift until stall." +
+                (alpha === null ? "" : ` Current case: angle of attack (alpha) ${alpha.toFixed(1)} deg.`)
             );
         }
         if (parts.length === 0) return null;

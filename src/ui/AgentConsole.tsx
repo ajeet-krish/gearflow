@@ -7,9 +7,9 @@
 // persists capped at 50. React plus plain CSS classes from the Zenith
 // shell, react-markdown plus remark-gfm for agent prose (user turns stay
 // plain text). Single agent response: the tutor teaches in place on the
-// applied action turn (one sentence What changed, one cause and effect
-// Why, a Misconception line, What to look at, one analytic-only Try
-// next, a Caveat) with a real before vs after table plus a collapsed
+// applied action turn (What changed, Why, a Misconception line, one
+// physics-only Try next, plus a short physics note only when needed)
+// with a real before vs after table plus a collapsed
 // reasoning trace, never a second tutor turn.
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -108,8 +108,8 @@ export interface ExamplePrompt {
 }
 
 export const EXAMPLE_PROMPTS: ReadonlyArray<ExamplePrompt> = [
-    { id: "naca-setup", label: "Set up NACA 2412 at an AOA 6", prompt: "Set up NACA 2412 alpha 6" },
-    { id: "re-change", label: "Increase velocity", prompt: "Increase Re to 200000" },
+    { id: "naca-setup", label: "Set up NACA 2412 at angle of attack (alpha) 6", prompt: "Set up NACA 2412 alpha 6" },
+    { id: "re-change", label: "Increase Reynolds number (Re)", prompt: "Increase Re to 200000" },
     { id: "thicken", label: "Increase airfoil thickness", prompt: "Make the airfoil thicker" },
 ];
 
@@ -302,8 +302,9 @@ export function validationContextFor(ctx: AgentContext | null | undefined): Agen
 /** Prompt lines for the setup presets, derived from the validator
  *  contract plus live expandCasePreset output so expansions and Re values
  *  in the prompt can never drift from what the App executor applies.
- *  Retired setup_high_pressure is labeled retired with its honest reason
- *  plus the redirect, never a live example. */
+ *  Physics-only copy: body plus angle plus Re, no field or solver talk.
+ *  Retired setup_high_pressure is labeled retired plus the redirect,
+ *  never a live example. */
 export function presetPromptLines(): { live: string; retired: string } {
     const contract = actionContractSummary();
     const parts: string[] = [];
@@ -320,26 +321,59 @@ export function presetPromptLines(): { live: string; retired: string } {
         let body = "";
         let alpha = 0;
         let re = 0;
-        let field = "";
         for (const a of expanded.actions) {
             if (a.kind === "set_body") body = a.body;
             else if (a.kind === "set_alpha") alpha = a.alphaDeg;
             else if (a.kind === "set_reynolds") re = a.reynolds;
-            else if (a.kind === "set_field") field = a.field;
         }
         if (preset.id === "airfoil") {
             parts.push(
-                `airfoil (${preset.actionKind}) is ${body} at alpha ${alpha} Re ${re} ${field} field, e.g. NACA 0012, 2412, 4412 presets`
+                `airfoil (${preset.actionKind}) is ${body} at angle of attack (alpha) ${alpha} Reynolds number (Re) ${re}, e.g. NACA 0012, 2412, 4412 presets`
             );
         } else {
-            parts.push(`${preset.id} (${preset.actionKind}) is ${body} alpha ${alpha} Re ${re} ${field} field`);
+            parts.push(`${preset.id} (${preset.actionKind}) is ${body} angle of attack (alpha) ${alpha} Reynolds number (Re) ${re}`);
         }
     }
-    const retiredPreset = contract.presets.find((p) => p.retired);
-    const retired = retiredPreset !== undefined && retiredPreset.note !== null
-        ? `${retiredPreset.actionKind} is retired: ${retiredPreset.note}`
-        : "setup_high_pressure is retired (orifice diverges in the LBM solver), use setup_high_re_wake instead";
+    const retired = "setup_high_pressure is retired, use setup_high_re_wake instead";
     return { live: parts.join(", "), retired };
+}
+
+/** Physics-only live context for model prompts. Projects the full agent
+ *  snapshot onto body plus angle plus Reynolds number plus coefficients
+ *  plus regime, so no engine, field, solver, or statistics tokens reach
+ *  the model. Never throws. */
+export interface PhysicsView {
+    body: string;
+    alphaDeg: number | null;
+    reynolds: number | null;
+    cl: number | null;
+    cpMin: number | null;
+    regime: string;
+}
+
+export function physicsViewFor(ctx: AgentContext | null | undefined): PhysicsView {
+    try {
+        const c = (ctx ?? {}) as Partial<AgentContext>;
+        const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+        const text = (v: unknown, fallback: string): string => {
+            if (typeof v !== "string") return fallback;
+            const t = v.trim().replace(/\s+/g, " ");
+            return t.length > 0 ? t.slice(0, 80) : fallback;
+        };
+        const spec = (c.spec ?? {}) as { alphaDeg?: unknown };
+        const alpha = num(c.alphaDeg ?? spec.alphaDeg);
+        const reynoldsRaw = num(c.reynolds);
+        return {
+            body: text(c.bodyLabel, "unknown body"),
+            alphaDeg: alpha,
+            reynolds: reynoldsRaw === null ? null : Math.round(reynoldsRaw),
+            cl: num(c.cl),
+            cpMin: num(c.cpMin),
+            regime: text(c.regime, "unknown regime"),
+        };
+    } catch {
+        return { body: "unknown body", alphaDeg: null, reynolds: null, cl: null, cpMin: null, regime: "unknown regime" };
+    }
 }
 
 /** Prompt messages: system instruction plus bounded context plus recent history.
@@ -350,12 +384,12 @@ export function buildModalMessages(
     ctx: AgentContext | null | undefined,
     history: ChatTurn[]
 ): ModalMessage[] {
-    const contract = actionContractSummary();
     const presetLines = presetPromptLines();
-    const contextJson = ctx === null || ctx === undefined ? "{}" : JSON.stringify(ctx).slice(0, 3500);
-    const agentFirst = resolveAgentFirst((ctx as unknown as { agentFirst?: unknown } | null | undefined)?.agentFirst);
+    const contextJson = JSON.stringify(physicsViewFor(ctx)).slice(0, 3500);
+    void resolveAgentFirst((ctx as unknown as { agentFirst?: unknown } | null | undefined)?.agentFirst);
     const systemLines = [
-        "You are the GearFlow tunnel assistant. Answer briefly about the run.",
+        "You are the GearFlow flow tutor. Answer briefly about the run like an interactive textbook.",
+        "First mention per turn expands each term, then symbols after: lift coefficient (Cl), pressure coefficient (Cp), angle of attack (alpha), Reynolds number (Re).",
         "To change the canvas, append one fenced block per action, at most five:",
         "```action-json",
         '{"kind":"set_alpha","alphaDeg":6}',
@@ -363,22 +397,18 @@ export function buildModalMessages(
         "```action-json",
         '{"kind":"set_spec","spec":{"geometry":{"kind":"naca4","naca":{"code":"2415","m":0.02,"p":0.4,"t":0.15},"chord":1,"alphaDeg":6,"nPoints":120},"reynolds":200000,"rationale":"Agent setup NACA 2415 alpha 6."}}',
         "```",
-        `Valid kinds: ${contract.kinds.join(", ")}.`,
+        `Valid actions: adjust angle of attack (alpha), adjust Reynolds number (Re), apply a body setup preset, or ask for an alpha sweep summary.`,
         `Setup presets expand atomically: ${presetLines.live}.`,
         presetLines.retired,
         'Any 4-digit NACA rides one set_spec with the full parametric geometry plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup NACA 2415 alpha 6.").',
         "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [1000, 1000000].",
-        "Alpha sweep: when the user asks for an alpha sweep, staircase, or what if across alpha, answer with no action fence and name the live analytic staircase (-4 to 12 step 2, 9 points), the console runs it locally with Stop plus per-point Apply chips.",
-        "Analytic only: set_engine analytic only, set_field one of speed, cp, omega, u, v, never propose run_lbm, cancel_lbm, or set_engine lbm, the alpha sweep stays analytic.",
-        "Reply with one sentence describing the new case (body plus alpha plus Re plus what changed on canvas), then the validated apply follows and the tutor turn teaches the result with a before versus after table plus Why plus Try next.",
+        "Alpha sweep: when the user asks for an alpha sweep, staircase, or what if across alpha, answer with no action fence and name the sweep (-4 to 12 step 2, 9 points), the console runs it locally with Stop plus per-point Apply chips.",
+        "Reply with one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas), then the validated apply follows and the tutor turn teaches the result with a before versus after table plus Why plus Try next.",
+        "Try next is a physics thought experiment only: nudge angle of attack by 1 deg or change Reynolds number and reason about the effect. Never a field switch, never a view change, never a run.",
+        "No solver or tech stack talk: teach flow physics only, no solver names, no statistics, no spinning-flow copy, no field views. Physics note only when the idea needs it: the potential flow picture omits separation and stall.",
     ];
-    if (agentFirst) {
-        systemLines.push(
-            "Agent-first analytic mode: serve the analytic frame only, do not propose run_lbm, cancel_lbm, set_engine lbm, or k/recirc fields."
-        );
-    }
     systemLines.push(
-        "Never invent bodies, Re, or alpha: name the nearest valid case on rejection. Out of domain cases stay on the analytic path.",
+        "Never invent bodies, Re, or alpha: name the nearest valid case on rejection.",
         `Live context: ${contextJson}`
     );
     const system: ModalMessage = {
@@ -402,7 +432,7 @@ export function localOfflineReply(input: string, metrics: { cl: number; cpMin: n
         const safe = (metrics ?? {}) as { cl?: unknown; cpMin?: unknown; reynolds?: unknown };
         const num = (v: unknown): string => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(3) : "pending");
         const text = typeof input === "string" ? input.slice(0, 120) : "";
-        return `Offline demo mode, cached table only. Cl ${num(safe.cl)} with CpMin ${num(safe.cpMin)}. You asked: ${text}. Canvas unchanged.`;
+        return `Offline demo mode, cached table only. Lift coefficient (Cl) ${num(safe.cl)} with minimum pressure coefficient (CpMin) ${num(safe.cpMin)}. You asked: ${text}. Canvas unchanged.`;
     } catch {
         return "Offline demo mode, cached table only. Canvas unchanged.";
     }
@@ -410,16 +440,16 @@ export function localOfflineReply(input: string, metrics: { cl: number; cpMin: n
 
 function describeAction(a: AgentAction): string {
     if (a.kind === "set_body") return `body ${a.body}`;
-    if (a.kind === "set_alpha") return `alpha ${a.alphaDeg}`;
-    if (a.kind === "set_reynolds") return `Re ${a.reynolds}`;
-    if (a.kind === "set_engine") return `engine ${a.engine}`;
-    if (a.kind === "set_field") return `field ${a.field}`;
-    if (a.kind === "run_lbm") return "Run LBM";
-    if (a.kind === "cancel_lbm") return "Cancel LBM";
-    if (a.kind === "setup_shedding") return "vortex shedding case (cylinder, alpha 0, Re 100, speed field)";
-    if (a.kind === "setup_high_re_wake") return "high Re wake case (cylinder, alpha 0, Re 700, speed field)";
+    if (a.kind === "set_alpha") return `angle of attack (alpha) ${a.alphaDeg} deg`;
+    if (a.kind === "set_reynolds") return `Reynolds number (Re) ${a.reynolds}`;
+    if (a.kind === "set_engine") return "calculation setting applied";
+    if (a.kind === "set_field") return "view setting applied";
+    if (a.kind === "run_lbm") return "run";
+    if (a.kind === "cancel_lbm") return "cancelled run";
+    if (a.kind === "setup_shedding") return "vortex shedding case (cylinder, angle of attack (alpha) 0, Reynolds number (Re) 100)";
+    if (a.kind === "setup_high_re_wake") return "high Reynolds number (Re) wake case (cylinder, angle of attack (alpha) 0, Reynolds number (Re) 700)";
     if (a.kind === "setup_high_pressure") return "retired high pressure case (use setup_high_re_wake instead)";
-    if (a.kind === "setup_airfoil") return "airfoil case (NACA, speed field)";
+    if (a.kind === "setup_airfoil") return "airfoil case (NACA body)";
     return "custom spec";
 }
 
@@ -477,12 +507,10 @@ export function stripTutorPipeTable(text: string): string {
     }
 }
 
-/** Tutor fence contract: the prompt invites at most one set_field fence
- *  for the suggested primary. The console parses exactly that fence from
- *  the model prose, strips every action-json fence from the rendered
- *  prose, and applies only when exactly one fence is present and its
- *  field matches the deterministic suggestion (validated before apply).
- *  Zero fences or any mismatch means no canvas write. Never throws. */
+/** Tutor fence contract physics-only: the prompt answers with no action
+ *  fence. The console still strips every action-json fence from the
+ *  rendered prose and never applies it, so a stray fence cannot write
+ *  the canvas. Never throws. */
 const TUTOR_FENCE_RE = /```action-json\s*([\s\S]*?)```/g;
 
 export function tutorFenceField(raw: unknown): { stripped: string; field: string | null; fenceCount: number } {
@@ -845,17 +873,15 @@ export default function AgentConsole({
         }
     }
 
-    /** Phase 2 live tutor fire. Builds deterministic rows plus concept plus
-     *  suggestion from the before/after snapshots, then fires one Modal
-     *  call per after-caseKey with a 60 s budget. Single agent response:
-     *  the teaching upserts into the original applied action turn in place
+    /** Phase 2 live tutor fire. Builds deterministic rows plus concept
+     *  from the before/after snapshots, then fires one Modal call per
+     *  after-caseKey with a 60 s budget. Single agent response: the
+     *  teaching upserts into the original applied action turn in place
      *  (capture.turnId, base reply plus teaching text plus the structured
-     *  rows payload), never a second tutor turn. Rows render once as the
-     *  structured payload table (prose pipe tables and action fences stay
-     *  stripped). Success applies at most one set_field only when the
-     *  model emits exactly one fence matching the suggested primary
-     *  (validated before apply); failure renders rows plus an honest
-     *  error plus Retry with zero canvas writes and never local prose.
+     *  rows payload), never a second tutor turn. Physics-only prose, no
+     *  field suggestion and no canvas writes: fences are stripped and
+     *  never applied. Failure renders rows plus an honest error plus
+     *  Retry with zero canvas writes and never local prose.
      *  A retry reuses the same turn id so the turn updates instead of
      *  stacking. Never throws. */
     async function fireTutor(capture: PendingTutor, after: TutorSnapshotLite, timedOut: boolean, reuseTutorId?: string): Promise<void> {
@@ -895,36 +921,14 @@ export default function AgentConsole({
                 alphaDeg: after.alpha,
                 regime: after.regime,
                 bodyLabel: after.bodyLabel,
-                strouhal: after.strouhal,
                 cpMin: after.cpMin,
             });
         } catch {
             concept = "general";
         }
-        let suggestion: TutorFieldSuggestion = { primary: "speed", secondary: "cp" };
-        try {
-            suggestion = fieldForConcept(concept, {
-                current: (ctx?.field?.variable ?? "speed") as FieldMode,
-                tkeReady: ctx?.field?.hasTke === true,
-                recircReady: ctx?.field?.hasRecirc === true,
-            });
-        } catch {
-            suggestion = { primary: "speed", secondary: "cp" };
-        }
-        // Manual field change suppresses the auto set_field for this key.
-        // The tutor still renders with the table, only the canvas write is
-        // skipped. An already current primary is also a no-op.
-        let suppressed = suppressedKeysRef.current.has(key);
-        try {
-            const beforeVar = capture.beforeVariable;
-            const afterVar = typeof ctx?.field?.variable === "string" ? ctx.field.variable : "speed";
-            if (beforeVar !== afterVar) {
-                suppressed = true;
-                suppressedKeysRef.current.add(key);
-            }
-        } catch {
-            // Suppression checks never break the tutor turn.
-        }
+        const suggestion: TutorFieldSuggestion = { primary: "speed", secondary: "cp" };
+        void fieldForConcept;
+        void suppressedKeysRef;
         const tableText = tutorRowsText(rows);
         const timedNote = timedOut ? `\n\n${TUTOR_LOADING_LINE}` : "";
         // Single agent response: base is the original applied reply from
@@ -1020,26 +1024,7 @@ export default function AgentConsole({
             const prose = stripTutorPipeTable(fence.stripped);
             const text = `${prose}\n\nBefore vs after\n${tableText}${timedNote}`;
             const cached = (result.usage?.cachedTokens ?? 0) > 0;
-            // Success-only fence gated apply: exactly one set_field fence
-            // matching the deterministic suggestion, validated before the
-            // canvas write. Zero fences or any mismatch means no apply.
-            if (!suppressed && fence.fenceCount === 1 && fence.field === suggestion.primary) {
-                try {
-                    const currentVar = typeof ctx?.field?.variable === "string" ? ctx.field.variable : "speed";
-                    if (suggestion.primary !== currentVar) {
-                        const checked = validateAgentAction({ kind: "set_field", field: suggestion.primary }, validationCtx);
-                        if (checked.ok && checked.action !== null) {
-                            try {
-                                onAgentAction?.(checked.action);
-                            } catch {
-                                // Tutor auto faults stay silent, the table still renders.
-                            }
-                        }
-                    }
-                } catch {
-                    // Tutor auto apply never breaks the tutor turn.
-                }
-            }
+            void fence;
             upsertTutorTurn(text, cached ? "cached" : "live");
             patchTutorExtra(tutorId, {
                 streaming: false,
@@ -1244,7 +1229,7 @@ export default function AgentConsole({
         setExtra(id, makeExtra({ streaming: false, model: MODAL_MODEL_ID, chatError: "offline demo mode" }));
         try {
             const ctx = agentContext ?? null;
-            const contextJson = ctx === null ? "{}" : JSON.stringify(ctx).slice(0, 3500);
+            const contextJson = JSON.stringify(physicsViewFor(ctx)).slice(0, 3500);
             chatRetryRef.current.set(id, {
                 messages: [
                     { role: "system", content: `You are the GearFlow tunnel assistant. Live context: ${contextJson}` },
@@ -1610,15 +1595,15 @@ export default function AgentConsole({
                     ? checked.reason
                     : `set_alpha alphaDeg ${String(alphaDeg)} rejected`;
                 const id = nextId();
-                pushTurn({ id, role: "assistant", at: nowIso(), text: `Sweep apply for alpha ${alphaDeg} deg rejected: ${reason}`, tool: "modal", status: "offline" });
+                pushTurn({ id, role: "assistant", at: nowIso(), text: `Sweep apply for angle of attack (alpha) ${alphaDeg} deg rejected: ${reason}`, tool: "modal", status: "offline" });
                 setExtra(id, makeExtra({ streaming: false, rejections: [reason] }));
                 return;
             }
             const id = nextId();
-            const note = `Applying alpha ${alphaDeg} deg from the sweep.`;
+            const note = `Applying angle of attack (alpha) ${alphaDeg} deg from the sweep.`;
             pushTurn({ id, role: "assistant", at: nowIso(), text: note, tool: "modal", status: "offline" });
             setExtra(id, makeExtra({ streaming: false }));
-            settleParsedEnvelope(id, { reply: note, actions: [checked.action], rejections: [] }, `Apply alpha ${alphaDeg} deg from the sweep.`);
+            settleParsedEnvelope(id, { reply: note, actions: [checked.action], rejections: [] }, `Apply angle of attack (alpha) ${alphaDeg} deg from the sweep.`);
         } catch {
             // Validation faults never break the chip control.
         }
@@ -1695,7 +1680,7 @@ export default function AgentConsole({
             </div>
             <div className="chatLog" ref={logRef} role="log" aria-label="Agent chat transcript" aria-live="polite">
                 {turns.length === 0 && (
-                    <p className="mSub">Ask to explain the run, set up NACA 2412, or change Re.</p>
+                    <p className="mSub">Ask to explain the run, set up NACA 2412, or change Reynolds number (Re).</p>
                 )}
                 {turns.map((t) => {
                     const extra = extras[t.id];
@@ -1709,7 +1694,8 @@ export default function AgentConsole({
                     const hasTutorRows = isTutor && Array.isArray(tutorRows) && tutorRows.length > 0;
                     const proseText = hasTutorRows ? stripTutorPipeTable(t.text) : t.text;
                     const toolText = typeof t.tool === "string" && t.tool.length > 0 ? t.tool : "legacy";
-                    const statusText = typeof t.status === "string" && t.status.length > 0 ? t.status : "fallback";
+                    const rawStatus = typeof t.status === "string" && t.status.length > 0 ? t.status : "error";
+                    const statusText = rawStatus === "fallback" ? "error" : rawStatus;
                     const reasoningText = typeof extra?.reasoning === "string" ? extra.reasoning.trim() : "";
                     const tutorErrorText = typeof extra?.tutorError === "string" ? extra.tutorError.trim() : "";
                     const chatErrorText = typeof extra?.chatError === "string" ? extra.chatError.trim() : "";
@@ -1779,14 +1765,14 @@ export default function AgentConsole({
                                     type="button"
                                     className="mBtn mApply"
                                     onClick={() => onConfirmRun(t.id, run)}
-                                    aria-label={`Confirm ${run.kind === "run_lbm" ? "Run LBM solve" : "Cancel LBM solve"}`}
+                                    aria-label={run.kind === "run_lbm" ? "Confirm run" : "Cancel run"}
                                 >
-                                    Confirm {run.kind === "run_lbm" ? "Run LBM" : "Cancel LBM"}
+                                    {run.kind === "run_lbm" ? "Confirm run" : "Cancel run"}
                                 </button>
                             ))}
                             {t.tutor !== undefined && t.tutor !== null && (
                                 <div className="tutorBlock" aria-label={`Tutor note on ${t.tutor.concept}`}>
-                                    <p className="mSub mono tutorLine">Tutor: {t.tutor.concept}, suggested field {t.tutor.primary}</p>
+                                    <p className="mSub mono tutorLine">Tutor: {t.tutor.concept}</p>
                                     {hasTutorRows && (
                                     <div className="chatTableWrap tutorTableWrap">
                                         <table className="chatTable tutorTable">
@@ -1812,17 +1798,6 @@ export default function AgentConsole({
                                         </table>
                                     </div>
                                     )}
-                                    {t.tutor.secondary !== null && t.tutor.secondary !== t.tutor.primary && (
-                                        <button
-                                            key="tutor-secondary"
-                                            type="button"
-                                            className="chip tutorChip"
-                                            onClick={() => onApplyTutorField(t.tutor?.secondary as FieldMode)}
-                                            aria-label={`Show ${t.tutor.secondary} field`}
-                                        >
-                                            Show {t.tutor.secondary}
-                                        </button>
-                                    )}
                                 </div>
                             )}
                             {(extra?.sweepPoints !== undefined && extra.sweepPoints !== null && extra.sweepPoints.length > 0) && (
@@ -1836,7 +1811,7 @@ export default function AgentConsole({
                                             type="button"
                                             className="chip sweepChip"
                                             onClick={() => onApplySweepAlpha(point.alphaDeg)}
-                                            aria-label={`Apply alpha ${point.alphaDeg} degrees`}
+                                            aria-label={`Apply angle of attack (alpha) ${point.alphaDeg} degrees`}
                                         >
                                             Apply {point.alphaDeg} deg
                                         </button>

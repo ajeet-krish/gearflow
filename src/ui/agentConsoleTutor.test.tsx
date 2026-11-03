@@ -576,7 +576,7 @@ describe("agent console tutor hook (T2)", () => {
             submitForm(m);
             await flush();
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(buttonsByLabel(m.tree(), "Confirm Run LBM solve")).toHaveLength(1);
+            expect(buttonsByLabel(m.tree(), "Confirm run")).toHaveLength(1);
             const after = buildAgentContext(
                 settledSnapshot({ engine: "lbm", lbmEffective: true, caseKey: "case-run-after", frameSettled: true, agentFirst: false }) as never
             );

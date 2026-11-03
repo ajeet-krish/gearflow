@@ -1,5 +1,5 @@
-// Phase T1 tutor policy tests: one concept per trigger plus the field
-// pair for every concept. Pure, zero network.
+// Phase T1 tutor policy tests: one concept per trigger plus physics-only
+// copy for every concept. Pure, zero network.
 
 import { describe, expect, it } from "vitest";
 import { detectConcept, fieldForConcept, localTutorReply, type TutorConcept } from "./tutorPolicy";
@@ -8,7 +8,6 @@ describe("detectConcept", () => {
     const cases: Array<{ name: string; input: Record<string, unknown>; want: TutorConcept }> = [
         { name: "stall on regime", input: { regime: "stall, separated", alphaDeg: 6 }, want: "stall-separation" },
         { name: "stall on high alpha", input: { regime: "laminar", alphaDeg: 14 }, want: "stall-separation" },
-        { name: "shedding on strouhal", input: { regime: "laminar", strouhal: 0.2 }, want: "karman-shedding" },
         { name: "shedding on words", input: { regime: "karman shedding street" }, want: "karman-shedding" },
         { name: "turbulent on recirc", input: { regime: "laminar", recircFraction: 0.3 }, want: "turbulent-wake" },
         { name: "turbulent on tke", input: { regime: "laminar", tkePeak: 0.05 }, want: "turbulent-wake" },
@@ -18,6 +17,7 @@ describe("detectConcept", () => {
         { name: "attached on regime", input: { regime: "laminar, attached", alphaDeg: 6 }, want: "attached-lift" },
         { name: "general fallback", input: {}, want: "general" },
         { name: "general on null", input: {}, want: "general" },
+        { name: "strouhal alone stays general", input: { regime: "laminar", strouhal: 0.2 }, want: "general" },
     ];
     for (const c of cases) {
         it(`detects ${c.name}`, () => {
@@ -32,46 +32,21 @@ describe("detectConcept", () => {
 });
 
 describe("fieldForConcept", () => {
-    it("maps stall to omega with cp second", () => {
-        expect(fieldForConcept("stall-separation")).toEqual({ primary: "omega", secondary: "cp" });
-    });
-
-    it("maps shedding to omega with speed second", () => {
-        expect(fieldForConcept("karman-shedding")).toEqual({ primary: "omega", secondary: "speed" });
-    });
-
-    it("maps suction to cp with speed second", () => {
-        expect(fieldForConcept("suction-peak")).toEqual({ primary: "cp", secondary: "speed" });
-    });
-
-    it("maps turbulence to k when ready else recirc else omega", () => {
-        expect(fieldForConcept("turbulent-wake", { tkeReady: true })).toEqual({ primary: "k", secondary: "omega" });
-        expect(fieldForConcept("turbulent-wake", { recircReady: true })).toEqual({ primary: "recirc", secondary: "omega" });
-        expect(fieldForConcept("turbulent-wake")).toEqual({ primary: "omega", secondary: "speed" });
-    });
-
-    it("maps stagnation to cp with speed second", () => {
-        expect(fieldForConcept("stagnation")).toEqual({ primary: "cp", secondary: "speed" });
-    });
-
-    it("keeps speed with the cp chip for attached and general, never omega", () => {
+    it("stays neutral physics-only for every concept, never omega", () => {
+        expect(fieldForConcept("stall-separation")).toEqual({ primary: "speed", secondary: "cp" });
+        expect(fieldForConcept("karman-shedding")).toEqual({ primary: "speed", secondary: "cp" });
+        expect(fieldForConcept("suction-peak")).toEqual({ primary: "speed", secondary: "cp" });
+        expect(fieldForConcept("turbulent-wake", { tkeReady: true })).toEqual({ primary: "speed", secondary: "cp" });
+        expect(fieldForConcept("turbulent-wake", { recircReady: true })).toEqual({ primary: "speed", secondary: "cp" });
+        expect(fieldForConcept("turbulent-wake")).toEqual({ primary: "speed", secondary: "cp" });
+        expect(fieldForConcept("stagnation")).toEqual({ primary: "speed", secondary: "cp" });
         expect(fieldForConcept("attached-lift", { current: "omega" })).toEqual({ primary: "speed", secondary: "cp" });
         expect(fieldForConcept("general", { current: "u" })).toEqual({ primary: "speed", secondary: "cp" });
-        expect(fieldForConcept("attached-lift", { current: "speed" })).toEqual({ primary: "speed", secondary: "cp" });
-        expect(fieldForConcept("general")).toEqual({ primary: "speed", secondary: "cp" });
-    });
-
-    it("reserves omega for stall, shedding, and turbulence concepts", () => {
-        expect(fieldForConcept("stall-separation").primary).toBe("omega");
-        expect(fieldForConcept("karman-shedding").primary).toBe("omega");
-        expect(fieldForConcept("turbulent-wake").primary).toBe("omega");
-        expect(fieldForConcept("attached-lift", { current: "cp" }).primary).toBe("speed");
-        expect(fieldForConcept("general", { current: "omega" }).primary).toBe("speed");
     });
 });
 
 describe("localTutorReply", () => {
-    it("keeps the explanation plus table plus try next plus caveat shape", () => {
+    it("keeps the physics-only explanation plus table plus try next shape", () => {
         const reply = localTutorReply(
             {
                 caseKey: "a",
@@ -98,17 +73,21 @@ describe("localTutorReply", () => {
         );
         expect(reply).toContain("Before vs after");
         expect(reply).toContain("Try next:");
-        expect(reply).toContain("Caveat:");
         expect(reply).toContain("0.721");
-        expect(reply).toContain("potential flow estimate");
+        expect(reply).toContain("lift coefficient (Cl)");
+        expect(reply).not.toContain("Caveat:");
+        expect(reply).not.toContain("Suggested view");
+        expect(reply).not.toContain("omega");
+        expect(reply).not.toContain("LBM");
+        expect(reply).not.toContain("Press Run");
     });
 
     it("never throws on null snapshots", () => {
         expect(() => localTutorReply(null, null)).not.toThrow();
-        expect(localTutorReply(null, null)).toContain("Caveat:");
+        expect(localTutorReply(null, null)).toContain("Try next:");
     });
 
-    it("suggests the speed view for fresh attached and general frames", () => {
+    it("keeps fresh attached and general frames physics-only with no field views", () => {
         const attached = localTutorReply(
             {
                 caseKey: "naca4|a6|Re50000|analytic|fspeed",
@@ -133,11 +112,11 @@ describe("localTutorReply", () => {
                 strouhal: null,
             },
         );
-        expect(attached).toContain("Suggested view: speed");
-        expect(attached).not.toMatch(/Suggested view: omega/);
+        expect(attached).not.toContain("Suggested view");
+        expect(attached).not.toMatch(/omega/);
     });
 
-    it("reaches suction-peak from a deep CpMin with a neutral regime", () => {
+    it("reaches suction-peak from a deep CpMin with physics-only try next", () => {
         const reply = localTutorReply(
             {
                 caseKey: "a",
@@ -163,10 +142,10 @@ describe("localTutorReply", () => {
             },
         );
         expect(reply).toContain("Suction");
-        expect(reply).toContain("suction peak on the cp view");
+        expect(reply).toContain("angle of attack (alpha) by 1 deg");
     });
 
-    it("keeps stall and turbulence experiments analytic-safe with no Run references", () => {
+    it("keeps stall and turbulence experiments physics-only with no run or field copy", () => {
         const stall = localTutorReply(
             {
                 caseKey: "a",
@@ -192,8 +171,10 @@ describe("localTutorReply", () => {
             },
         );
         expect(stall).toContain("Try next:");
+        expect(stall).toContain("potential flow picture omits separation and stall");
         expect(stall).not.toContain("Press Run");
         expect(stall).not.toContain("LBM");
+        expect(stall).not.toContain("omega");
         const wake = localTutorReply(
             {
                 caseKey: "a",
@@ -221,6 +202,6 @@ describe("localTutorReply", () => {
         expect(wake).toContain("Try next:");
         expect(wake).not.toContain("Press Run");
         expect(wake).not.toContain("LBM");
-        expect(wake).toContain("analytic");
+        expect(wake).not.toContain("omega");
     });
 });

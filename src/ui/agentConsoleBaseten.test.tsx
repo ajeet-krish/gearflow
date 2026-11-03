@@ -140,16 +140,16 @@ describe("modal console chrome", () => {
                         costUsd: 0.0001,
                         streaming: false,
                         stopped: false,
-                        applied: ["Applied: alpha 6."],
+                        applied: ["Applied: angle of attack (alpha) 6 deg."],
                         rejections: ["Rejected: set_field k gated until the first LBM statistics sample"],
                         pendingRuns: [{ kind: "run_lbm" }],
                     },
                 }}
             />
         );
-        expect(html).toContain("Applied: alpha 6.");
+        expect(html).toContain("Applied: angle of attack (alpha) 6 deg.");
         expect(html).toContain("Rejected:");
-        expect(html).toContain("Confirm Run LBM");
+        expect(html).toContain("Confirm run");
     });
 
     it("keeps the chat input free of a separate SAM entry point", () => {
@@ -174,7 +174,7 @@ describe("modal console helpers", () => {
         expect(reply).toContain("Canvas unchanged");
         expect(reply).not.toContain("solver bar");
         const explain = localOfflineReply("Explain this run", { cl: 0.6, cpMin: -1.2, reynolds: 50000 });
-        expect(explain).toContain("Cl 0.600");
+        expect(explain).toContain("Lift coefficient (Cl)");
     });
 
     it("parses setup actions and gates run actions for confirm", () => {
@@ -340,7 +340,7 @@ describe("modal console B2 fixes", () => {
                 }}
             />
         );
-        expect(html).toContain("Confirm Run LBM");
+        expect(html).toContain("Confirm run");
     });
 
     it("settled reply text excludes fenced action json", () => {
@@ -431,11 +431,13 @@ describe("modal console agent-first prompt", () => {
         } as never);
     }
 
-    it("appends the analytic-only line when the snapshot carries agentFirst true", () => {
+    it("keeps physics-only copy for agentFirst snapshots with no solver talk", () => {
         const messages = buildModalMessages("Explain this run", agentFirstCtx(), []);
         expect(messages[0].role).toBe("system");
-        expect(messages[0].content).toContain("Agent-first analytic mode");
-        expect(messages[0].content).toContain("serve the analytic frame only");
+        expect(messages[0].content).toContain("lift coefficient (Cl)");
+        expect(messages[0].content).toContain("angle of attack (alpha)");
+        expect(messages[0].content).not.toContain("Agent-first analytic mode");
+        expect(messages[0].content).not.toContain("LBM");
         expect(messages[messages.length - 1]).toEqual({ role: "user", content: "Explain this run" });
     });
 
@@ -445,7 +447,7 @@ describe("modal console agent-first prompt", () => {
     });
 });
 
-describe("modal console live path (tutor-v2, Modal port only)", () => {
+describe("modal console live path (tutor-v3, Modal port only)", () => {
     it("carries no localAssistant imports on the console live path", async () => {
         const here = dirname(fileURLToPath(import.meta.url));
         const src = await readFile(resolve(here, "./AgentConsole.tsx"), "utf8");

@@ -2132,3 +2132,93 @@ Checks detail: No duplicate tutor turns PASS (tutorId resolves to capture.turnId
 - [x] Phase code integrates cleanly with prior phases
 
 Note recurring pattern: none new for the merge. The single-agent response now carries teaching on the applied turn itself, and the remaining risk is the merged text persistence cap at the reload seam, the same storage seam flagged in earlier transcript work.
+
+## 2026-11-02 - Physics-Only Tutor and Chat Copy Review
+
+Date: 2026-11-02
+Reviewer: code-reviewer
+Scope: Physics-only tutor/chat copy (src/agent/tutorPrompt.ts tutor-v3, src/agent/tutorPolicy.ts, src/ui/AgentConsole.tsx prompts, src/agent/misconceptions.ts)
+Verdict: FAIL
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| tutorPrompt.ts tutor-v3 system copy | PASS | src/agent/tutorPrompt.ts:20,121-136 pins tutor-v3, expands lift coefficient (Cl), pressure coefficient (Cp), angle of attack (alpha), Reynolds number (Re) on first use at line 123, defines suction and separation at line 124, no fence at line 135, banned solver words absent from generated system text |
+| tutorPrompt.ts live context leak | FAIL | src/agent/tutorPrompt.ts:112-114,158 embeds JSON.stringify(after) verbatim, so AgentContext keys and values for lbm, strouhal, field, neural envelope and path, surrogate weightsVersion, vorticityPeak can reach the model and be regurgitated |
+| tutorPolicy.ts offline copy | PASS | src/agent/tutorPolicy.ts:122-153 explanations and experiments expand Cl, alpha, Re on first use, define suction, separation, stagnation, no Strouhal, vorticity, omega, LBM in emitted prose; internal strouhal input is voided at lines 61,70 and fieldForConcept at 96-109 is never surfaced as copy |
+| misconceptions.ts flows | PASS | src/agent/misconceptions.ts:27-68 claim, correction, experimentText expand lift coefficient (Cl), angle of attack (alpha), Reynolds number (Re), pressure coefficient (Cp) on first use, experiments stage only set_alpha and set_reynolds, no run or field copy in emitted text; banned tokens appear only in internal header comments at lines 1-5 |
+| AgentConsole.tsx main prompt leak | FAIL | src/ui/AgentConsole.tsx:363 interpolates Valid kinds from actionContractSummary, which includes run_lbm, cancel_lbm, set_field, set_engine, so the system prompt sent to Modal leaks LBM, field view, and engine tokens, contradicting its own physics-only line at 371; case-insensitive leak missed by uppercase-only test pins |
+| AgentConsole.tsx live context leak | FAIL | src/ui/AgentConsole.tsx:351,373-376 embeds JSON.stringify(ctx) verbatim as Live context, same lbm, strouhal, field, neural envelope and path, weights, vorticity exposure as tutorPrompt |
+| AgentConsole.tsx user-visible copy leak | FAIL | src/ui/AgentConsole.tsx:410-413 describeAction renders Run LBM, Cancel LBM, speed field; lines 1730-1732 render Confirm Run LBM and Cancel LBM chips; lines 1217,1290,1670-1671 render a fallback status badge, all solver or tech stack words in chat UI copy |
+| Full names on first use | FAIL | System prompts pass (tutorPrompt.ts:123, AgentConsole.tsx:355), tutorPolicy and misconceptions emitted prose pass, but AgentConsole.tsx:111 uses unexplained AOA, line 112 uses bare Re in the example prompt, line 1646 uses bare Re in the empty state, lines 406-413 use bare alpha and Re in applied notes, line 398 localOfflineReply uses bare Cl and CpMin |
+| Live path Modal only | PASS | src/ui/AgentConsole.tsx imports no localAssistant or localTutorReply (imports at 15-34), live chat uses port.streamChat and port.chat at 1265,1300-1310, tutor uses port.chat at 983, forced offline and failure paths render honest cached or error turns with Retry and zero canvas writes at 941-973,1026-1059,1181-1192,1211-1228, never local prose; localOfflineReply at 393-402 is exported for older harnesses and is not called on the live path |
+| No em dashes | PASS | No em dashes or double hyphens in scoped prose (grep clean in tutorPrompt.ts, tutorPolicy.ts, misconceptions.ts; AgentConsole.tsx matches are only the GFM table delimiter code at 442-443) |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Major | src/ui/AgentConsole.tsx:363, src/agent/tutorPrompt.ts:158, src/ui/AgentConsole.tsx:375 | Model-facing prompts leak solver and tech stack tokens: Valid kinds lists run_lbm, cancel_lbm, set_field, set_engine, and both prompts embed the raw AgentContext JSON carrying lbm, strouhal, field, neural envelope and path, weightsVersion, vorticityPeak keys the model can quote back despite the no solver talk instruction | backend-dev: strip or rename action kinds in the prompt copy the model echoes, and project the live context to a physics-only view (body, alpha, Re, Cl, CpMin, regime) before JSON.stringify in buildTutorMessages and buildModalMessages; add case-insensitive banned-token assertions over the full assembled messages including context. Delegate via orchestrator |
+| Major | src/ui/AgentConsole.tsx:410-413,1730-1732,1217,1290,1670-1671 | User-visible chat copy names Run LBM, Cancel LBM, speed field, and a fallback badge, breaking the physics-only copy rule in the transcript itself | frontend-dev: rename confirm chips and applied notes to physics wording (for example Confirm run, Cancel run, speed view wording removed), and map the fallback status to a neutral label such as stopped or error in the badge render. Delegate via orchestrator |
+| Minor | src/ui/AgentConsole.tsx:111-112,1646,406-413,398 | First-use expansions missing in short copy: AOA, bare Re, bare alpha, bare Cl and CpMin appear before any expansion in example prompts, empty state, applied notes, and localOfflineReply | frontend-dev: write angle of attack (alpha), Reynolds number (Re), lift coefficient (Cl), minimum pressure coefficient on first use in each independent surface, or drop the abbreviations there. Delegate via orchestrator |
+
+### Verification Checklist
+- [ ] All checks passed
+- [ ] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Inspected pins: tutorPrompt.test.ts:61-88 and actionContract.test.ts:87-108 assert banned tokens only case-sensitively and without a live context, so run_lbm and context JSON keys pass undetected. Note recurring pattern: banned-token tests pin the hand-written system lines in isolation while the assembled prompt (contract interpolation plus raw context JSON) leaks the same tokens at the integration seam, the isolated-pass pattern flagged since Phase 1.
+
+## 2026-11-02 - Physics-Only Leaks Fix Re-review
+
+Date: 2026-11-02
+Reviewer: code-reviewer
+Scope: Re-review of physics-only leaks fix (physicsViewFor projection in src/ui/AgentConsole.tsx and src/agent/tutorPrompt.ts, Valid actions line, describeAction plus chips plus badge, abbreviation expansions, validator unchanged, live path Modal only)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major | src/ui/AgentConsole.tsx:445-446 | describeAction still leaks solver and field tokens to the UI on the auto apply path: set_engine renders "solver" plus the raw engine value (analytic or lbm), and set_field renders "display" plus the raw field value (omega, k, recirc, and others). settleParsedEnvelope at src/ui/AgentConsole.tsx:704-707 auto applies SETUP_KINDS, which include set_engine and set_field via src/agent/agentActions.ts:18-36, then renders "Applied: " plus describeAction in the transcript at src/ui/AgentConsole.tsx:1756-1758. The Valid actions line no longer advertises these kinds, but the unchanged validator still accepts them, so a model fence or plain JSON envelope can still surface "Applied: solver lbm." or "Applied: display omega." in the UI, case-insensitively leaking banned tokens. | frontend-dev: make describeAction physics neutral for set_engine and set_field (for example "case changed" and "display changed" with no engine or field value), and add rendered console tests that apply set_engine analytic, set_engine lbm, and set_field omega envelopes and assert the transcript contains no lbm, analytic, solver, omega, or field token case-insensitively. Delegate via orchestrator |
+| Minor | src/ui/AgentConsole.tsx:450 | setup_high_re_wake applied note says "high Re wake case" with bare Re before the later Reynolds number (Re) expansion in the same string, so the first mention in that independent note is unexpanded. | frontend-dev: write "high Reynolds number (Re) wake case" so the first mention is expanded. Delegate via orchestrator |
+
+Checks detail: physicsViewFor projection PASS in both files (src/ui/AgentConsole.tsx:354-377 and src/agent/tutorPrompt.ts:113-136 project exactly body, alphaDeg, reynolds, cl, cpMin, regime, finite guarded, 80 char text caps, production body and regime values are geometry and flow regime phrases at src/App.tsx:83-88 and src/App.tsx:1872, so no solver keys or values reach the model through context). Valid actions line PASS (src/ui/AgentConsole.tsx:400 names only angle, Reynolds, body preset, and sweep in physics wording; the full assembled prompt banned list is pinned case-insensitively at src/agent/actionContract.test.ts:155-176 and src/agent/tutorPrompt.test.ts:127-164). Chips PASS (Confirm run and Cancel run at src/ui/AgentConsole.tsx:1762-1772, sweep Apply chips expand angle of attack (alpha) at src/ui/AgentConsole.tsx:1808-1818). Badge PASS (fallback status maps to error at src/ui/AgentConsole.tsx:1697-1709, no solver word in the status badge). Abbreviation expansions PASS aside from the Minor above (system prompts at src/ui/AgentConsole.tsx:392 and src/agent/tutorPrompt.ts:155, example prompts at src/ui/AgentConsole.tsx:110-114, empty state at src/ui/AgentConsole.tsx:1683, localOfflineReply at src/ui/AgentConsole.tsx:435). Validator unchanged PASS (ACTION_KINDS, SETUP_ACTION_KINDS, and RUN_ACTION_KINDS at src/agent/agentActions.ts:18-36 still match the console sets, contract pinned at src/agent/actionContract.test.ts:63-102; prompt copy changed without narrowing validation). Live path Modal only PASS (no localAssistant or localTutorReply import in src/ui/AgentConsole.tsx:15-34, live chat rides port.streamChat and port.chat at src/ui/AgentConsole.tsx:1302 and src/ui/AgentConsole.tsx:1337-1349, tutor rides port.chat at src/ui/AgentConsole.tsx:1020, localOfflineReply at src/ui/AgentConsole.tsx:430 is exported for older harnesses and never called on the live path). Tests inspected, not executed, in this reviewer session (no shell tool available to the reviewer).
+
+### Verification Checklist
+- [ ] All checks passed (describeAction FAIL, abbreviation Minor)
+- [ ] No critical issues found (no Critical, one Major)
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases (model path clean, UI applied note seam still leaks)
+
+Note recurring pattern: the model facing prompt was cleaned at the assembled message seam and is now pinned case-insensitively, closing the prior isolated pin gap there, but the UI applied note seam (describeAction over the unchanged validator kinds) still echoes raw solver and field values, the same prompt versus render seam drift flagged in the prior physics-only review.
+
+## 2026-11-02 - Physics-Only Applied Notes: Final Re-review
+
+Date: 2026-11-02
+Reviewer: code-reviewer
+Scope: Final re-review of physics-neutral applied notes (describeAction set_engine and set_field neutrality plus Reynolds number (Re) expansion in src/ui/AgentConsole.tsx), verifying no solver tokens in the rendered UI case-insensitively. Prior FAIL was at the Physics-Only Leaks Fix Re-review (describeAction Major at old lines 445-446, Re expansion Minor at old line 450).
+Verdict: PASS
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| set_engine neutrality | PASS | src/ui/AgentConsole.tsx:445 returns "calculation setting applied" with no engine value, so analytic and lbm never reach the transcript through the applied note rendered at src/ui/AgentConsole.tsx:707 and 1638 |
+| set_field neutrality | PASS | src/ui/AgentConsole.tsx:446 returns "view setting applied" with no field value, so omega, k, recirc, and field tokens never reach the transcript through the applied note |
+| Reynolds number (Re) expansion | PASS | src/ui/AgentConsole.tsx:444 expands Reynolds number (Re) on the set_reynolds note, and src/ui/AgentConsole.tsx:450 expands high Reynolds number (Re) at first mention in the setup_high_re_wake note; angle of attack (alpha) is likewise expanded at lines 443, 449, and 450 |
+| No solver tokens in UI (case-insensitive) | PASS | The rendered applied notes contain none of lbm, analytic, solver, omega, field, or display case-insensitively; this is pinned behaviorally at src/ui/agentConsoleWiring.test.tsx:779-811, which applies set_engine analytic, set_engine lbm, and set_field omega envelopes, asserts one executor call with the original action, and asserts the lowered transcript contains none of those tokens. Confirm chips read Confirm run and Cancel run at src/ui/AgentConsole.tsx:1768-1770 and the fallback badge maps to error at line 1698. Internal identifiers (action kinds, context fields) are not rendered copy. |
+| No em dashes | PASS | No em dashes in the scoped lines |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| None | n/a | No FAIL items remain | None |
+
+### Verification Checklist
+- [x] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: closed for the applied-note seam. The model-facing prompt was cleaned and pinned case-insensitively in the prior cycle, and the rendered applied note now matches it instead of echoing raw solver and field values.

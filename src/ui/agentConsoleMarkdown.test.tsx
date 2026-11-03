@@ -34,7 +34,7 @@ function agentTurn(over: Partial<ChatTurn> = {}): ChatTurn {
 function tutorTurn(over: Partial<ChatTurn> = {}): ChatTurn {
     return agentTurn({
         id: "t-tutor-1",
-        text: "Local tutor note, local only. Attached flow at alpha 6.\n\nCaveat: pending, press Run for a clean solve.",
+        text: "Local tutor note, local only. Attached flow at angle of attack (alpha) 6.\n\nTry next: Nudge angle of attack (alpha) by 1 deg and compare lift coefficient (Cl).",
         status: "offline",
         tutor: {
             concept: "attached-lift",
@@ -109,7 +109,7 @@ describe("agent console T2 markdown layout", () => {
         expect(html).toContain("wake sketch");
     });
 
-    it("renders combined teaching turns distinct: badge, numbers table, field chip", () => {
+    it("renders combined teaching turns distinct: badge, numbers table, no field chip", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline
@@ -120,15 +120,17 @@ describe("agent console T2 markdown layout", () => {
         expect(html).toContain("chatTurn assistant chatLeft tutorTurn");
         expect(html).toContain("tutorBadge");
         // Single agent response: the combined turn reads Agent with the
-        // tutor badge, never a separate Tutor header.
+        // tutor badge, never a separate Tutor header. Physics-only: no
+        // field suggestion chip.
         expect(html).toContain(">Agent</span>");
         expect(html).not.toContain(">Tutor</span>");
         expect(html).toContain("<table");
         expect(html).toContain("Quantity");
         expect(html).toContain("Change");
         expect(html).toContain("0.700");
-        expect(html).toContain("Show cp");
-        expect(html).toContain("tutorChip");
+        expect(html).toContain("Tutor: attached-lift");
+        expect(html).not.toContain("Show cp");
+        expect(html).not.toContain("tutorChip");
     });
 
     it("repairs the tutor prose table into GFM exactly once", () => {
@@ -141,12 +143,12 @@ describe("agent console T2 markdown layout", () => {
 
     it("strips the tutor pipe block from prose, keeping the surrounding copy", () => {
         const raw =
-            "Local tutor note, local only. Attached flow at alpha 6.\n\nBefore vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100\n\nTry next: raise alpha.";
+            "Local tutor note, local only. Attached flow at angle of attack (alpha) 6.\n\nBefore vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100\n\nTry next: nudge angle of attack (alpha) by 1 deg.";
         const stripped = stripTutorPipeTable(raw);
         expect(stripped).not.toContain("Metric | Before | After | Delta");
         expect(stripped).not.toContain("Cl | 0.600");
         expect(stripped).toContain("Local tutor note");
-        expect(stripped).toContain("Try next: raise alpha.");
+        expect(stripped).toContain("Try next: nudge angle of attack (alpha) by 1 deg.");
         expect(stripTutorPipeTable("plain words, no table")).toBe("plain words, no table");
     });
 
@@ -157,7 +159,7 @@ describe("agent console T2 markdown layout", () => {
                 onOfflineChange={() => {}}
                 initialTurns={[
                     tutorTurn({
-                        text: "Local tutor note, local only. Attached flow at alpha 6.\n\nBefore vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100\n\nCaveat: pending, press Run for a clean solve.",
+                        text: "Local tutor note, local only. Attached flow at angle of attack (alpha) 6.\n\nBefore vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100\n\nTry next: nudge angle of attack (alpha) by 1 deg.",
                     }),
                 ]}
             />

@@ -310,7 +310,7 @@ describe("agent console run gating", () => {
         try {
             expect(counter.streams).toBe(1);
             expect(onAgentAction).not.toHaveBeenCalled();
-            const confirms = buttonsByLabel(m.tree(), "Confirm Run LBM solve");
+            const confirms = buttonsByLabel(m.tree(), "Confirm run");
             expect(confirms).toHaveLength(1);
             expect(m.text()).toContain("Ready to solve");
             expect(m.text()).not.toContain("action-json");
@@ -336,14 +336,14 @@ describe("agent console run gating", () => {
         submitForm(m);
         await flush();
         try {
-            const confirms = buttonsByLabel(m.tree(), "Confirm Run LBM solve");
+            const confirms = buttonsByLabel(m.tree(), "Confirm run");
             expect(confirms).toHaveLength(1);
             (confirms[0].props.onClick as () => void)();
             expect(onAgentAction).toHaveBeenCalledTimes(1);
             expect(onAgentAction).toHaveBeenCalledWith({ kind: "run_lbm" });
             await flush(5);
-            expect(buttonsByLabel(m.tree(), "Confirm Run LBM solve")).toHaveLength(0);
-            expect(m.text()).toContain("Applied after confirm: Run LBM.");
+            expect(buttonsByLabel(m.tree(), "Confirm run")).toHaveLength(0);
+            expect(m.text()).toContain("Applied after confirm: run.");
         } finally {
             m.unmount();
         }
@@ -367,8 +367,8 @@ describe("agent console run gating", () => {
         try {
             expect(onAgentAction).toHaveBeenCalledTimes(1);
             expect(onAgentAction).toHaveBeenCalledWith({ kind: "set_alpha", alphaDeg: 6 });
-            expect(m.text()).toContain("Applied: alpha 6.");
-            expect(buttonsByLabel(m.tree(), "Confirm Run LBM solve")).toHaveLength(0);
+            expect(m.text()).toContain("Applied: angle of attack (alpha) 6 deg.");
+            expect(buttonsByLabel(m.tree(), "Confirm run")).toHaveLength(0);
             const reply = parseAgentEnvelope(SETUP_ENVELOPE, {
                 lbmEffective: true,
                 statsReady: false,
@@ -405,7 +405,7 @@ describe("agent console run gating", () => {
             expect(m.text()).not.toContain("action-json");
             expect(m.text()).toContain("Rejected:");
             expect(m.text()).toContain("Analytic path serves this case instead.");
-            expect(buttonsByLabel(m.tree(), "Confirm Run LBM solve")).toHaveLength(0);
+            expect(buttonsByLabel(m.tree(), "Confirm run")).toHaveLength(0);
             expect(m.text()).not.toContain("Applied:");
         } finally {
             m.unmount();
@@ -514,7 +514,7 @@ describe("agent console offline paths", () => {
             expect(onAgentAction).not.toHaveBeenCalled();
             expect(m.text()).toContain("Live request failed");
             expect(m.text()).toContain("Canvas unchanged");
-            expect(badgeTexts(m.tree(), "fallback").length).toBeGreaterThan(0);
+            expect(badgeTexts(m.tree(), "error").length).toBeGreaterThan(0);
         } finally {
             m.unmount();
         }
@@ -542,7 +542,7 @@ describe("agent console offline paths", () => {
             expect(onAgentAction).not.toHaveBeenCalled();
             expect(m.text()).toContain("Live request failed");
             expect(m.text()).toContain("Canvas unchanged");
-            expect(badgeTexts(m.tree(), "fallback").length).toBeGreaterThan(0);
+            expect(badgeTexts(m.tree(), "error").length).toBeGreaterThan(0);
         } finally {
             m.unmount();
         }
@@ -567,7 +567,7 @@ describe("agent console offline paths", () => {
             expect(onAgentAction).not.toHaveBeenCalled();
             expect(m.text()).toContain("Live request failed");
             expect(m.text()).toContain("Canvas unchanged");
-            expect(badgeTexts(m.tree(), "fallback").length).toBeGreaterThan(0);
+            expect(badgeTexts(m.tree(), "error").length).toBeGreaterThan(0);
         } finally {
             m.unmount();
         }
@@ -592,7 +592,7 @@ describe("agent console offline paths", () => {
             expect(onAgentAction).not.toHaveBeenCalled();
             expect(m.text()).toContain("Live request failed");
             expect(m.text()).toContain("Canvas unchanged");
-            expect(badgeTexts(m.tree(), "fallback").length).toBeGreaterThan(0);
+            expect(badgeTexts(m.tree(), "error").length).toBeGreaterThan(0);
         } finally {
             m.unmount();
         }
@@ -677,7 +677,7 @@ describe("agent console live port (no parser fast path)", () => {
             expect(counter.streams).toBe(1);
             expect(onAgentAction).toHaveBeenCalledTimes(1);
             expect(onAgentAction).toHaveBeenNthCalledWith(1, { kind: "set_alpha", alphaDeg: 6 });
-            expect(m.text()).toContain("Applied: alpha 6.");
+            expect(m.text()).toContain("Applied: angle of attack (alpha) 6 deg.");
         } finally {
             m.unmount();
         }
@@ -763,6 +763,48 @@ describe("agent console live port (no parser fast path)", () => {
             expect(m.text()).toContain("Rejected:");
             expect(m.text()).toContain("outside [1000, 1000000]");
             expect(m.text()).not.toContain("Applied:");
+        } finally {
+            m.unmount();
+        }
+    });
+});
+
+const ENGINE_ANALYTIC_ENVELOPE =
+    "Case updated.\n```action-json\n{\"kind\":\"set_engine\",\"engine\":\"analytic\"}\n```";
+const ENGINE_LBM_ENVELOPE =
+    "Case updated.\n```action-json\n{\"kind\":\"set_engine\",\"engine\":\"lbm\"}\n```";
+const FIELD_OMEGA_ENVELOPE =
+    "Case updated.\n```action-json\n{\"kind\":\"set_field\",\"field\":\"omega\"}\n```";
+
+describe("agent console applied notes stay physics neutral", () => {
+    it.each([
+        ["analytic engine", ENGINE_ANALYTIC_ENVELOPE, { kind: "set_engine", engine: "analytic" }],
+        ["lbm engine", ENGINE_LBM_ENVELOPE, { kind: "set_engine", engine: "lbm" }],
+        ["omega view", FIELD_OMEGA_ENVELOPE, { kind: "set_field", field: "omega" }],
+    ])("renders %s with no banned solver or view tokens", async (_label, envelope, expected) => {
+        const ctx = buildAgentContext(pendingSnapshot() as never);
+        const onAgentAction = vi.fn();
+        const counter = { streams: 0, chats: 0 };
+        const m = mountConsole({
+            offline: false,
+            onOfflineChange: () => {},
+            agentContext: ctx,
+            onAgentAction,
+            chatClient: streamingPort(envelope, counter),
+            initialTurns: [],
+        });
+        typeText(m, "please update the case");
+        submitForm(m);
+        await flush();
+        try {
+            expect(onAgentAction).toHaveBeenCalledTimes(1);
+            expect(onAgentAction).toHaveBeenCalledWith(expected);
+            expect(m.text()).toContain("Applied:");
+            const lowered = m.text().toLowerCase();
+            for (const token of ["lbm", "analytic", "solver", "omega", "field"]) {
+                expect(lowered).not.toContain(token);
+            }
+            expect(lowered).not.toContain("display");
         } finally {
             m.unmount();
         }

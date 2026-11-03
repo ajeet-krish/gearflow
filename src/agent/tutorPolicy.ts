@@ -1,7 +1,8 @@
-// Phase T1 tutor policy. Pure concept detection plus field mapping plus
-// the offline tutor template, no React, no DOM, no network. Concepts stay
-// tutor first and agent applied: each concept maps to one suggested field
-// the agent may apply through a single set_field. Never throws.
+// Phase T1 tutor policy. Pure concept detection plus the offline tutor
+// template, no React, no DOM, no network. Concepts stay tutor first and
+// agent applied. Physics-only copy: no solver or tech stack talk, no
+// field suggestions, no vorticity or omega copy. Try next is an angle of
+// attack nudge or a Reynolds number thought experiment. Never throws.
 
 import type { FieldMode } from "@/contracts/types";
 import { buildTutorTable, tutorRowsText, tutorSourceFamily, type TutorSnapshotLite, type TutorTableRow } from "./tutorTable";
@@ -28,11 +29,9 @@ export interface DetectConceptInput {
     cpMin?: unknown;
 }
 
-/** Suggested field pair for one concept. Secondary null means the reply
- *  needs no second view. Fresh attached and general default to the speed
- *  view with the cp chip as secondary, so the canvas lands on velocity
- *  plus streamlines; omega stays primary only for stall, shedding, and
- *  turbulence concepts. */
+/** Suggested field pair kept for backward compatible callers. Physics-only
+ *  tutor never surfaces a field suggestion; every concept maps to the
+ *  neutral speed plus cp pair so legacy imports keep compiling. */
 export interface TutorFieldSuggestion {
     primary: FieldMode;
     secondary: FieldMode | null;
@@ -56,9 +55,10 @@ function cleanCurrent(v: unknown): FieldMode {
 /**
  * Detect the tutoring concept from live evidence. Order is fixed so one
  * frame maps to exactly one concept: stall and separation first, then
- * Karman shedding on a finite Strouhal, then turbulent wake on regime or
+ * Karman shedding on regime words, then turbulent wake on regime or
  * recirculation or TKE, then stagnation on regime or bluff bodies, then
  * suction peak on a deep CpMin, then attached lift, else general.
+ * Strouhal is ignored here so teaching never names solver statistics.
  * Never throws.
  */
 export function detectConcept(input: DetectConceptInput | null | undefined): TutorConcept {
@@ -67,14 +67,13 @@ export function detectConcept(input: DetectConceptInput | null | undefined): Tut
         const regime = lowerText(raw.regime);
         const body = lowerText(raw.bodyLabel);
         const alpha = finiteOrNull(raw.alphaDeg);
-        const strouhal = finiteOrNull(raw.strouhal);
+        void finiteOrNull(raw.strouhal);
         const recirc = finiteOrNull(raw.recircFraction);
         const tke = finiteOrNull(raw.tkePeak);
         const cpMin = finiteOrNull(raw.cpMin);
         if (regime.includes("stall") || regime.includes("separat")) return "stall-separation";
         if (alpha !== null && alpha >= 12) return "stall-separation";
         if (regime.includes("shed") || regime.includes("karman") || regime.includes("vortex street")) return "karman-shedding";
-        if (strouhal !== null) return "karman-shedding";
         if (regime.includes("turbul") || regime.includes("wake")) return "turbulent-wake";
         if (recirc !== null && recirc > 0.15) return "turbulent-wake";
         if (tke !== null && tke > 0) return "turbulent-wake";
@@ -90,34 +89,19 @@ export function detectConcept(input: DetectConceptInput | null | undefined): Tut
 }
 
 /**
- * Field pair for one concept. Stall favors omega with cp second, shedding
- * favors omega with speed second, suction favors cp with speed second,
- * turbulence favors k when ready else recirc when ready else omega with
- * speed second, stagnation favors cp with speed second, attached and
- * general suggest speed with the cp chip second (keeping speed when the
- * current field already shows velocity). Never throws.
+ * Neutral field pair kept for backward compatible callers. Physics-only
+ * teaching never suggests or switches fields, so every concept returns
+ * the same neutral pair and the live path ignores it. Never throws.
  */
 export function fieldForConcept(
     concept: TutorConcept,
     opts?: { current?: unknown; tkeReady?: unknown; recircReady?: unknown },
 ): TutorFieldSuggestion {
     try {
-        const current = cleanCurrent(opts?.current);
-        const tkeReady = opts?.tkeReady === true;
-        const recircReady = opts?.recircReady === true;
-        if (concept === "stall-separation") return { primary: "omega", secondary: "cp" };
-        if (concept === "karman-shedding") return { primary: "omega", secondary: "speed" };
-        if (concept === "suction-peak") return { primary: "cp", secondary: "speed" };
-        if (concept === "turbulent-wake") {
-            if (tkeReady) return { primary: "k", secondary: "omega" };
-            if (recircReady) return { primary: "recirc", secondary: "omega" };
-            return { primary: "omega", secondary: "speed" };
-        }
-        if (concept === "stagnation") return { primary: "cp", secondary: "speed" };
-        // Fresh attached lift and general frames land on velocity plus
-        // streamlines: keep speed when already there, otherwise suggest
-        // speed (never omega) with the cp chip second.
-        void current;
+        void concept;
+        void cleanCurrent(opts?.current);
+        void opts?.tkeReady;
+        void opts?.recircReady;
         return { primary: "speed", secondary: "cp" };
     } catch {
         return { primary: "speed", secondary: "cp" };
@@ -136,45 +120,47 @@ function explanationFor(concept: TutorConcept, rows: TutorTableRow[]): string {
     const alpha = cellOf(rows, "Alpha");
     const re = cellOf(rows, "Re");
     if (concept === "attached-lift") {
-        return `The wing stays attached, meaning flow follows the surface, with Cl ${cl} at alpha ${alpha}.`;
+        return `The wing stays attached, meaning flow follows the surface, with lift coefficient (Cl) ${cl} at angle of attack (alpha) ${alpha} and Reynolds number (Re) ${re}.`;
     }
     if (concept === "suction-peak") {
-        return `Suction, meaning low pressure pulling on the upper surface, peaks at CpMin ${cp}, which sets the lift you see in Cl ${cl}.`;
+        return `Suction, meaning low pressure pulling on the upper surface, peaks at minimum pressure coefficient ${cp}, which sets the lift you see in lift coefficient (Cl) ${cl} at angle of attack (alpha) ${alpha}.`;
     }
     if (concept === "stall-separation") {
-        return `Separation, meaning flow leaving the surface, stalls lift past this alpha, with Cl ${cl} at alpha ${alpha}.`;
+        return `Separation, meaning flow leaving the surface, stalls lift past this angle, with lift coefficient (Cl) ${cl} at angle of attack (alpha) ${alpha}. The potential flow picture omits separation and stall.`;
     }
     if (concept === "karman-shedding") {
-        return `Vorticity, meaning spinning motion in the wake, sheds in turns, which shakes Cl around ${cl}.`;
+        return `The wake swings side to side in turns, which shakes lift coefficient (Cl) around ${cl} at angle of attack (alpha) ${alpha} and Reynolds number (Re) ${re}.`;
     }
     if (concept === "turbulent-wake") {
-        return `The wake stays turbulent, meaning fast mixing behind the body, with Cl ${cl} at alpha ${alpha}.`;
+        return `The wake stays mixed and unsteady behind the body, with lift coefficient (Cl) ${cl} at angle of attack (alpha) ${alpha} and Reynolds number (Re) ${re}.`;
     }
     if (concept === "stagnation") {
-        return `Stagnation, meaning flow stopped at the nose, shows as high pressure with Cl ${cl} at alpha ${alpha}.`;
+        return `Stagnation, meaning flow stopped at the nose, shows as high pressure with lift coefficient (Cl) ${cl} at angle of attack (alpha) ${alpha}.`;
     }
-    return `The run reads Cl ${cl} with CpMin ${cp} at alpha ${alpha} and Re ${re}.`;
+    return `The run reads lift coefficient (Cl) ${cl} with minimum pressure coefficient ${cp} at angle of attack (alpha) ${alpha} and Reynolds number (Re) ${re}.`;
 }
 
-/** One Try next experiment for a concept. Analytic only, never an LBM run:
- *  every branch names a field view or an alpha nudge, never run_lbm,
- *  cancel_lbm, or a viscous solve. Never throws. */
+/** One Try next thought experiment for a concept. Physics only, never a
+ *  field switch and never a run: every branch names an angle of attack
+ *  nudge or a Reynolds number thought experiment. Never throws. */
 export function experimentFor(concept: TutorConcept): string {
-    if (concept === "attached-lift") return "Raise alpha by 1 deg and watch Cl and CpMin.";
-    if (concept === "suction-peak") return "Raise alpha by 1 deg and watch the suction peak on the cp view.";
-    if (concept === "stall-separation") return "Compare the omega view with the cp view, noting the potential model omits separation, so stall reads as a proxy here, not a solved wake.";
-    if (concept === "karman-shedding") return "Switch to the omega view and watch the alternating street.";
-    if (concept === "turbulent-wake") return "Check the analytic speed and omega views, noting TKE and recirculation need a viscous solve the agent-first build does not run.";
-    if (concept === "stagnation") return "Check the cp view at the nose for the high pressure zone.";
-    return "Nudge alpha by 1 deg and compare Cl.";
+    if (concept === "attached-lift") return "Nudge angle of attack (alpha) by 1 deg and compare lift coefficient (Cl) and minimum pressure coefficient.";
+    if (concept === "suction-peak") return "Nudge angle of attack (alpha) by 1 deg and watch the suction peak deepen as minimum pressure coefficient falls.";
+    if (concept === "stall-separation") return "Nudge angle of attack (alpha) by 1 deg and note the potential flow picture omits separation and stall, so past the band the lift reading is a proxy, not a separated wake.";
+    if (concept === "karman-shedding") return "Nudge angle of attack (alpha) by 1 deg at the same Reynolds number (Re) and reason about how the wake rhythm shifts lift coefficient (Cl).";
+    if (concept === "turbulent-wake") return "Reason about the same body at a higher Reynolds number (Re) and how stronger mixing behind the body shifts lift coefficient (Cl).";
+    if (concept === "stagnation") return "Nudge angle of attack (alpha) by 1 deg and ask how the nose high pressure shifts with lift coefficient (Cl).";
+    return "Nudge angle of attack (alpha) by 1 deg and compare lift coefficient (Cl).";
 }
 
-function caveatFor(pathLabel: string): string {
-    const family = tutorSourceFamily(pathLabel);
-    if (family === "lbm") return "Caveat: LBM solved, instantaneous snapshot (viscous D2Q9, not time averaged).";
-    if (family === "neural") return "Caveat: predicted, not validated.";
-    if (family === "analytic") return "Caveat: potential flow estimate, not validated.";
-    return "Caveat: pending, press Run for a clean solve.";
+function physicsNoteFor(concept: TutorConcept): string {
+    if (concept === "stall-separation") return "Note: the potential flow picture omits separation and stall.";
+    return "";
+}
+
+function caveatFor(_pathLabel: string): string {
+    void _pathLabel;
+    return "";
 }
 
 function fieldFromCaseKey(caseKey: string): FieldMode {
@@ -189,12 +175,11 @@ function fieldFromCaseKey(caseKey: string): FieldMode {
 }
 
 /**
- * Offline tutor reply with the same shape as the live tutor answer:
- * one explanation, the before vs after table, one Try next experiment,
- * the suggested view, and one honesty caveat. Cites only table cells,
- * never invents numbers. Attached and general frames suggest the speed
- * view; omega stays suggested only for stall, shedding, and turbulence.
- * Never throws.
+ * Offline tutor reply with the same physics-only shape as the live tutor
+ * answer: one explanation, the before vs after table, one Try next
+ * thought experiment, plus the physics note only when the idea needs it.
+ * Cites only table cells, never invents numbers, never suggests fields,
+ * never names solvers. Never throws.
  */
 export function localTutorReply(
     before: TutorSnapshotLite | null | undefined,
@@ -212,18 +197,17 @@ export function localTutorReply(
         });
         const explanation = explanationFor(concept, rows);
         const experiment = experimentFor(concept);
-        const caveat = caveatFor(typeof focus?.pathLabel === "string" ? focus.pathLabel : "");
-        const currentField = fieldFromCaseKey(typeof focus?.caseKey === "string" ? focus.caseKey : "");
-        const suggestion = fieldForConcept(concept, { current: currentField });
-        const secondary = suggestion.secondary ?? "none";
+        const note = physicsNoteFor(concept);
+        void caveatFor(typeof focus?.pathLabel === "string" ? focus.pathLabel : "");
+        void fieldFromCaseKey(typeof focus?.caseKey === "string" ? focus.caseKey : "");
+        void tutorSourceFamily(typeof focus?.pathLabel === "string" ? focus.pathLabel : "");
+        const tail = note.length > 0 ? `\n\n${note}` : "";
         return (
             `Local tutor note, local only. ${explanation}\n\n` +
             `Before vs after\n${tutorRowsText(rows)}\n\n` +
-            `Try next: ${experiment}\n\n` +
-            `Suggested view: ${suggestion.primary} (secondary: ${secondary}).\n\n` +
-            caveat
+            `Try next: ${experiment}${tail}`
         );
     } catch {
-        return "Local tutor note, local only. The run is pending, press Run for a clean solve.\n\nCaveat: pending, press Run for a clean solve.";
+        return "Local tutor note, local only. The run is pending.\n\nTry next: Nudge angle of attack (alpha) by 1 deg and compare lift coefficient (Cl).";
     }
 }

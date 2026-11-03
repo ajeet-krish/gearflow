@@ -168,11 +168,11 @@ describe("local phenomenological triggers", () => {
         expect(cl.actions).toEqual([]);
         expect(cl.rejections).toEqual([]);
         expect(cl.reply).toContain("lift coefficient");
-        expect(cl.reply).toContain("Cl 0.600");
+        expect(cl.reply).toContain("lift coefficient (Cl) 0.600");
         const cp = localReply("what is CpMin", makeCtx());
         expect(cp.actions).toEqual([]);
         expect(cp.reply).toContain("suction");
-        expect(cp.reply).toContain("CpMin -1.200");
+        expect(cp.reply).toContain("minimum pressure coefficient -1.200");
         const vort = localReply("what is vorticity", makeCtx());
         expect(vort.actions).toEqual([]);
         expect(vort.reply).toContain("swirl");

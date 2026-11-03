@@ -79,7 +79,10 @@ describe("buildReportData Tutor row", () => {
             strouhal: null as number | null,
         };
         const prose = localTutorReply(snap, snap);
-        expect(prose).toContain("Caveat:");
+        expect(prose).toContain("Try next:");
+        expect(prose).toContain("angle of attack (alpha) by 1 deg");
+        expect(prose).not.toContain("Caveat:");
+        expect(prose).not.toContain("Suggested view");
         const capped = capTutorCaption(prose);
         expect(capped.length).toBeLessThanOrEqual(TUTOR_CAPTION_MAX);
         expect(capped.endsWith(TUTOR_CAPTION_CAVEAT)).toBe(true);
@@ -121,7 +124,8 @@ describe("capTutorCaption lbm and neural paths", () => {
     it("keeps the neural tail for a neural path label, never the analytic one", () => {
         const pathLabel = "neural-v3 prediction, phase averaged, not validated";
         const prose = localTutorReply(snapFor(pathLabel), snapFor(pathLabel));
-        expect(prose).toContain("Caveat:");
+        expect(prose).toContain("Try next:");
+        expect(prose).not.toContain("Caveat:");
         const capped = capTutorCaption(prose, pathLabel);
         expect(capped.length).toBeLessThanOrEqual(TUTOR_CAPTION_MAX);
         expect(capped.endsWith(TUTOR_CAPTION_CAVEAT_NEURAL)).toBe(true);
@@ -130,7 +134,8 @@ describe("capTutorCaption lbm and neural paths", () => {
     it("keeps the LBM tail for an LBM path label, never the analytic one", () => {
         const pathLabel = "lbm-binary, solved instantaneous snapshot";
         const prose = localTutorReply(snapFor(pathLabel), snapFor(pathLabel));
-        expect(prose).toContain("Caveat:");
+        expect(prose).toContain("Try next:");
+        expect(prose).not.toContain("Caveat:");
         const capped = capTutorCaption(prose, pathLabel);
         expect(capped.length).toBeLessThanOrEqual(TUTOR_CAPTION_MAX);
         expect(capped.endsWith(TUTOR_CAPTION_CAVEAT_LBM)).toBe(true);

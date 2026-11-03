@@ -231,7 +231,7 @@ describe("agent console sweep summary-only", () => {
             expect(m.text()).toContain("Sweep complete");
             expect(m.text()).toContain("Live alpha staircase -4 to 12 deg");
             expect(m.text()).toContain("Summary follows");
-            const chips = buttonsByLabel(m.tree(), "Apply alpha 6 degrees");
+            const chips = buttonsByLabel(m.tree(), "Apply angle of attack (alpha) 6 degrees");
             expect(chips.length).toBeGreaterThan(0);
             expect(m.text()).not.toContain("Running the live alpha staircase, canvas stepping");
             expect(badgeCount(m.tree(), "live")).toBe(0);
@@ -331,13 +331,13 @@ describe("agent console sweep chips", () => {
         submitForm(m);
         await waitSweep();
         try {
-            const chips = buttonsByLabel(m.tree(), "Apply alpha 4 degrees");
+            const chips = buttonsByLabel(m.tree(), "Apply angle of attack (alpha) 4 degrees");
             expect(chips.length).toBe(1);
             (chips[0].props.onClick as () => void)();
             await new Promise<void>((resolve) => setTimeout(resolve, 0));
             expect(executor).toHaveBeenCalledWith({ kind: "set_alpha", alphaDeg: 4 });
-            expect(m.text()).toContain("Applying alpha 4 deg from the sweep");
-            expect(m.text()).toContain("Applied: alpha 4.");
+            expect(m.text()).toContain("Applying angle of attack (alpha) 4 deg from the sweep");
+            expect(m.text()).toContain("Applied: angle of attack (alpha) 4 deg.");
         } finally {
             m.unmount();
         }

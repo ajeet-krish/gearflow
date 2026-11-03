@@ -28,10 +28,10 @@ function flowStallPotential(): MisconceptionFlow {
     return {
         id: "stall-potential",
         claim: "Stall and separation are shown by the potential model.",
-        whyTempting: "The analytic canvas draws attached streamlines at every alpha, so it is tempting to read a separated bubble or a stall dip from it.",
-        whatModelShows: "The potential model omits separation and stall. Cl stays linear in the characterized band, the wake stays attached, and flattening past the band is not shown on this path.",
-        experimentText: "Switch to the omega view first, then run the alpha sweep from -4 to 12 deg in 2 deg steps and watch Cl stay linear. Flattening past the band is not shown, the model has no separation to solve.",
-        experimentAction: { kind: "set_field", field: "omega" },
+        whyTempting: "The analytic canvas draws attached streamlines at every angle, so it is tempting to read a separated bubble or a stall dip from it.",
+        whatModelShows: "The potential flow picture omits separation and stall. Lift coefficient (Cl) stays linear in the characterized band, the wake stays attached, and flattening past the band is not shown on this picture.",
+        experimentText: "First set angle of attack (alpha) to 7 deg and compare lift coefficient (Cl). The potential flow picture omits separation and stall, so flattening past the band is not shown.",
+        experimentAction: { kind: "set_alpha", alphaDeg: 7 },
     };
 }
 
@@ -39,9 +39,9 @@ function flowReNoEffect(): MisconceptionFlow {
     return {
         id: "re-no-effect",
         claim: "Reynolds number does nothing on this tunnel.",
-        whyTempting: "Cl moves little with Re on the analytic path, so Re looks inert at first glance.",
-        whatModelShows: "Re sets the wake and the suction peak. A higher Re thins the boundary layer, deepens CpMin, and shifts the wake regime even while Cl moves only a little.",
-        experimentText: "Set Re to 200000 first, then compare the cp view at 20000 versus 200000 plus CpMin. The suction peak and the wake move with Re.",
+        whyTempting: "Lift coefficient (Cl) moves little with Reynolds number (Re) on this picture, so Re looks inert at first glance.",
+        whatModelShows: "Reynolds number (Re) sets the wake and the suction peak. A higher Re thins the boundary layer, deepens minimum pressure coefficient, and shifts the wake regime even while lift coefficient (Cl) moves only a little.",
+        experimentText: "First set Reynolds number (Re) to 200000 and compare minimum pressure coefficient. The suction peak and the wake move with Reynolds number (Re).",
         experimentAction: { kind: "set_reynolds", reynolds: 200000 },
     };
 }
@@ -49,10 +49,10 @@ function flowReNoEffect(): MisconceptionFlow {
 function flowClForever(): MisconceptionFlow {
     return {
         id: "cl-forever",
-        claim: "Cl keeps rising forever as alpha increases.",
-        whyTempting: "The analytic Cl curve looks straight inside the band, so it is tempting to extend that line past every alpha.",
-        whatModelShows: "The sweep shows a linear band inside the characterized [-4, 12] deg envelope only. Past that limit the analytic estimate leaves the validated band and stall is not solved here.",
-        experimentText: "Set alpha to 12 deg first, then run the alpha sweep -4 to 12 deg and note the linear band plus the characterized limit. Past 12 deg the estimate is outside the band, not a higher lift promise.",
+        claim: "Lift coefficient (Cl) keeps rising forever as angle of attack (alpha) increases.",
+        whyTempting: "The lift curve looks straight inside the band, so it is tempting to extend that line past every angle.",
+        whatModelShows: "The sweep shows a linear band inside the characterized [-4, 12] deg range only. Past that limit the estimate leaves the band and stall is not shown here.",
+        experimentText: "First set angle of attack (alpha) to 12 deg and note the linear band plus the characterized limit. Past 12 deg the estimate is outside the band, not a higher lift promise.",
         experimentAction: { kind: "set_alpha", alphaDeg: 12 },
     };
 }
@@ -60,11 +60,11 @@ function flowClForever(): MisconceptionFlow {
 function flowCpMinMeasured(): MisconceptionFlow {
     return {
         id: "cpmin-measured",
-        claim: "CpMin is a measured pressure in pascals.",
-        whyTempting: "CpMin reads like a pressure tap value, one number at one point.",
-        whatModelShows: "Cp is a coefficient, local pressure minus freestream over dynamic pressure. Negative means suction, and CpMin is the lowest value, the strongest suction peak, not a pascal reading.",
-        experimentText: "Switch to the cp view first, then raise alpha by 1 deg from the slider. Watch the suction peak deepen as CpMin falls, the shape tells the lift story.",
-        experimentAction: { kind: "set_field", field: "cp" },
+        claim: "Minimum pressure coefficient is a measured pressure in pascals.",
+        whyTempting: "Minimum pressure coefficient reads like a pressure tap value, one number at one point.",
+        whatModelShows: "Pressure coefficient (Cp) is local pressure minus freestream over dynamic pressure. Negative means suction, and minimum pressure coefficient is the lowest value, the strongest suction peak, not a pascal reading.",
+        experimentText: "First raise angle of attack (alpha) to 7 deg (a 1 deg nudge) and watch the suction peak deepen as minimum pressure coefficient falls. The shape tells the lift story.",
+        experimentAction: { kind: "set_alpha", alphaDeg: 7 },
     };
 }
 

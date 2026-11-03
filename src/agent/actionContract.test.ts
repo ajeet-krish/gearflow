@@ -1,6 +1,7 @@
-// R2 action contract tests. The validator kinds, the prompt kinds, and the
-// console auto apply plus confirm sets must agree three ways, and the prompt
-// snapshot pins the retired preset plus honest Re values. Pure, zero network.
+// R2 action contract tests. The validator kinds and the console auto
+// apply plus confirm sets must agree, and the prompt stays physics-only
+// with a physics actions line (no engine or field token names). Pure,
+// zero network.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -13,7 +14,8 @@ import {
     validateAgentAction,
     type AgentValidationContext,
 } from "./agentActions";
-import { RUN_KINDS, SETUP_KINDS, buildModalMessages } from "@/ui/AgentConsole";
+import { RUN_KINDS, SETUP_KINDS, buildModalMessages, physicsViewFor } from "@/ui/AgentConsole";
+import { buildAgentContext } from "./agentContext";
 
 const ANALYTIC: AgentValidationContext = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false };
 
@@ -23,15 +25,39 @@ function promptSystem(): string {
     return messages[0].content;
 }
 
-function promptKinds(system: string): string[] {
-    const line = system.split("\n").find((l) => l.startsWith("Valid kinds:"));
-    expect(line).toBeDefined();
-    return (line as string)
-        .slice("Valid kinds:".length)
-        .replace(/\.\s*$/, "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
+function fullPromptText(ctx: Parameters<typeof buildModalMessages>[1]): string {
+    const messages = buildModalMessages("Explain this run with a sweep", ctx, []);
+    return messages.map((m) => m.content).join("\n");
+}
+
+function richContext() {
+    return buildAgentContext({
+        spec: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 },
+        reynolds: 50000,
+        regime: "laminar, attached",
+        bodyLabel: "NACA 2412",
+        backend: "lbm pending",
+        engine: "lbm",
+        gridLabel: "128x128",
+        cl: 0.6,
+        cpMin: -1.2,
+        lbmStatus: "running",
+        lbmHasSnapshot: true,
+        lbmEffective: true,
+        lbmStatsReady: true,
+        lbmStats: { samples: 10, startStep: 0, step: 10, recircFraction: 0.1, cdMean: 0.02, clMean: 0.6, clRms: 0.01, strouhal: 0.2 },
+        variable: "omega",
+        effectiveVariable: "omega",
+        hasTke: true,
+        hasRecirc: true,
+        validation: { pass: 1, warn: 0, fail: 0, info: 0 },
+        provenanceLabel: "lbm live",
+        offline: false,
+        neuralAvailable: true,
+        neuralEnvelopeSummary: "provisional neural envelope with weights",
+        displayedPath: "lbm",
+        surrogate: { path: "surrogate", weightsVersion: "v1", strouhal: 0.2, vorticityPeak: 3.1 } as never,
+    } as never);
 }
 
 describe("action contract drift guard", () => {
@@ -50,16 +76,19 @@ describe("action contract drift guard", () => {
         expect(new Set([...SETUP_KINDS, ...RUN_KINDS])).toEqual(new Set(contract.kinds));
     });
 
-    it("prompt kinds equal the validator kinds three ways, retired stays out", () => {
-        const contract = actionContractSummary();
-        const kinds = promptKinds(promptSystem());
-        expect([...kinds].sort()).toEqual([...contract.kinds].sort());
-        expect([...kinds].sort()).toEqual([...SETUP_KINDS, ...RUN_KINDS].sort());
-        for (const retired of RETIRED_ACTION_KINDS) {
-            expect(kinds).not.toContain(retired);
+    it("prompt uses a physics actions line with no engine, field, or run token names", () => {
+        const system = promptSystem();
+        const validLine = system.split("\n").find((l) => l.startsWith("Valid actions:")) ?? "";
+        expect(validLine.length).toBeGreaterThan(0);
+        expect(validLine).toContain("angle of attack (alpha)");
+        expect(validLine).toContain("Reynolds number (Re)");
+        const lowered = validLine.toLowerCase();
+        for (const banned of ["run_lbm", "cancel_lbm", "set_field", "set_engine"]) {
+            expect(lowered).not.toContain(banned);
         }
-        expect(kinds).toContain("setup_high_re_wake");
-        expect(kinds).toContain("set_spec");
+        for (const retired of RETIRED_ACTION_KINDS) {
+            expect(validLine).not.toContain(retired);
+        }
     });
 
     it("every live preset kind validates through the preset path", () => {
@@ -84,28 +113,65 @@ describe("prompt snapshot", () => {
         expect(system).not.toContain("Re 1000");
     });
 
-    it("carries the any-code set_spec instruction with rationale plus analytic-only guidance", () => {
+    it("carries the any-code set_spec instruction with physics-only guidance", () => {
         const system = promptSystem();
         expect(system).toContain("set_spec");
         expect(system).toContain("Any 4-digit NACA rides one set_spec");
         expect(system).toContain("rationale");
         expect(system).toContain("Agent setup NACA 2415 alpha 6.");
         expect(system).toContain("e.g. NACA 0012, 2412, 4412 presets");
-        expect(system).toContain("Analytic only: set_engine analytic only");
-        expect(system).toContain("speed, cp, omega, u, v");
-        expect(system).toContain("never propose run_lbm");
-        expect(system).toContain("the alpha sweep stays analytic");
+        expect(system).toContain("lift coefficient (Cl)");
+        expect(system).toContain("pressure coefficient (Cp)");
+        expect(system).toContain("angle of attack (alpha)");
+        expect(system).toContain("Reynolds number (Re)");
         expect(system).toContain("one sentence describing the new case");
         expect(system).toContain("before versus after table plus Why plus Try next");
-        expect(system).not.toContain("6 to 18%");
-        expect(system).not.toContain("physics explainer");
+        expect(system).toContain("potential flow picture omits separation and stall");
+        expect(system).not.toContain("Analytic only");
+        expect(system).not.toContain("omega");
+        expect(system).not.toContain("LBM");
+        expect(system).not.toContain("Strouhal");
         expect(system).not.toContain("envelope");
+        expect(system).not.toContain("fallback");
+        expect(system).not.toContain("weights");
     });
 
-    it("preset lines match live expandCasePreset output", () => {
+    it("preset lines match live expandCasePreset output with expanded terms", () => {
         const system = promptSystem();
-        expect(system).toContain("Re 100");
-        expect(system).toContain("Re 700");
-        expect(system).toContain("Re 1200");
+        expect(system).toContain("(Re) 100");
+        expect(system).toContain("(Re) 700");
+        expect(system).toContain("(Re) 1200");
+        expect(system).toContain("angle of attack (alpha)");
+    });
+});
+
+describe("physics-only prompt leak guard", () => {
+    it("projects live context to body, alpha, reynolds, cl, cpMin, regime only", () => {
+        const view = physicsViewFor(richContext());
+        expect(Object.keys(view).sort()).toEqual(["alphaDeg", "body", "cl", "cpMin", "regime", "reynolds"].sort());
+        expect(view.body).toContain("NACA 2412");
+    });
+
+    it("full assembled messages carry no banned tokens case-insensitively", () => {
+        const text = fullPromptText(richContext());
+        const lowered = text.toLowerCase();
+        const banned = [
+            "run_lbm",
+            "cancel_lbm",
+            "set_field",
+            "set_engine",
+            "strouhal",
+            "neural",
+            "weights",
+            "vorticity",
+            "\"lbm\"",
+            "\"field\"",
+            "\"engine\"",
+            "\"surrogate\"",
+        ];
+        for (const token of banned) {
+            expect(lowered).not.toContain(token);
+        }
+        expect(lowered).toContain("naca 2412");
     });
 });
