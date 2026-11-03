@@ -3,7 +3,8 @@
 // allowlist, same origin, optional required origin, kill switch, per IP
 // rate limit, proxy token, 64 KiB body cap, JSON parse, pinned model
 // force, upstream fetch with total plus idle deadlines, generic errors
-// only, SSE passthrough with drain and close driven cancel, 1 MiB non
+// only, SSE passthrough with drain and res-close driven cancel
+// (writableFinished guard), 1 MiB non
 // stream cap. Modal-only: the upstream resolves from MODAL_CHAT_URL and
 // fails closed to 503, never falls back. Imports only the gate modules
 // plus node:http types, never vite.config.
@@ -93,7 +94,7 @@ function writeGenericModalError(
 /** Minimal server side log for Modal upstream failures. Logs only the
  *  upstream status, retry-after presence, elapsed wall time, and the first
  *  300 chars of the upstream body plus a cause prefixed fetch detail
- *  (total-timeout, req-close, res-close, idle-timeout, or fetch-error).
+ *  (total-timeout, res-close, idle-timeout, or fetch-error).
  *  Never logs Authorization tokens or request bodies. */
 function logModalUpstreamFailure(
     upstreamStatus: number | string,
@@ -266,29 +267,27 @@ export function createModalServerHandler(
                 noteAbort("total-timeout");
                 abortUpstream();
             }, timeoutMs);
-            const onClose = (): void => {
-                if (settled) return;
-                noteAbort("req-close");
-                abortUpstream();
-            };
             const onResClose = (): void => {
                 if (settled) return;
+                try {
+                    if ((res as unknown as { writableFinished?: boolean }).writableFinished) return;
+                } catch {
+                    // writableFinished read is best effort, assume client went away.
+                }
                 noteAbort("res-close");
                 abortUpstream();
                 finish();
             };
-            req.on("close", onClose);
             try {
                 res.on("close", onResClose);
             } catch {
-                // Old test doubles may lack res.on; req close still aborts.
+                // Old test doubles may lack res.on; timers still guard the upstream.
             }
             const finish = (): void => {
                 if (settled) return;
                 settled = true;
                 clearTimeout(totalTimer);
                 if (idleTimer !== undefined) clearTimeout(idleTimer);
-                req.removeListener("close", onClose);
                 try {
                     res.removeListener("close", onResClose);
                 } catch {

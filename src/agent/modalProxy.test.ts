@@ -47,7 +47,14 @@ function getHandler(deps: Parameters<typeof modalProxy>[0]): Connect.NextHandleF
 function runProxy(
     handler: Connect.NextHandleFunction,
     opts: ProxyRequest,
-    hooks: { onWrite?: (chunk: Buffer) => boolean; closeAfterMs?: number; emitClose?: boolean } = {}
+    hooks: {
+        onWrite?: (chunk: Buffer) => boolean;
+        closeAfterMs?: number;
+        emitClose?: boolean;
+        emitResClose?: boolean;
+        reqCloseAfterMs?: number;
+        emitReqClose?: boolean;
+    } = {}
 ): Promise<CapturedResponse> {
     return new Promise((resolve) => {
         const req = new EventEmitter() as EventEmitter & {
@@ -65,9 +72,11 @@ function runProxy(
         req.destroy = (): void => undefined;
         const headers: Record<string, string> = {};
         const writes: Buffer[] = [];
-        const res = {
+        const resEmitter = new EventEmitter();
+        const res = Object.assign(resEmitter, {
             statusCode: 200,
             writableEnded: false,
+            writableFinished: false,
             destroyed: false,
             setHeader: (name: string, value: string): void => {
                 headers[name.toLowerCase()] = value;
@@ -78,13 +87,29 @@ function runProxy(
                 return true;
             },
             end: (data?: unknown): void => {
-                res.writableEnded = true;
+                (res as unknown as { writableEnded: boolean }).writableEnded = true;
+                (res as unknown as { writableFinished: boolean }).writableFinished = true;
                 if (data !== undefined) writes.push(Buffer.isBuffer(data) ? data : Buffer.from(String(data)));
-                resolve({ statusCode: res.statusCode, headers, chunks: writes, text: Buffer.concat(writes).toString("utf8"), writes });
+                resolve({ statusCode: (res as unknown as { statusCode: number }).statusCode, headers, chunks: writes, text: Buffer.concat(writes).toString("utf8"), writes });
             },
-            once: (event: string, cb: () => void): void => {
-                if (event === "drain") setTimeout(cb, 0);
-            },
+        }) as unknown as EventEmitter & {
+            statusCode: number;
+            writableEnded: boolean;
+            writableFinished: boolean;
+            destroyed: boolean;
+            setHeader: (name: string, value: string) => void;
+            write: (chunk: Buffer) => boolean;
+            end: (data?: unknown) => void;
+        };
+        // Preserve drain auto resolve for doubles without an explicit drain emitter.
+        const nativeOnce = resEmitter.once.bind(resEmitter);
+        (res as unknown as { once: (event: string, cb: () => void) => void }).once = (event: string, cb: () => void): void => {
+            if (event === "drain") {
+                nativeOnce(event, cb);
+                setTimeout(() => resEmitter.emit("drain"), 0);
+                return;
+            }
+            nativeOnce(event, cb);
         };
         const next = (): void => {
             resolve({ statusCode: 404, headers, chunks: [], text: "", writes });
@@ -92,10 +117,24 @@ function runProxy(
         handler(req as never, res as never, next);
         setTimeout(() => req.emit("data", Buffer.from(opts.body, "utf8")), 0);
         setTimeout(() => req.emit("end"), 5);
-        if (hooks.closeAfterMs !== undefined) {
-            setTimeout(() => req.emit("close"), hooks.closeAfterMs);
-        } else if (hooks.emitClose !== false) {
+        // req close fires on normal completion and must never abort the upstream.
+        const emitReqClose = hooks.emitReqClose ?? hooks.emitClose;
+        if (hooks.reqCloseAfterMs !== undefined) {
+            setTimeout(() => req.emit("close"), hooks.reqCloseAfterMs);
+        } else if (emitReqClose !== false) {
             setTimeout(() => req.emit("close"), 2000);
+        }
+        // res close with writableFinished false means the client actually went away.
+        if (hooks.closeAfterMs !== undefined) {
+            setTimeout(() => {
+                (res as unknown as { destroyed: boolean }).destroyed = true;
+                resEmitter.emit("close");
+            }, hooks.closeAfterMs);
+        } else if (hooks.emitResClose === true) {
+            setTimeout(() => {
+                (res as unknown as { destroyed: boolean }).destroyed = true;
+                resEmitter.emit("close");
+            }, 2000);
         }
     });
 }
@@ -364,7 +403,7 @@ describe("modalProxy wiring", () => {
         expect(out.text).toContain("hi");
     });
 
-    it("cancels the upstream reader when the client disconnects mid stream", async () => {
+    it("cancels the upstream reader on res close while the stream is open", async () => {
         let cancelled = false;
         const encoder = new TextEncoder();
         const body = new ReadableStream<Uint8Array>({
@@ -393,5 +432,71 @@ describe("modalProxy wiring", () => {
         );
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(cancelled).toBe(true);
+    });
+
+    it("does not abort the upstream on req close (normal request completion)", async () => {
+        let fetchAborted = false;
+        const fetchFn = vi.fn(async (_url: unknown, init: unknown) => {
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            try {
+                (init as { signal?: AbortSignal }).signal?.throwIfAborted();
+            } catch {
+                fetchAborted = true;
+                throw new DOMException("aborted", "AbortError");
+            }
+            if ((init as { signal?: AbortSignal }).signal?.aborted) {
+                fetchAborted = true;
+                throw new DOMException("aborted", "AbortError");
+            }
+            return jsonUpstream({ choices: [{ message: { content: "hi" } }] });
+        });
+        const handler = getHandler(testDeps({
+            fetchFn: fetchFn as unknown as typeof fetch,
+        }));
+        const out = await runProxy(
+            handler,
+            {
+                method: "POST",
+                url: "/api/modal/chat/completions",
+                headers: {},
+                body: JSON.stringify({ stream: false }),
+                ip: "10.1.0.12",
+            },
+            { reqCloseAfterMs: 10, emitResClose: false }
+        );
+        expect(fetchAborted).toBe(false);
+        expect(fetchFn).toHaveBeenCalledTimes(1);
+        expect(out.statusCode).toBe(200);
+        expect(out.text).toContain("hi");
+    });
+
+    it("ignores res close after the response finished (writableFinished guard)", async () => {
+        let cancelled = false;
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode(JSON.stringify({ ok: true })));
+                controller.close();
+            },
+            cancel() {
+                cancelled = true;
+            },
+        });
+        const fetchFn = vi.fn(async () => new Response(body, { status: 200, headers: { "content-type": "application/json" } }));
+        const handler = getHandler(testDeps({
+            fetchFn: fetchFn as unknown as typeof fetch,
+        }));
+        const out = await runProxy(
+            handler,
+            {
+                method: "POST",
+                url: "/api/modal/chat/completions",
+                headers: {},
+                body: JSON.stringify({ stream: false }),
+                ip: "10.1.0.13",
+            },
+            { emitResClose: false }
+        );
+        expect(out.statusCode).toBe(200);
+        expect(cancelled).toBe(false);
     });
 });

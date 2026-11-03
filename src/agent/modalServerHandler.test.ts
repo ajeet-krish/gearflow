@@ -54,6 +54,8 @@ function runHandler(
         closeAfterMs?: number;
         emitClose?: boolean;
         emitResClose?: boolean;
+        emitReqClose?: boolean;
+        reqCloseAfterMs?: number;
         drainAfterMs?: number;
     } = {}
 ): Promise<CapturedResponse> {
@@ -78,6 +80,7 @@ function runHandler(
         const res = Object.assign(resEmitter, {
             statusCode: 200,
             writableEnded: false,
+            writableFinished: false,
             destroyed: false,
             setHeader: (name: string, value: string): void => {
                 headers[name.toLowerCase()] = value;
@@ -89,16 +92,17 @@ function runHandler(
             },
             end: (data?: unknown): void => {
                 (resEmitter as unknown as { writableEnded: boolean }).writableEnded = true;
-                const self = res as unknown as { writableEnded: boolean };
+                (resEmitter as unknown as { writableFinished: boolean }).writableFinished = true;
+                const self = res as unknown as { writableEnded: boolean; writableFinished: boolean };
                 self.writableEnded = true;
+                self.writableFinished = true;
                 if (data !== undefined) writes.push(Buffer.isBuffer(data) ? data : Buffer.from(String(data)));
                 resolve({ statusCode: (res as unknown as { statusCode: number }).statusCode, headers, chunks: writes, text: Buffer.concat(writes).toString("utf8"), writes });
             },
-        }) as unknown as ServerResponse & EventEmitter & { writableEnded: boolean; destroyed: boolean };
-        const emitBothClose = (): void => {
+        }) as unknown as ServerResponse & EventEmitter & { writableEnded: boolean; writableFinished: boolean; destroyed: boolean };
+        const emitResClose = (): void => {
             (res as unknown as { destroyed: boolean }).destroyed = true;
             resEmitter.emit("close");
-            req.emit("close");
         };
         handler(req as unknown as IncomingMessage, res as unknown as ServerResponse);
         setTimeout(() => req.emit("data", Buffer.from(opts.body, "utf8")), 0);
@@ -106,16 +110,20 @@ function runHandler(
         if (hooks.drainAfterMs !== undefined) {
             setTimeout(() => resEmitter.emit("drain"), hooks.drainAfterMs);
         }
-        if (hooks.closeAfterMs !== undefined) {
-            setTimeout(() => {
-                if (hooks.emitResClose === false) {
-                    req.emit("close");
-                } else {
-                    emitBothClose();
-                }
-            }, hooks.closeAfterMs);
-        } else if (hooks.emitClose !== false) {
+        // req close fires on normal request completion and must never abort.
+        const emitReqClose = hooks.emitReqClose ?? hooks.emitClose;
+        if (hooks.reqCloseAfterMs !== undefined) {
+            setTimeout(() => req.emit("close"), hooks.reqCloseAfterMs);
+        } else if (emitReqClose !== false && hooks.closeAfterMs === undefined) {
+            // Legacy default keeps a late req close which is now harmless.
             setTimeout(() => req.emit("close"), 2000);
+        } else if (hooks.closeAfterMs !== undefined && hooks.emitResClose === false) {
+            // Explicit req-only close regression path.
+            setTimeout(() => req.emit("close"), hooks.closeAfterMs);
+        }
+        // res close with writableFinished false means the client went away.
+        if (hooks.closeAfterMs !== undefined && hooks.emitResClose !== false) {
+            setTimeout(() => emitResClose(), hooks.closeAfterMs);
         }
     });
 }
@@ -517,7 +525,7 @@ describe("modalServerHandler wiring", () => {
         expect(JSON.parse(out.text)).toMatchObject({ error: expect.any(String) });
     });
 
-    it("cancels the upstream reader when the client disconnects mid stream", async () => {
+    it("cancels the upstream reader on res close while the stream is open", async () => {
         let cancelled = false;
         const encoder = new TextEncoder();
         const body = new ReadableStream<Uint8Array>({
@@ -543,6 +551,75 @@ describe("modalServerHandler wiring", () => {
         );
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(cancelled).toBe(true);
+    });
+
+    it("does not abort the upstream on req close (normal request completion)", async () => {
+        let fetchAborted = false;
+        const fetchFn = vi.fn(async (_url: unknown, init: unknown) => {
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            if ((init as { signal?: AbortSignal }).signal?.aborted) {
+                fetchAborted = true;
+                throw new DOMException("aborted", "AbortError");
+            }
+            return jsonUpstream({ choices: [{ message: { content: "hi" } }] });
+        });
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch }));
+        const out = await runHandler(
+            handler,
+            {
+                method: "POST",
+                url: "/api/modal/chat/completions",
+                headers: {},
+                body: JSON.stringify({ stream: false }),
+                ip: "10.2.0.19",
+            },
+            { reqCloseAfterMs: 10, emitClose: false }
+        );
+        expect(fetchAborted).toBe(false);
+        expect(fetchFn).toHaveBeenCalledTimes(1);
+        expect(out.statusCode).toBe(200);
+        expect(out.text).toContain("hi");
+    });
+
+    it("ignores a req-only close during backpressure (res-close drives cancel)", async () => {
+        let cancelled = false;
+        const encoder = new TextEncoder();
+        const hanging = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(encoder.encode("data: hello\n\n"));
+                controller.enqueue(encoder.encode("data: world\n\n"));
+                controller.close();
+            },
+            cancel() {
+                cancelled = true;
+            },
+        });
+        const fetchFn = vi.fn(async () => new Response(hanging, { status: 200, headers: { "content-type": "text/event-stream" } }));
+        const handler = getHandler(testDeps({ fetchFn: fetchFn as unknown as typeof fetch, timeoutMs: 5000 }));
+        let writes = 0;
+        const out = await runHandler(
+            handler,
+            {
+                method: "POST",
+                url: "/api/modal/chat/completions",
+                headers: {},
+                body: JSON.stringify({ stream: true }),
+                ip: "10.2.0.21",
+            },
+            {
+                onWrite: () => {
+                    writes += 1;
+                    return writes > 1;
+                },
+                reqCloseAfterMs: 30,
+                emitClose: false,
+                drainAfterMs: 40,
+            }
+        );
+        expect(out.statusCode).toBe(200);
+        expect(out.text).toContain("hello");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(cancelled).toBe(false);
     });
 
     it("ends a stalled SSE stream at the idle deadline instead of hanging", async () => {

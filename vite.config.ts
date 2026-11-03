@@ -145,7 +145,8 @@ function metaProxy() {
  * Allowlisted to POST on the single pinned chat completions path, same
  * origin checked, per-IP rate limited, body capped at 64 KiB (413 over),
  * upstream 30 s total plus idle stream deadline kept through the read
- * loop with close driven abort and reader cancel, response capped at
+ * loop with res-close driven abort (writableFinished guard) and reader
+ * cancel, response capped at
  * MODAL_MAX_RESPONSE_BYTES on the non stream path (502 over), pinned
  * model id forced into the forwarded body, non 2xx upstream mapped to
  * generic errors with only retry-after forwarded, SSE passthrough with
@@ -186,7 +187,7 @@ function writeGenericModalError(
 /** Minimal server side log for Modal upstream failures. Logs only the
  *  upstream status, retry-after presence, elapsed wall time, and the first
  *  300 chars of the upstream body plus a cause prefixed fetch detail
- *  (total-timeout, req-close, idle-timeout, or fetch-error). Never logs
+ *  (total-timeout, res-close, idle-timeout, or fetch-error). Never logs
  *  Authorization tokens or request bodies. */
 function logModalUpstreamFailure(
     upstreamStatus: number | string,
@@ -337,9 +338,14 @@ export function modalProxy(deps: ModalProxyDeps = {}): {
                     // Abort driven cancel is best effort.
                 }
             }, timeoutMs);
-            const onClose = (): void => {
+            const onResClose = (): void => {
                 if (settled) return;
-                noteAbort("req-close");
+                try {
+                    if ((res as unknown as { writableFinished?: boolean }).writableFinished) return;
+                } catch {
+                    // writableFinished read is best effort, assume client went away.
+                }
+                noteAbort("res-close");
                 controller.abort();
                 try {
                     void readerRef?.cancel();
@@ -347,13 +353,21 @@ export function modalProxy(deps: ModalProxyDeps = {}): {
                     // Close driven cancel is best effort.
                 }
             };
-            req.on("close", onClose);
+            try {
+                res.on("close", onResClose);
+            } catch {
+                // Test doubles may lack res.on; timers still guard the upstream.
+            }
             const finish = (): void => {
                 if (settled) return;
                 settled = true;
                 clearTimeout(totalTimer);
                 if (idleTimer !== undefined) clearTimeout(idleTimer);
-                req.removeListener("close", onClose);
+                try {
+                    res.removeListener("close", onResClose);
+                } catch {
+                    // Best effort for doubles without removeListener.
+                }
             };
             let idleTimer: ReturnType<typeof setTimeout> | undefined;
             const pokeIdle = (reader: { cancel: () => unknown }): void => {
