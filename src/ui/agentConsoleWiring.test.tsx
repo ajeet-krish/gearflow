@@ -600,7 +600,7 @@ describe("agent console offline paths", () => {
 });
 
 describe("agent console spend gate", () => {
-    it("forces local mode with a cap note once the session crosses five dollars", async () => {
+    it("forces the offline path once the session crosses five dollars", async () => {
         expect(SPEND_SOFT_STOP_USD).toBe(5);
         expect(spendExceeded(5)).toBe(true);
         expect(spendExceeded(4.9999)).toBe(false);
@@ -625,10 +625,15 @@ describe("agent console spend gate", () => {
             expect(counter.streams).toBe(0);
             expect(counter.chats).toBe(0);
             expect(onAgentAction).not.toHaveBeenCalled();
-            // Tutor-v2 spend gate: demo mode note plus cached offline copy, never local prose.
-            expect(m.text()).toContain("demo mode until reset");
-            expect(m.text()).toContain("Spend cap");
+            // P0 TUI mimic: spend gate still forces the offline path, the
+            // spend meter render is gone so there is no Session or cap note.
+            expect(m.text()).toContain("Offline demo mode");
+            expect(m.text()).toContain("cached table only");
             expect(m.text()).toContain("Canvas unchanged");
+            expect(m.text()).toContain("Retry");
+            expect(m.text()).not.toContain("Session");
+            expect(m.text()).not.toContain("Spend cap");
+            expect(m.text()).not.toContain("demo mode until reset");
             expect(m.text()).not.toContain("local mode until reset");
             expect(m.text()).not.toContain("engineer note, local only");
         } finally {

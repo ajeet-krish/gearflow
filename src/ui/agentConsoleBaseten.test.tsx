@@ -71,10 +71,12 @@ function fakePort(text: string) {
 }
 
 describe("modal console chrome", () => {
-    it("renders the example and tutorial dropdowns on one prompt line", () => {
+    it("renders the example and tutorial dropdowns side by side in the prompt row", () => {
         const html = renderToStaticMarkup(<AgentConsole offline={false} onOfflineChange={() => {}} />);
-        // Compact native selects replace the old chip rows: every example
-        // plus every tutorial stays reachable, composer placeholder intact.
+        // Hand-rolled TUI mimic: both native selects sit side by side in
+        // one prompt row above the composer, every example plus every
+        // tutorial stays reachable, composer placeholder intact.
+        expect(html).toContain("promptRow");
         for (const item of EXAMPLE_PROMPTS) {
             expect(html).toContain(item.label);
         }
@@ -87,23 +89,34 @@ describe("modal console chrome", () => {
         expect(html).toContain("Set up NACA 2412");
     });
 
-    it("renders the session spend meter with model and cost", () => {
+    it("renders the TUI hint bar with no session spend meter", () => {
         const html = renderToStaticMarkup(<AgentConsole offline={false} onOfflineChange={() => {}} />);
-        expect(html).toContain("Session");
-        expect(html).toContain("est $");
-        expect(html).toContain("in 0 out 0");
+        // P0 TUI mimic: the spend meter render is deleted (spend logic
+        // stays behind spendExceeded), the composer keeps a quiet hint bar.
+        expect(html).not.toContain("chatFoot");
+        expect(html).not.toContain("Session");
+        expect(html).not.toContain("est $");
+        expect(html).toContain("chatHints");
+        expect(html).toContain("esc");
+        expect(html).toContain("tab");
+        expect(html).toContain("enter");
+        expect(html).toContain("tuiCursor");
+        expect(html).toContain("promptRow");
     });
 
-    it("shows the soft stop note once the spend cap is reached", () => {
+    it("keeps the spend soft stop in logic with no cap note render", () => {
         const html = renderToStaticMarkup(
             <AgentConsole offline={false} onOfflineChange={() => {}} spendCapUsd={0} />
         );
-        // Live tutor-v2 contract: demo mode note, never the retired local mode copy.
-        expect(html).toContain("demo mode until reset");
+        // Spend gate still forces the offline path through spendExceeded,
+        // but the cap note render is gone with the meter.
+        expect(spendExceeded(5)).toBe(true);
+        expect(html).not.toContain("chatFoot");
+        expect(html).not.toContain("demo mode until reset");
         expect(html).not.toContain("local mode until reset");
     });
 
-    it("marks offline turns with the offline badge plus local note", () => {
+    it("marks offline turns with the offline pill plus local note", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline={true}
@@ -113,6 +126,7 @@ describe("modal console chrome", () => {
         );
         expect(html).toContain("offline");
         expect(html).toContain("Canvas unchanged");
+        expect(html).toContain("tuiPill");
     });
 
     it("shows Stop while busy and Send when idle", () => {
@@ -279,7 +293,10 @@ describe("modal console helpers", () => {
         expect(calls.streams).toBe(0);
         expect(calls.chats).toBe(0);
         expect(ctx.engine).toBe("lbm");
-        expect(html).toContain("Session");
+        // P0 TUI mimic: no spend meter, prompt row plus hint bar instead.
+        expect(html).not.toContain("Session");
+        expect(html).toContain("promptRow");
+        expect(html).toContain("chatHints");
         expect(html).toContain("Explain this run");
         expect(html).toContain("Send");
     });
@@ -353,6 +370,36 @@ describe("modal console B2 fixes", () => {
         expect(out.reply).not.toContain("alphaDeg");
     });
 
+    it("labels assistant turns Tutor with a live dot and no model pill", () => {
+        const liveHtml = renderToStaticMarkup(
+            <AgentConsole
+                offline={false}
+                onOfflineChange={() => {}}
+                initialTurns={[assistantTurn({ status: "live", text: "Run looks healthy at alpha 6." })]}
+            />
+        );
+        // P0 TUI mimic: Tutor label, green live dot with a visually hidden
+        // label instead of live text, no tool or model pills.
+        expect(liveHtml).toContain(">Tutor</span>");
+        expect(liveHtml).not.toContain(">Agent</span>");
+        expect(liveHtml).toContain("liveDot");
+        expect(liveHtml).toContain("visuallyHidden\">live</span>");
+        // No text pill for live turns: the only live marker is the dot.
+        expect(liveHtml).not.toContain("tuiPill");
+        expect(liveHtml).not.toContain("gearflow-chat");
+        expect(liveHtml).not.toContain(">modal</span>");
+        expect(liveHtml).not.toContain(">legacy</span>");
+        const cachedHtml = renderToStaticMarkup(
+            <AgentConsole
+                offline={false}
+                onOfflineChange={() => {}}
+                initialTurns={[assistantTurn({ status: "cached", text: "Cached table note." })]}
+            />
+        );
+        expect(cachedHtml).toContain(">Tutor</span>");
+        expect(cachedHtml).toContain(">cached</span>");
+    });
+
     it("user turns are not labelled modal live", () => {
         const userHtml = renderToStaticMarkup(
             <AgentConsole
@@ -363,6 +410,8 @@ describe("modal console B2 fixes", () => {
         );
         expect(userHtml).toContain("You");
         expect(userHtml).not.toContain("baseten");
+        // P0 TUI mimic: assistant turns read Tutor, tool and model pills
+        // are gone, so the legacy badge copy is gone too.
         const legacyHtml = renderToStaticMarkup(
             <AgentConsole
                 offline={false}
@@ -370,8 +419,9 @@ describe("modal console B2 fixes", () => {
                 initialTurns={[{ id: "t-legacy-1", role: "assistant", text: "Legacy note", at: new Date().toISOString() }]}
             />
         );
-        expect(legacyHtml).toContain("Agent");
-        expect(legacyHtml).toContain("legacy");
+        expect(legacyHtml).toContain("Tutor");
+        expect(legacyHtml).not.toContain(">Agent</span>");
+        expect(legacyHtml).not.toContain("legacy");
         expect(legacyHtml).not.toContain(">baseten<");
     });
 });

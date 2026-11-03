@@ -236,7 +236,11 @@ describe("agent console sweep summary-only", () => {
             expect(m.text()).not.toContain("Running the live alpha staircase, canvas stepping");
             expect(badgeCount(m.tree(), "live")).toBe(0);
             expect(badgeCount(m.tree(), "offline")).toBeGreaterThan(0);
-            expect(badgeCount(m.tree(), "tutor")).toBe(1);
+            // P0 TUI mimic: no tool or model pills, no separate tutor badge
+            // pill. The summary turn still teaches in place with the Tutor
+            // label plus the numbers table.
+            expect(badgeCount(m.tree(), "tutor")).toBe(0);
+            expect(m.text()).toContain("Tutor");
         } finally {
             m.unmount();
         }

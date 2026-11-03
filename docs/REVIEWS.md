@@ -2222,3 +2222,18 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: closed for the applied-note seam. The model-facing prompt was cleaned and pinned case-insensitively in the prior cycle, and the rendered applied note now matches it instead of echoing raw solver and field values.
+
+## 2026-11-03 - P0 Chat TUI Mimic Review
+
+Date: 2026-11-03
+Reviewer: code-reviewer
+Scope: P0 chat TUI mimic (src/ui/AgentConsole.tsx render, src/styles.css TUI skin)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Minor | src/ui/AgentConsole.tsx:1634-1646,18 | onApplyTutorField is defined but never called in render or elsewhere, and FieldMode is imported only for that dead handler, so a dangling handler remains after the header and tutor chip cleanup | frontend-dev: remove onApplyTutorField and the FieldMode import if no longer used, or wire it to a real rendered control |
+
+Checks: header deleted PASS (render opens at src/ui/AgentConsole.tsx:1666-1668 with no header element and no chatFoot or agentHead references in src), Tutor label PASS (src/ui/AgentConsole.tsx:1691), live dot with hidden label PASS (src/ui/AgentConsole.tsx:1692-1697, src/styles.css:346-355,926-936), no tool or model pills PASS (src/ui/AgentConsole.tsx:1690-1704 renders only role, live dot, status, streaming, stopped, applied; model and tool values are never rendered), dropdowns side by side PASS (src/ui/AgentConsole.tsx:1820-1855, src/styles.css:360, stacking only at src/styles.css:1293-1297), cost removed but spend gate kept PASS (no cost render; gate at src/ui/AgentConsole.tsx:616,645-648,688-693,1541), single response plus Retry plus reasoning PASS (src/ui/AgentConsole.tsx:739-757,888-975,1705-1710,1725-1744), physics copy intact PASS (src/ui/AgentConsole.tsx:390-413,1670,1872). Tests inspected, not executed (no shell tool in reviewer session).
+
+Note recurring pattern: dead handlers can survive render deletions when imports are only checked by eye; grep call sites before closing a render cleanup.

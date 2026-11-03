@@ -1,5 +1,5 @@
 # GearFlow Test Results
-Last updated: 2026-10-28
+Last updated: 2026-11-03
 
 ## 2026-10-26 - Phase 1: Test Report (contracts+skeleton Vite shell, NACA kernel, fake flow, fixtures, particles, textures, loader hardened)
 
@@ -976,6 +976,42 @@ Phase tests integrate with prior phase tests (all 1548 prior tests pass as rewri
 
 ### Verification Checklist
 - [x] All tests pass (116 files, 1550 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - P0 Chat TUI: Test Report (no header chrome, Tutor label, no pills, one-row dropdowns, no spend render, single combined response)
+
+### Test Results
+npm test: 117 files, 1571 tests, all passed. Baseline before this file was 116 files, 1564 tests. Delta is src/ui/chatTuiP0.test.tsx (7 tests).
+
+New coverage in src/ui/chatTuiP0.test.tsx (7 tests):
+happy path Tutor label with green dot and visually hidden live label on live turns, example plus tutorial dropdowns sharing one promptRow with all labels reachable plus stylesheet two column grid with mobile single column fallback, single combined tutor turn with applied line plus numbers table plus Retry chip plus collapsed reasoning trace and exactly one tutorTurn block, chat failure turn with Retry chip and Canvas unchanged,
+edge cached and bare assistant turns plus user turns carry no tool or model pills,
+error spendCapUsd zero render shows no Session cost, no Spend cap, no demo mode until reset while spendExceeded still trips at five dollars and at any positive spend under a zero cap.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| chatTuiP0.test.tsx (7) | PASS | No header or toggle or clear chrome, Tutor plus dot, no pills, one row dropdowns, no spend render with gate intact, single combined response with Retry and reasoning, chat Retry |
+| all other Node suites (1564) | PASS | No regressions, 1571 total |
+
+### Coverage Summary
+Happy path covered (Tutor label with green dot, dropdowns side by side in one row, single combined response with Retry and collapsed reasoning).
+Edge cases covered (cached and bare assistant turns plus user turns free of tool and model pills, mobile single column fallback in the stylesheet).
+Error conditions covered (spend gate logic intact with zero render, chat failure Retry with Canvas unchanged).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1564 pre-existing tests still pass, 1571 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| chatTuiP0 live label (initial run) | Assertion rejected the substring `>live</span>`, but the intentional visually hidden accessible label `<span class="visuallyHidden">live</span>` contains it | Assert no `status-live` pill instead and keep the positive visually hidden check; fixed, now passes |
+
+### Verification Checklist
+- [x] All tests pass (117 files, 1571 tests)
 - [x] Happy path covered
 - [x] Edge cases covered
 - [x] Error conditions covered

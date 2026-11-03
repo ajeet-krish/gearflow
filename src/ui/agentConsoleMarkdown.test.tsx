@@ -51,7 +51,7 @@ function tutorTurn(over: Partial<ChatTurn> = {}): ChatTurn {
 }
 
 describe("agent console T2 markdown layout", () => {
-    it("aligns user turns right and agent turns left", () => {
+    it("renders full-width rounded TUI turn blocks", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline
@@ -59,8 +59,10 @@ describe("agent console T2 markdown layout", () => {
                 initialTurns={[userTurn(), agentTurn()]}
             />
         );
-        expect(html).toContain("chatTurn user chatRight");
-        expect(html).toContain("chatTurn assistant chatLeft");
+        // P0 TUI mimic: full-width rounded blocks, no narrow side alignment.
+        expect(html).toContain("tuiTurn");
+        expect(html).not.toContain("chatRight");
+        expect(html).not.toContain("chatLeft");
     });
 
     it("renders user turns as plain text, never markdown", () => {
@@ -109,7 +111,7 @@ describe("agent console T2 markdown layout", () => {
         expect(html).toContain("wake sketch");
     });
 
-    it("renders combined teaching turns distinct: badge, numbers table, no field chip", () => {
+    it("renders combined teaching turns distinct: Tutor label, live dot free, numbers table, no field chip", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline
@@ -117,13 +119,15 @@ describe("agent console T2 markdown layout", () => {
                 initialTurns={[tutorTurn()]}
             />
         );
-        expect(html).toContain("chatTurn assistant chatLeft tutorTurn");
-        expect(html).toContain("tutorBadge");
-        // Single agent response: the combined turn reads Agent with the
-        // tutor badge, never a separate Tutor header. Physics-only: no
-        // field suggestion chip.
-        expect(html).toContain(">Agent</span>");
-        expect(html).not.toContain(">Tutor</span>");
+        expect(html).toContain("tuiTurn");
+        expect(html).not.toContain("chatRight");
+        expect(html).not.toContain("chatLeft");
+        // P0 TUI mimic: the combined turn reads Tutor with no tool or
+        // model pills. Physics-only: no field suggestion chip.
+        expect(html).toContain(">Tutor</span>");
+        expect(html).not.toContain(">Agent</span>");
+        expect(html).not.toContain(">modal</span>");
+        expect(html).not.toContain("gearflow-chat");
         expect(html).toContain("<table");
         expect(html).toContain("Quantity");
         expect(html).toContain("Change");

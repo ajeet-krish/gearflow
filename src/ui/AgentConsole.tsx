@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AgentAction, ChatTurn, FieldMode } from "@/contracts/types";
+import type { AgentAction, ChatTurn } from "@/contracts/types";
 import type { AgentContext } from "@/agent/agentContext";
 import { ModalClient, type ModalChatResult, type ModalMessage, type ModalStreamChunk } from "@/agent/modalClient";
 import { MODAL_MODEL_ID, MODAL_TIMEOUT_MS } from "@/agent/modalGate";
@@ -600,6 +600,7 @@ export default function AgentConsole({
     initialExtras = undefined,
 }: AgentConsoleProps) {
     void onApplySpec;
+    void onOfflineChange;
     void client;
     void cache;
     void posterUrl;
@@ -1609,19 +1610,6 @@ export default function AgentConsole({
         }
     }
 
-    function onClear(): void {
-        try {
-            localStorage.removeItem("gearflow:chat:v1");
-            localStorage.removeItem("gearflow:chat-actions:v1");
-        } catch {
-            // Private mode: memory state still clears below.
-        }
-        setTurns([]);
-        setExtras({});
-        pendingRef.current = null;
-        setPendingTutor(null);
-    }
-
     function onConfirmRun(turnId: string, action: AgentAction): void {
         try {
             onAgentAction?.(action);
@@ -1641,43 +1629,26 @@ export default function AgentConsole({
         });
     }
 
-    /** Phase T2 secondary field chip. Rides the same validated settle path
-     *  as the primary auto, gated k/recirc respected, faults stay local. */
-    function onApplyTutorField(field: FieldMode): void {
+    /** Composer key handling for the TUI mimic: Escape stops a live
+     *  stream or sweep, otherwise it releases focus. Tab keeps its native
+     *  cycle order through the prompt selects and the input. Never throws. */
+    function onComposerKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
         try {
-            const checked = validateAgentAction({ kind: "set_field", field }, validationCtx);
-            if (!checked.ok || checked.action === null) return;
-            try {
-                onAgentAction?.(checked.action);
-            } catch {
-                // Executor faults stay local to the chip control.
+            if (e.key === "Escape") {
+                if (busyRef.current || sweepingRef.current) {
+                    e.preventDefault();
+                    onStop();
+                } else {
+                    e.currentTarget.blur();
+                }
             }
         } catch {
-            // Validation faults never break the chip control.
+            // Key handling never breaks the composer.
         }
     }
 
     return (
-        <div className="agentConsole">
-            <div className="chatBar">
-                <div className="mToggleRow">
-                    <input
-                        id="agentOffline"
-                        type="checkbox"
-                        checked={offline}
-                        onChange={(e) => onOfflineChange?.(e.target.checked)}
-                        aria-label="Go offline, disable Modal network calls"
-                    />
-                    <label htmlFor="agentOffline">
-                        Go offline
-                        <span className="mSub">Demo only, zero network, canvas unchanged.</span>
-                    </label>
-                    <span className={`mDot ${offline ? "off" : "on"}`} aria-hidden="true" />
-                </div>
-                <button type="button" className="mBtn chatClear" onClick={onClear} aria-label="Clear chat transcript">
-                    Clear chat
-                </button>
-            </div>
+        <div className="agentConsole tuiConsole">
             <div className="chatLog" ref={logRef} role="log" aria-label="Agent chat transcript" aria-live="polite">
                 {turns.length === 0 && (
                     <p className="mSub">Ask to explain the run, set up NACA 2412, or change Reynolds number (Re).</p>
@@ -1693,25 +1664,27 @@ export default function AgentConsole({
                     const tutorRows = isTutor ? (t.tutor?.rows ?? []) : [];
                     const hasTutorRows = isTutor && Array.isArray(tutorRows) && tutorRows.length > 0;
                     const proseText = hasTutorRows ? stripTutorPipeTable(t.text) : t.text;
-                    const toolText = typeof t.tool === "string" && t.tool.length > 0 ? t.tool : "legacy";
                     const rawStatus = typeof t.status === "string" && t.status.length > 0 ? t.status : "error";
                     const statusText = rawStatus === "fallback" ? "error" : rawStatus;
                     const reasoningText = typeof extra?.reasoning === "string" ? extra.reasoning.trim() : "";
                     const tutorErrorText = typeof extra?.tutorError === "string" ? extra.tutorError.trim() : "";
                     const chatErrorText = typeof extra?.chatError === "string" ? extra.chatError.trim() : "";
                     return (
-                        <div key={t.id} className={`chatTurn ${t.role} ${t.role === "user" ? "chatRight" : "chatLeft"}${isTutor ? " tutorTurn" : ""}`}>
-                            <div className="chatHead">
-                                <span className="mono">{t.role === "user" ? "You" : "Agent"}</span>
-                                {isTutor && <span className="badge tutorBadge">tutor</span>}
-                                {isAssistant && <span className="badge status-info">{toolText}</span>}
-                                {isAssistant && (
-                                    <span className={`badge status-${statusText === "live" ? "pass" : statusText === "cached" ? "info" : "warn"}`}>{statusText}</span>
+                        <div key={t.id} className={`chatTurn tuiTurn ${t.role}${isTutor ? " tutorTurn" : ""}`}>
+                            <div className="chatHead tuiHead">
+                                <span className="mono tuiRole">{t.role === "user" ? "You" : "Tutor"}</span>
+                                {isAssistant && statusText === "live" && (
+                                    <span className="liveDotWrap">
+                                        <span className="liveDot" aria-hidden="true" />
+                                        <span className="visuallyHidden">live</span>
+                                    </span>
                                 )}
-                                {isAssistant && <span className="badge status-info mono">{extra?.model ?? MODAL_MODEL_ID}</span>}
-                                {extra?.streaming === true && <span className="badge status-info">streaming</span>}
-                                {extra?.stopped === true && <span className="badge status-warn">stopped</span>}
-                                {(extra?.applied.length ?? 0) > 0 && <span className="badge status-pass">applied</span>}
+                                {isAssistant && statusText !== "live" && (
+                                    <span className={`badge tuiPill status-${statusText === "cached" ? "info" : statusText === "offline" ? "warn" : "fail"}`}>{statusText}</span>
+                                )}
+                                {extra?.streaming === true && <span className="badge tuiPill status-info">streaming</span>}
+                                {extra?.stopped === true && <span className="badge tuiPill status-warn">stopped</span>}
+                                {(extra?.applied.length ?? 0) > 0 && <span className="badge tuiPill status-pass">applied</span>}
                             </div>
                             {isAssistant && reasoningText.length > 0 && (
                                 <details className="reasoningTrace">
@@ -1828,40 +1801,42 @@ export default function AgentConsole({
                 })}
             </div>
             <div className="promptBar">
-                <label className="visuallyHidden" htmlFor="examplePrompts">Example prompts</label>
-                <select
-                    id="examplePrompts"
-                    className="promptSelect"
-                    value=""
-                    disabled={busy}
-                    onChange={(e) => {
-                        const found = EXAMPLE_PROMPTS.find((item) => item.id === e.target.value);
-                        if (found !== undefined) void onSubmit(found.prompt);
-                    }}
-                    aria-label="Example prompts"
-                >
-                    <option value="" disabled>Example prompts</option>
-                    {EXAMPLE_PROMPTS.map((item) => (
-                        <option key={item.id} value={item.id}>{item.label}</option>
-                    ))}
-                </select>
-                <label className="visuallyHidden" htmlFor="tutorialPrompts">Tutorials</label>
-                <select
-                    id="tutorialPrompts"
-                    className="promptSelect"
-                    value=""
-                    disabled={busy}
-                    onChange={(e) => {
-                        const found = CURRICULUM_CHIPS.find((chip) => chip.id === e.target.value);
-                        if (found !== undefined) void onSubmit(found.prompt);
-                    }}
-                    aria-label="Tutorials"
-                >
-                    <option value="" disabled>Tutorials</option>
-                    {CURRICULUM_CHIPS.map((chip) => (
-                        <option key={chip.id} value={chip.id}>{chip.label}</option>
-                    ))}
-                </select>
+                <div className="promptRow">
+                    <label className="visuallyHidden" htmlFor="examplePrompts">Example prompts</label>
+                    <select
+                        id="examplePrompts"
+                        className="promptSelect"
+                        value=""
+                        disabled={busy}
+                        onChange={(e) => {
+                            const found = EXAMPLE_PROMPTS.find((item) => item.id === e.target.value);
+                            if (found !== undefined) void onSubmit(found.prompt);
+                        }}
+                        aria-label="Example prompts"
+                    >
+                        <option value="" disabled>Example prompts</option>
+                        {EXAMPLE_PROMPTS.map((item) => (
+                            <option key={item.id} value={item.id}>{item.label}</option>
+                        ))}
+                    </select>
+                    <label className="visuallyHidden" htmlFor="tutorialPrompts">Tutorials</label>
+                    <select
+                        id="tutorialPrompts"
+                        className="promptSelect"
+                        value=""
+                        disabled={busy}
+                        onChange={(e) => {
+                            const found = CURRICULUM_CHIPS.find((chip) => chip.id === e.target.value);
+                            if (found !== undefined) void onSubmit(found.prompt);
+                        }}
+                        aria-label="Tutorials"
+                    >
+                        <option value="" disabled>Tutorials</option>
+                        {CURRICULUM_CHIPS.map((chip) => (
+                            <option key={chip.id} value={chip.id}>{chip.label}</option>
+                        ))}
+                    </select>
+                </div>
                 <form
                     className="composer"
                     onSubmit={(e) => {
@@ -1870,16 +1845,20 @@ export default function AgentConsole({
                     }}
                 >
                     <label className="visuallyHidden" htmlFor="agentInput">Ask the agent</label>
-                    <input
-                        id="agentInput"
-                        className="chatInput"
-                        type="text"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="Explain this run, or set up NACA 2412"
-                        maxLength={500}
-                        aria-label="Ask the agent"
-                    />
+                    <div className="composerBox">
+                        <input
+                            id="agentInput"
+                            className="chatInput"
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={onComposerKeyDown}
+                            placeholder="Explain this run, or set up NACA 2412"
+                            maxLength={500}
+                            aria-label="Ask the agent"
+                        />
+                        <span className="tuiCursor" aria-hidden="true" />
+                    </div>
                     {busy ? (
                         <button type="button" className="mBtn chatSend" onClick={onStop} aria-label="Stop the streaming reply">
                             {stopping ? "Stopping" : "Stop"}
@@ -1890,6 +1869,11 @@ export default function AgentConsole({
                         </button>
                     )}
                 </form>
+                <div className="chatHints" role="note" aria-label="Composer hints">
+                    <span><kbd>esc</kbd> stop</span>
+                    <span><kbd>tab</kbd> cycle</span>
+                    <span><kbd>enter</kbd> send</span>
+                </div>
             </div>
             {sweeping && sweepProgress !== null && (
                 <div className="sweepProgress" role="status" aria-label="Alpha sweep progress">
@@ -1901,17 +1885,6 @@ export default function AgentConsole({
                     </button>
                 </div>
             )}
-            <div className="chatFoot" role="status" aria-label="Session spend meter">
-                <p className="mSub mono">
-                    Session {spend.model} in {spend.inputTokens} out {spend.outputTokens} est ${spend.costUsd.toFixed(4)}.
-                </p>
-                {softStopped && (
-                    <p className="mSub mono">Spend cap ${spendCapUsd.toFixed(2)} reached, demo mode until reset.</p>
-                )}
-                {forcedLocal && !softStopped && (
-                    <p className="mSub mono">Demo mode, cached table only, zero network, canvas unchanged.</p>
-                )}
-            </div>
         </div>
     );
 }
