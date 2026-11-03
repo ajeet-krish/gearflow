@@ -36,6 +36,12 @@ describe("tutorSourceFamily", () => {
 });
 
 describe("buildTutorTable", () => {
+    it("renders exactly six rows with no Path or Strouhal copy", () => {
+        const rows = buildTutorTable(lite(), lite({ alpha: 7, cl: 0.721 }));
+        expect(rows.map((row) => row.metric)).toEqual(["Body", "Alpha", "Re", "Cl", "CpMin", "Regime"]);
+        expect(rows).toHaveLength(6);
+    });
+
     it("renders finite values with numeric deltas inside one family", () => {
         const rows = buildTutorTable(lite(), lite({ alpha: 7, cl: 0.721 }));
         expect(cell(rows, "Alpha", "before")).toBe("6.0 deg");

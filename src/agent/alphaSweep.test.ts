@@ -194,7 +194,8 @@ describe("sweepToTutorRows", () => {
             },
             "NACA 2412"
         );
-        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.length).toBe(6);
+        expect(rows.map((row) => row.metric)).toEqual(["Body", "Alpha", "Re", "Cl", "CpMin", "Regime"]);
         for (const row of rows) {
             expect(typeof row.metric).toBe("string");
             expect(typeof row.before).toBe("string");

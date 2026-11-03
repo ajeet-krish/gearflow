@@ -8,13 +8,14 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import AgentConsole, {
     MODAL_FEATURE,
-    PRESET_CHIPS,
+    EXAMPLE_PROMPTS,
     SPEND_SOFT_STOP_USD,
     buildModalMessages,
     localOfflineReply,
     spendExceeded,
     validationContextFor,
 } from "./AgentConsole";
+import { CURRICULUM_CHIPS } from "@/agent/curriculum";
 import { parseAgentEnvelope } from "@/agent/agentActions";
 import { buildAgentContext } from "@/agent/agentContext";
 import { appendTurns } from "@/agent/chatStore";
@@ -70,14 +71,20 @@ function fakePort(text: string) {
 }
 
 describe("modal console chrome", () => {
-    it("renders the three preset demo chips", () => {
+    it("renders the example and tutorial dropdowns on one prompt line", () => {
         const html = renderToStaticMarkup(<AgentConsole offline={false} onOfflineChange={() => {}} />);
-        for (const chip of PRESET_CHIPS) {
-            expect(html).toContain(chip);
+        // Compact native selects replace the old chip rows: every example
+        // plus every tutorial stays reachable, composer placeholder intact.
+        for (const item of EXAMPLE_PROMPTS) {
+            expect(html).toContain(item.label);
         }
+        for (const chip of CURRICULUM_CHIPS) {
+            expect(html).toContain(chip.label);
+        }
+        expect(html).toContain("Example prompts");
+        expect(html).toContain("Tutorials");
         expect(html).toContain("Explain this run");
-        expect(html).toContain("Set up NACA 2412 alpha 6");
-        expect(html).toContain("How do I change Re");
+        expect(html).toContain("Set up NACA 2412");
     });
 
     it("renders the session spend meter with model and cost", () => {

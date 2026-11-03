@@ -135,7 +135,6 @@ function explanationFor(concept: TutorConcept, rows: TutorTableRow[]): string {
     const cp = cellOf(rows, "CpMin");
     const alpha = cellOf(rows, "Alpha");
     const re = cellOf(rows, "Re");
-    const st = cellOf(rows, "Strouhal");
     if (concept === "attached-lift") {
         return `The wing stays attached, meaning flow follows the surface, with Cl ${cl} at alpha ${alpha}.`;
     }
@@ -146,10 +145,10 @@ function explanationFor(concept: TutorConcept, rows: TutorTableRow[]): string {
         return `Separation, meaning flow leaving the surface, stalls lift past this alpha, with Cl ${cl} at alpha ${alpha}.`;
     }
     if (concept === "karman-shedding") {
-        return `Vorticity, meaning spinning motion in the wake, sheds in turns at St ${st}, which shakes Cl around ${cl}.`;
+        return `Vorticity, meaning spinning motion in the wake, sheds in turns, which shakes Cl around ${cl}.`;
     }
     if (concept === "turbulent-wake") {
-        return `The wake stays turbulent, meaning fast mixing behind the body, with Cl ${cl} and St ${st}.`;
+        return `The wake stays turbulent, meaning fast mixing behind the body, with Cl ${cl} at alpha ${alpha}.`;
     }
     if (concept === "stagnation") {
         return `Stagnation, meaning flow stopped at the nose, shows as high pressure with Cl ${cl} at alpha ${alpha}.`;

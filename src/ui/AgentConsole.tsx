@@ -5,9 +5,12 @@
 // Setup actions auto apply through onAgentAction, run and cancel render
 // as confirm chips only, rejections render as reason text. Transcript
 // persists capped at 50. React plus plain CSS classes from the Zenith
-// shell, react-markdown plus remark-gfm for agent and tutor prose (user
-// turns stay plain text). Tutor turns carry a badge plus a real before
-// vs after table plus a collapsed reasoning trace.
+// shell, react-markdown plus remark-gfm for agent prose (user turns stay
+// plain text). Single agent response: the tutor teaches in place on the
+// applied action turn (one sentence What changed, one cause and effect
+// Why, a Misconception line, What to look at, one analytic-only Try
+// next, a Caveat) with a real before vs after table plus a collapsed
+// reasoning trace, never a second tutor turn.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -25,7 +28,7 @@ import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/a
 import { expandCasePreset } from "@/agent/casePresets";
 import { describeSweepResult, isAlphaSweepIntent, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
 import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
-import { appendTurns, loadTurns, saveTurns } from "@/agent/chatStore";
+import { appendTurns, CHAT_TEXT_MAX, loadTurns, saveTurns } from "@/agent/chatStore";
 import { resolveAgentFirst } from "@/config/agentFirst";
 import { g_evalLog } from "@/meta/evalLog";
 import { CURRICULUM_CHIPS } from "@/agent/curriculum";
@@ -94,10 +97,20 @@ export const PARSER_APPLY_CONFIDENCE = 0.9;
  *  the badge names the local path honestly. */
 export const PARSER_LOCAL_MODEL = "parser-local";
 
-export const PRESET_CHIPS: ReadonlyArray<string> = [
-    "Explain this run",
-    "Set up NACA 2412 alpha 6",
-    "How do I change Re",
+/** Compact example prompts for the prompt dropdown. Labels read plain,
+// prompts ride the existing parser and local path: NACA setup, Re change,
+// relative thickness reshape. Tutorials live beside them in their own
+// dropdown fed by CURRICULUM_CHIPS. */
+export interface ExamplePrompt {
+    id: string;
+    label: string;
+    prompt: string;
+}
+
+export const EXAMPLE_PROMPTS: ReadonlyArray<ExamplePrompt> = [
+    { id: "naca-setup", label: "Set up NACA 2412 at an AOA 6", prompt: "Set up NACA 2412 alpha 6" },
+    { id: "re-change", label: "Increase velocity", prompt: "Increase Re to 200000" },
+    { id: "thicken", label: "Increase airfoil thickness", prompt: "Make the airfoil thicker" },
 ];
 
 /** Auto apply kinds plus confirm chip kinds, derived from the validator
@@ -226,7 +239,8 @@ export function snapshotLiteFor(ctx: AgentContext | null | undefined): TutorSnap
 }
 
 /** Pending tutor capture: the turn that applied plus the before snapshot
- *  plus the triggering user text for misconception detection. The effect
+ *  plus the triggering user text for misconception detection. baseText is
+ *  the applied turn reply the teaching appends to in place. The effect
  *  fires once the settled context moves past caseKeyBefore. */
 export interface PendingTutor {
     turnId: string;
@@ -236,6 +250,7 @@ export interface PendingTutor {
     startedAt: number;
     beforeVariable: string;
     triggerText: string;
+    baseText: string;
 }
 
 /** Tutor retry payload: the same capture plus the settled after snapshot
@@ -688,7 +703,8 @@ export default function AgentConsole({
         // Phase 2 tutor capture: run-only envelopes stay on the confirm
         // chip with zero tutor, auto applied envelopes arm the pending hook.
         // Applied plus rejection lines stay on this action turn, the tutor
-        // renders later as its own assistant turn. P3 sweep gate: while the
+        // teaching appends to the same turn in place (single agent
+        // response, never a second tutor turn). P3 sweep gate: while the
         // live staircase runs, per-step applies never arm the hook. The
         // triggering user text rides along for misconception detection.
         if (appliedActions.length > 0 && !sweepingRef.current) {
@@ -702,6 +718,7 @@ export default function AgentConsole({
                     startedAt: Date.now(),
                     beforeVariable: (agentContext?.field?.variable ?? "speed") as string,
                     triggerText: typeof userText === "string" ? userText.slice(0, 2000) : appliedActions.map((a) => a.kind).join(", "),
+                    baseText: envelope.reply,
                 };
                 pendingRef.current = next;
                 setPendingTutor(next);
@@ -813,34 +830,51 @@ export default function AgentConsole({
         }));
     }
 
+    /** Merge a tutor patch into turn extras without dropping the action
+     *  turn lines. The combined single-agent turn keeps Applied,
+     *  Rejections, and pendingRuns from the apply while the teaching adds
+     *  reasoning plus tutorError. Never throws. */
+    function patchTutorExtra(id: string, patch: Partial<TurnExtra>): void {
+        try {
+            setExtras((prev) => {
+                const cur = prev[id] ?? makeExtra({});
+                return { ...prev, [id]: { ...cur, ...patch } };
+            });
+        } catch {
+            // Extra faults never break the tutor path.
+        }
+    }
+
     /** Phase 2 live tutor fire. Builds deterministic rows plus concept plus
      *  suggestion from the before/after snapshots, then fires one Modal
-     *  call per after-caseKey with a 60 s budget. Rows render once as the
+     *  call per after-caseKey with a 60 s budget. Single agent response:
+     *  the teaching upserts into the original applied action turn in place
+     *  (capture.turnId, base reply plus teaching text plus the structured
+     *  rows payload), never a second tutor turn. Rows render once as the
      *  structured payload table (prose pipe tables and action fences stay
      *  stripped). Success applies at most one set_field only when the
      *  model emits exactly one fence matching the suggested primary
      *  (validated before apply); failure renders rows plus an honest
      *  error plus Retry with zero canvas writes and never local prose.
-     *  When reuseTutorId is set the same turn is updated in place so a
-     *  Retry never orphans the clicked turn. Never throws. */
+     *  A retry reuses the same turn id so the turn updates instead of
+     *  stacking. Never throws. */
     async function fireTutor(capture: PendingTutor, after: TutorSnapshotLite, timedOut: boolean, reuseTutorId?: string): Promise<void> {
-        const reuseId = typeof reuseTutorId === "string" && reuseTutorId.length > 0 ? reuseTutorId : null;
+        const isRetry = typeof reuseTutorId === "string" && reuseTutorId.length > 0;
+        // Single agent response: the teaching lands on the applied action
+        // turn in place (capture.turnId), never a second tutor turn. A
+        // retry reuses the same id so the turn updates instead of stacking.
+        const tutorId = isRetry ? (reuseTutorId as string) : capture.turnId;
         // P3 sweep gate: per-step canvas moves never render a tutor turn.
+        // The sweep summary covers the run, so return silently with zero
+        // extra writes: no tutorError patch (the action turn is not a tutor
+        // turn and has no Retry) and no retry registration.
         if (sweepingRef.current) {
             pendingRef.current = null;
             setPendingTutor(null);
-            if (reuseId !== null) {
-                try {
-                    tutorRetryRef.current.set(reuseId, { capture, after, timedOut });
-                } catch {
-                    // Retry restore never breaks the tutor path.
-                }
-                setExtra(reuseId, makeExtra({ streaming: false, model: MODAL_MODEL_ID, reasoning: "", tutorError: "sweep running, retry after the staircase" }));
-            }
             return;
         }
         const key = after.caseKey;
-        if (firedKeysRef.current.has(key) && reuseId === null) {
+        if (firedKeysRef.current.has(key) && !isRetry) {
             pendingRef.current = null;
             setPendingTutor(null);
             return;
@@ -893,9 +927,12 @@ export default function AgentConsole({
         }
         const tableText = tutorRowsText(rows);
         const timedNote = timedOut ? `\n\n${TUTOR_LOADING_LINE}` : "";
+        // Single agent response: base is the original applied reply from
+        // capture time, so the teaching appends once and a retry replaces
+        // the previous teaching instead of stacking it.
+        const baseReply = typeof capture.baseText === "string" ? capture.baseText.trim() : "";
         function upsertTutorTurn(
-            tutorId: string,
-            text: string,
+            teaching: string,
             status: ChatTurn["status"],
         ): void {
             const payload = {
@@ -905,6 +942,9 @@ export default function AgentConsole({
                 rows: tutorRowsPayload(rows),
                 caseKey: key.slice(0, 80),
             };
+            // Single slice on the final merged text so base plus teaching never exceeds CHAT_TEXT_MAX and reload keeps the turn.
+            const mergedText = baseReply.length > 0 ? `${baseReply}\n\n${teaching}` : teaching;
+            const text = mergedText.slice(0, CHAT_TEXT_MAX);
             setTurns((prev) => {
                 const exists = prev.some((t) => t.id === tutorId);
                 let merged: ChatTurn[];
@@ -933,13 +973,11 @@ export default function AgentConsole({
         // clicked turn id on retry so no dead Retry remains.
         if (forcedRef.current) {
             const detail = "offline demo mode, cached table only";
-            const tutorId = reuseId ?? nextId();
             upsertTutorTurn(
-                tutorId,
-                `Tutor request failed (${detail}). Canvas unchanged.\n\nBefore vs after\n${tableText}${timedNote}`.slice(0, 2000),
+                `Tutor request failed (${detail}). Canvas unchanged.\n\nBefore vs after\n${tableText}${timedNote}`,
                 "cached",
             );
-            setExtra(tutorId, makeExtra({ streaming: false, model: MODAL_MODEL_ID, reasoning: "", tutorError: detail }));
+            patchTutorExtra(tutorId, { streaming: false, model: MODAL_MODEL_ID, reasoning: "", tutorError: detail });
             try {
                 tutorRetryRef.current.set(tutorId, { capture, after, timedOut });
             } catch {
@@ -1002,9 +1040,8 @@ export default function AgentConsole({
                     // Tutor auto apply never breaks the tutor turn.
                 }
             }
-            const tutorId = reuseId ?? nextId();
-            upsertTutorTurn(tutorId, text.slice(0, 2000), cached ? "cached" : "live");
-            setExtra(tutorId, makeExtra({
+            upsertTutorTurn(text, cached ? "cached" : "live");
+            patchTutorExtra(tutorId, {
                 streaming: false,
                 model: result.model,
                 inputTokens: result.usage?.inputTokens ?? 0,
@@ -1012,7 +1049,7 @@ export default function AgentConsole({
                 costUsd: result.costUsd ?? 0,
                 reasoning,
                 tutorError: null,
-            }));
+            });
             try {
                 tutorRetryRef.current.delete(tutorId);
             } catch {
@@ -1041,13 +1078,11 @@ export default function AgentConsole({
         } catch (err) {
             const reason = err instanceof Error ? err.message : String(err);
             const detail = (reason.length > 0 ? reason : "unknown error").slice(0, 160);
-            const tutorId = reuseId ?? nextId();
             upsertTutorTurn(
-                tutorId,
-                `Tutor request failed (${detail}). Canvas unchanged.\n\nBefore vs after\n${tableText}${timedNote}`.slice(0, 2000),
+                `Tutor request failed (${detail}). Canvas unchanged.\n\nBefore vs after\n${tableText}${timedNote}`,
                 "fallback",
             );
-            setExtra(tutorId, makeExtra({ streaming: false, model: MODAL_MODEL_ID, reasoning: "", tutorError: detail }));
+            patchTutorExtra(tutorId, { streaming: false, model: MODAL_MODEL_ID, reasoning: "", tutorError: detail });
             try {
                 tutorRetryRef.current.set(tutorId, { capture, after, timedOut });
             } catch {
@@ -1091,7 +1126,7 @@ export default function AgentConsole({
             }
             tutorRetryRef.current.delete(tutorId);
             try {
-                setExtra(tutorId, makeExtra({ streaming: true, model: MODAL_MODEL_ID, reasoning: "", tutorError: null }));
+                patchTutorExtra(tutorId, { streaming: true, model: MODAL_MODEL_ID, reasoning: "", tutorError: null });
             } catch {
                 // Retry marking never breaks the console.
             }
@@ -1580,9 +1615,10 @@ export default function AgentConsole({
                 return;
             }
             const id = nextId();
-            pushTurn({ id, role: "assistant", at: nowIso(), text: `Applying alpha ${alphaDeg} deg from the sweep.`, tool: "modal", status: "offline" });
+            const note = `Applying alpha ${alphaDeg} deg from the sweep.`;
+            pushTurn({ id, role: "assistant", at: nowIso(), text: note, tool: "modal", status: "offline" });
             setExtra(id, makeExtra({ streaming: false }));
-            settleParsedEnvelope(id, { reply: "", actions: [checked.action], rejections: [] }, `Apply alpha ${alphaDeg} deg from the sweep.`);
+            settleParsedEnvelope(id, { reply: note, actions: [checked.action], rejections: [] }, `Apply alpha ${alphaDeg} deg from the sweep.`);
         } catch {
             // Validation faults never break the chip control.
         }
@@ -1680,7 +1716,7 @@ export default function AgentConsole({
                     return (
                         <div key={t.id} className={`chatTurn ${t.role} ${t.role === "user" ? "chatRight" : "chatLeft"}${isTutor ? " tutorTurn" : ""}`}>
                             <div className="chatHead">
-                                <span className="mono">{t.role === "user" ? "You" : isTutor ? "Tutor" : "Agent"}</span>
+                                <span className="mono">{t.role === "user" ? "You" : "Agent"}</span>
                                 {isTutor && <span className="badge tutorBadge">tutor</span>}
                                 {isAssistant && <span className="badge status-info">{toolText}</span>}
                                 {isAssistant && (
@@ -1816,19 +1852,69 @@ export default function AgentConsole({
                     );
                 })}
             </div>
-            <div className="chipRow" role="group" aria-label="Preset prompts">
-                {PRESET_CHIPS.map((chip) => (
-                    <button key={chip} type="button" className="chip" disabled={busy} onClick={() => void onSubmit(chip)}>
-                        {chip}
-                    </button>
-                ))}
-            </div>
-            <div className="chipRow" role="group" aria-label="Curriculum lessons">
-                {CURRICULUM_CHIPS.map((chip) => (
-                    <button key={chip.id} type="button" className="chip curriculumChip" disabled={busy} onClick={() => void onSubmit(chip.prompt)} aria-label={`${chip.label} lesson`}>
-                        {chip.label}
-                    </button>
-                ))}
+            <div className="promptBar">
+                <label className="visuallyHidden" htmlFor="examplePrompts">Example prompts</label>
+                <select
+                    id="examplePrompts"
+                    className="promptSelect"
+                    value=""
+                    disabled={busy}
+                    onChange={(e) => {
+                        const found = EXAMPLE_PROMPTS.find((item) => item.id === e.target.value);
+                        if (found !== undefined) void onSubmit(found.prompt);
+                    }}
+                    aria-label="Example prompts"
+                >
+                    <option value="" disabled>Example prompts</option>
+                    {EXAMPLE_PROMPTS.map((item) => (
+                        <option key={item.id} value={item.id}>{item.label}</option>
+                    ))}
+                </select>
+                <label className="visuallyHidden" htmlFor="tutorialPrompts">Tutorials</label>
+                <select
+                    id="tutorialPrompts"
+                    className="promptSelect"
+                    value=""
+                    disabled={busy}
+                    onChange={(e) => {
+                        const found = CURRICULUM_CHIPS.find((chip) => chip.id === e.target.value);
+                        if (found !== undefined) void onSubmit(found.prompt);
+                    }}
+                    aria-label="Tutorials"
+                >
+                    <option value="" disabled>Tutorials</option>
+                    {CURRICULUM_CHIPS.map((chip) => (
+                        <option key={chip.id} value={chip.id}>{chip.label}</option>
+                    ))}
+                </select>
+                <form
+                    className="composer"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        void onSubmit(input);
+                    }}
+                >
+                    <label className="visuallyHidden" htmlFor="agentInput">Ask the agent</label>
+                    <input
+                        id="agentInput"
+                        className="chatInput"
+                        type="text"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder="Explain this run, or set up NACA 2412"
+                        maxLength={500}
+                        aria-label="Ask the agent"
+                    />
+                    {busy ? (
+                        <button type="button" className="mBtn chatSend" onClick={onStop} aria-label="Stop the streaming reply">
+                            {stopping ? "Stopping" : "Stop"}
+                        </button>
+                    ) : (
+                        <button type="submit" className="mBtn chatSend" disabled={input.trim().length === 0} aria-label="Send chat message">
+                            Send
+                        </button>
+                    )}
+                </form>
             </div>
             {sweeping && sweepProgress !== null && (
                 <div className="sweepProgress" role="status" aria-label="Alpha sweep progress">
@@ -1840,34 +1926,6 @@ export default function AgentConsole({
                     </button>
                 </div>
             )}
-            <form
-                className="composer"
-                onSubmit={(e) => {
-                    e.preventDefault();
-                    void onSubmit(input);
-                }}
-            >
-                <label className="visuallyHidden" htmlFor="agentInput">Ask the agent</label>
-                <input
-                    id="agentInput"
-                    className="chatInput"
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Explain this run, or set up NACA 2412"
-                    maxLength={500}
-                    aria-label="Ask the agent"
-                />
-                {busy ? (
-                    <button type="button" className="mBtn chatSend" onClick={onStop} aria-label="Stop the streaming reply">
-                        {stopping ? "Stopping" : "Stop"}
-                    </button>
-                ) : (
-                    <button type="submit" className="mBtn chatSend" disabled={input.trim().length === 0} aria-label="Send chat message">
-                        Send
-                    </button>
-                )}
-            </form>
             <div className="chatFoot" role="status" aria-label="Session spend meter">
                 <p className="mSub mono">
                     Session {spend.model} in {spend.inputTokens} out {spend.outputTokens} est ${spend.costUsd.toFixed(4)}.

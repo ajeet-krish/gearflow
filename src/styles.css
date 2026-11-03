@@ -334,6 +334,23 @@ html, body, #root {
 .chatText { margin: 0; font-size: 12px; color: var(--text); }
 .chatSam { display: grid; gap: 6px; flex: none; }
 .chipRow { display: flex; gap: 6px; flex-wrap: wrap; flex: none; }
+.promptBar { display: flex; gap: 8px; flex: none; flex-wrap: wrap; align-items: stretch; }
+.promptBar .composer { flex: 1 1 220px; min-width: 200px; }
+.promptSelect {
+  flex: none;
+  min-height: 44px;
+  max-width: 220px;
+  border: 1px solid var(--dust);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--mono);
+  padding: 6px 8px;
+}
+.promptSelect:focus { border-color: rgba(189, 147, 249, 0.5); outline: none; }
+.promptSelect:focus-visible { outline: 2px solid var(--purple); outline-offset: 1px; }
+.promptSelect:disabled { opacity: 0.5; }
 .composer { display: flex; gap: 8px; flex: none; }
 .chatInput {
   flex: 1;
@@ -1345,6 +1362,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* Touch: raise compact controls to 44px without changing desktop density. */
 @media (pointer: coarse) {
   .chip, .barSelect, .barInput, .navLink, .navExport, .asecBtn { min-height: 44px; }
+  .promptSelect { min-height: 44px; }
   .segBtn, .swatch { min-height: 44px; }
   .lbmCheck { width: 28px; height: 28px; }
 }

@@ -1,7 +1,9 @@
 // Phase T1 tutor table. Pure before vs after snapshot diff for the flow
-// tutor, no React, no DOM, no network. Finite guards on every number, n/a
-// for non finite cells, numeric deltas only inside one source family, and
-// the source changed marker whenever the family moves. LBM frames never
+// tutor, no React, no DOM, no network. Six rows only: Body, Alpha, Re,
+// Cl, CpMin, Regime. Finite guards on every number, n/a for non finite
+// cells, numeric deltas only inside one source family. The path label and
+// strouhal stay on the snapshot for same-family deltas, the LBM CpMin
+// rule, and concept detection, but never render as rows. LBM frames never
 // quote CpMin, the cell always reads n/a. Never throws.
 
 export type TutorSourceFamily = "lbm" | "neural" | "analytic" | "unknown";
@@ -94,10 +96,6 @@ function fmtCp(v: number | null): string {
     return v === null ? "n/a" : v.toFixed(3);
 }
 
-function fmtSt(v: number | null): string {
-    return v === null ? "n/a" : v.toFixed(2);
-}
-
 /** Signed numeric delta when both sides are finite inside one family.
  *  A family move reads source changed, a missing side reads n/a. */
 function numericDelta(
@@ -158,13 +156,6 @@ export function buildTutorTable(
                 delta: numericDelta(cpBefore, cpAfter, sameFamily, (d) => d.toFixed(3)),
             },
             { metric: "Regime", before: before.regime, after: after.regime, delta: "n/a" },
-            { metric: "Path", before: before.pathLabel, after: after.pathLabel, delta: "n/a" },
-            {
-                metric: "Strouhal",
-                before: fmtSt(before.strouhal),
-                after: fmtSt(after.strouhal),
-                delta: numericDelta(before.strouhal, after.strouhal, sameFamily, (d) => d.toFixed(2)),
-            },
         ];
     } catch {
         return [];

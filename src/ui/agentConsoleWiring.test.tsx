@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as React from "react";
-import AgentConsole, { MODAL_FEATURE, PRESET_CHIPS, SPEND_SOFT_STOP_USD, spendExceeded } from "./AgentConsole";
+import AgentConsole, { MODAL_FEATURE, EXAMPLE_PROMPTS, SPEND_SOFT_STOP_USD, spendExceeded } from "./AgentConsole";
 import { parseAgentEnvelope } from "@/agent/agentActions";
 import { buildAgentContext } from "@/agent/agentContext";
 import { ModalClient } from "@/agent/modalClient";
@@ -78,8 +78,8 @@ function buttonsByLabel(tree: unknown, label: string): TestEl[] {
     return findAll(tree, (el) => el.type === "button" && el.props["aria-label"] === label);
 }
 
-function buttonsByText(tree: unknown, text: string): TestEl[] {
-    return findAll(tree, (el) => el.type === "button" && textOf(el) === text);
+function selectsByLabel(tree: unknown, label: string): TestEl[] {
+    return findAll(tree, (el) => el.type === "select" && el.props["aria-label"] === label);
 }
 
 function findInput(tree: unknown): TestEl {
@@ -433,11 +433,14 @@ describe("agent console busy lock", () => {
             expect(counter.streams).toBe(1);
             expect(buttonsByLabel(m.tree(), "Stop the streaming reply")).toHaveLength(1);
             expect(buttonsByLabel(m.tree(), "Send chat message")).toHaveLength(0);
-            for (const chip of PRESET_CHIPS) {
-                const found = buttonsByText(m.tree(), chip);
-                expect(found.length).toBeGreaterThan(0);
-                for (const el of found) expect(el.props.disabled).toBe(true);
+            // Prompt dropdowns gate while busy: both selects disable, and
+            // every example option stays reachable once idle.
+            for (const label of ["Example prompts", "Tutorials"]) {
+                const found = selectsByLabel(m.tree(), label);
+                expect(found).toHaveLength(1);
+                expect(found[0].props.disabled).toBe(true);
             }
+            expect(EXAMPLE_PROMPTS.length).toBeGreaterThan(0);
             typeText(m, "a second submit while busy");
             submitForm(m);
             await flush(10);

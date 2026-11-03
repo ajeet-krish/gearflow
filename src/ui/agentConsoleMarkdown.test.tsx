@@ -109,7 +109,7 @@ describe("agent console T2 markdown layout", () => {
         expect(html).toContain("wake sketch");
     });
 
-    it("renders tutor turns distinct: badge, numbers table, field chip", () => {
+    it("renders combined teaching turns distinct: badge, numbers table, field chip", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline
@@ -119,7 +119,10 @@ describe("agent console T2 markdown layout", () => {
         );
         expect(html).toContain("chatTurn assistant chatLeft tutorTurn");
         expect(html).toContain("tutorBadge");
-        expect(html).toContain(">Tutor</span>");
+        // Single agent response: the combined turn reads Agent with the
+        // tutor badge, never a separate Tutor header.
+        expect(html).toContain(">Agent</span>");
+        expect(html).not.toContain(">Tutor</span>");
         expect(html).toContain("<table");
         expect(html).toContain("Quantity");
         expect(html).toContain("Change");

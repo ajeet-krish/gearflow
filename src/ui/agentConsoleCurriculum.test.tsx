@@ -74,8 +74,25 @@ function textOf(node: unknown): string {
     return parts.join(" ");
 }
 
+function selectsByLabel(tree: unknown, label: string): TestEl[] {
+    return findAll(tree, (el) => el.type === "select" && el.props["aria-label"] === label);
+}
+
 function buttonsByLabel(tree: unknown, label: string): TestEl[] {
     return findAll(tree, (el) => el.type === "button" && el.props["aria-label"] === label);
+}
+
+function optionsOf(select: TestEl): string[] {
+    const out: string[] = [];
+    const gather = (n: unknown): void => {
+        if (Array.isArray(n)) {
+            for (const child of n) gather(child);
+            return;
+        }
+        if (isEl(n) && n.type === "option") out.push(textOf(n));
+    };
+    gather(select.props.children);
+    return out;
 }
 
 interface MountedConsole {
@@ -176,8 +193,8 @@ function countingPort(counter: { streams: number; chats: number }) {
     };
 }
 
-describe("agent console curriculum chips", () => {
-    it("renders one chip per curriculum lesson", () => {
+describe("agent console tutorial dropdown", () => {
+    it("offers one option per curriculum lesson plus the example dropdown", () => {
         const ctx = buildAgentContext(pendingSnapshot() as never);
         const m = mountConsole({
             offline: true,
@@ -189,17 +206,22 @@ describe("agent console curriculum chips", () => {
         });
         try {
             expect(CURRICULUM_CHIPS).toHaveLength(4);
+            const tutorials = selectsByLabel(m.tree(), "Tutorials");
+            expect(tutorials).toHaveLength(1);
+            expect(tutorials[0].props.disabled).toBe(false);
+            const labels = optionsOf(tutorials[0]);
             for (const chip of CURRICULUM_CHIPS) {
-                const found = buttonsByLabel(m.tree(), `${chip.label} lesson`);
-                expect(found).toHaveLength(1);
-                expect(textOf(found[0])).toContain(chip.label);
-                expect(found[0].props.disabled).toBe(false);
+                expect(labels.some((text) => text.includes(chip.label))).toBe(true);
             }
+            const examples = selectsByLabel(m.tree(), "Example prompts");
+            expect(examples).toHaveLength(1);
+            expect(examples[0].props.disabled).toBe(false);
+            expect(optionsOf(examples[0]).some((text) => text.includes("NACA 2412"))).toBe(true);
         } finally {
             m.unmount();
         }
     });
-    it("dispatches a chip prompt as a normal offline turn with zero port calls", async () => {
+    it("dispatches a tutorial option as a normal offline turn with zero port calls", async () => {
         const ctx = buildAgentContext(pendingSnapshot() as never);
         const onAgentAction = vi.fn();
         const counter = { streams: 0, chats: 0 };
@@ -212,9 +234,9 @@ describe("agent console curriculum chips", () => {
             initialTurns: [],
         });
         const chip = CURRICULUM_CHIPS[0];
-        const found = buttonsByLabel(m.tree(), `${chip.label} lesson`);
+        const found = selectsByLabel(m.tree(), "Tutorials");
         expect(found).toHaveLength(1);
-        (found[0].props.onClick as () => void)();
+        (found[0].props.onChange as (e: unknown) => void)({ target: { value: chip.id } });
         await flush();
         try {
             // Offline demo copy through the tutor-v2 console: zero Modal
@@ -233,7 +255,34 @@ describe("agent console curriculum chips", () => {
             m.unmount();
         }
     });
-    it("disables every curriculum chip while busy", () => {
+    it("dispatches an example option as a normal offline turn with zero port calls", async () => {
+        const ctx = buildAgentContext(pendingSnapshot() as never);
+        const onAgentAction = vi.fn();
+        const counter = { streams: 0, chats: 0 };
+        const m = mountConsole({
+            offline: true,
+            onOfflineChange: () => {},
+            agentContext: ctx,
+            onAgentAction,
+            chatClient: countingPort(counter),
+            initialTurns: [],
+        });
+        const found = selectsByLabel(m.tree(), "Example prompts");
+        expect(found).toHaveLength(1);
+        (found[0].props.onChange as (e: unknown) => void)({ target: { value: "naca-setup" } });
+        await flush();
+        try {
+            expect(counter.streams).toBe(0);
+            expect(counter.chats).toBe(0);
+            expect(onAgentAction).not.toHaveBeenCalled();
+            expect(m.text()).toContain("Set up NACA 2412 alpha 6");
+            expect(m.text()).toContain("Offline demo mode");
+            expect(m.text()).toContain("Canvas unchanged");
+        } finally {
+            m.unmount();
+        }
+    });
+    it("disables both prompt dropdowns while busy", () => {
         const ctx = buildAgentContext(pendingSnapshot() as never);
         const m = mountConsole({
             offline: true,
@@ -245,8 +294,8 @@ describe("agent console curriculum chips", () => {
             initialBusy: true,
         });
         try {
-            for (const chip of CURRICULUM_CHIPS) {
-                const found = buttonsByLabel(m.tree(), `${chip.label} lesson`);
+            for (const label of ["Example prompts", "Tutorials"]) {
+                const found = selectsByLabel(m.tree(), label);
                 expect(found).toHaveLength(1);
                 expect(found[0].props.disabled).toBe(true);
             }

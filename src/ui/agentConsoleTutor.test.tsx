@@ -12,6 +12,7 @@ import AgentConsole, {
     snapshotLiteFor,
 } from "./AgentConsole";
 import { buildAgentContext } from "@/agent/agentContext";
+import { CHAT_TEXT_MAX, loadTurns } from "@/agent/chatStore";
 import { buildTutorTable } from "@/agent/tutorTable";
 import { g_evalLog } from "@/meta/evalLog";
 
@@ -357,6 +358,17 @@ describe("agent console tutor hook (T2)", () => {
             await flush();
             expect(log.chats).toBe(1);
             expect(tutorBlocks(m.tree())).toHaveLength(1);
+            // Single agent response: one assistant turn carries the applied
+            // lines plus the teaching, never a separate tutor turn.
+            const assistantTurns = findAll(
+                m.tree(),
+                (el) =>
+                    el.type === "div" &&
+                    typeof el.props.className === "string" &&
+                    (el.props.className as string).includes("chatTurn") &&
+                    (el.props.className as string).includes("assistant")
+            );
+            expect(assistantTurns).toHaveLength(1);
             expect(m.text()).toContain("attached-lift");
             expect(m.text()).toContain("Spark tutor prose");
             // Single-table contract: prose pipe block stripped, payload
@@ -794,6 +806,84 @@ describe("agent console tutor hook (T2)", () => {
             }
         } finally {
             spy.mockRestore();
+        }
+    });
+
+    it("caps the merged tutor turn once so reload keeps it", async () => {
+        const before = buildAgentContext(settledSnapshot() as never);
+        const longBase = "B".repeat(1900);
+        const longTeaching = "T".repeat(1900);
+        const log = { chats: 0, streams: 0 };
+        const onAgentAction = vi.fn();
+        const fake = {
+            async *streamChat(_m: unknown, _o?: unknown) {
+                log.streams += 1;
+                yield { delta: longBase, text: longBase, done: false };
+                return {
+                    text: longBase,
+                    action: null,
+                    model: "test-spark",
+                    usage: { inputTokens: 4, outputTokens: 8, cachedTokens: 0 },
+                    costUsd: 0,
+                    latencyMs: 2,
+                    reasoning: "",
+                };
+            },
+            async chat(_m: unknown, _o?: unknown) {
+                log.chats += 1;
+                return {
+                    text: longTeaching,
+                    action: null,
+                    model: "test-spark",
+                    usage: { inputTokens: 4, outputTokens: 8, cachedTokens: 0 },
+                    costUsd: 0,
+                    latencyMs: 2,
+                    reasoning: "",
+                };
+            },
+        };
+        const base = {
+            offline: false,
+            onOfflineChange: () => {},
+            agentContext: before,
+            onAgentAction,
+            chatClient: fake,
+            initialTurns: [],
+        };
+        const m = mountTutor(base);
+        try {
+            typeText(m, "Set up NACA 2412 alpha 6 Re 50000");
+            submitForm(m);
+            await flush();
+            expect(onAgentAction).toHaveBeenCalled();
+            const after = buildAgentContext(
+                settledSnapshot({
+                    spec: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 },
+                    cl: 0.7,
+                    cpMin: -1.3,
+                    caseKey: "case-merge-cap",
+                    frameSettled: true,
+                }) as never
+            );
+            m.setProps({ ...base, agentContext: after });
+            await flush();
+            expect(log.chats).toBe(1);
+            expect(tutorBlocks(m.tree())).toHaveLength(1);
+            const raw = (globalThis as Record<string, unknown>).localStorage as { getItem: (k: string) => string | null };
+            const saved = JSON.parse(raw.getItem("gearflow:chat:v1") as string) as { turns: Array<{ id: string; text: string }> };
+            expect(saved.turns.length).toBeGreaterThan(0);
+            for (const t of saved.turns) {
+                expect(t.text.length).toBeLessThanOrEqual(CHAT_TEXT_MAX);
+            }
+            // Reload keeps every persisted turn: overlong merges would drop
+            // the tutor turn through the isChatTurn length guard.
+            const reloaded = loadTurns();
+            expect(reloaded.length).toBe(saved.turns.length);
+            const tutorReloaded = reloaded.find((t) => t.tutor !== undefined);
+            expect(tutorReloaded).toBeDefined();
+            expect((tutorReloaded as { text: string }).text.length).toBeLessThanOrEqual(CHAT_TEXT_MAX);
+        } finally {
+            m.unmount();
         }
     });
 });
