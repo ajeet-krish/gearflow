@@ -183,6 +183,34 @@ function writeGenericModalError(
     res.end(JSON.stringify({ error: generic.message }));
 }
 
+/** Minimal server side log for Modal upstream failures. Logs only the
+ *  upstream status, retry-after presence, and the first 300 chars of the
+ *  upstream body. Never logs Authorization tokens or request bodies. */
+function logModalUpstreamFailure(
+    upstreamStatus: number | string,
+    upstreamRetryAfter: string | null,
+    upstreamBodyPreview: string,
+    fetchDetail = ""
+): void {
+    try {
+        const retry = upstreamRetryAfter ? "yes" : "no";
+        const preview = (upstreamBodyPreview ?? "").slice(0, 300);
+        const suffix = fetchDetail ? ` error=${fetchDetail.slice(0, 300)}` : "";
+        console.error(`[modal-upstream] status=${upstreamStatus} retry-after=${retry} body=${preview}${suffix}`);
+    } catch {
+        // Logging never throws.
+    }
+}
+
+async function readUpstreamPreview(upstream: Response): Promise<string> {
+    try {
+        const text = await upstream.text();
+        return text.slice(0, 300);
+    } catch {
+        return "";
+    }
+}
+
 export function modalProxy(deps: ModalProxyDeps = {}): {
     name: string;
     configureServer: (server: ViteDevServer) => void;
@@ -338,11 +366,13 @@ export function modalProxy(deps: ModalProxyDeps = {}): {
                     const upstreamType = upstream.headers.get("content-type") ?? "";
                     const upstreamRetry = upstream.headers.get("retry-after");
                     if (upstream.status < 200 || upstream.status >= 300) {
+                        const preview = await readUpstreamPreview(upstream);
                         try {
                             await upstream.body?.cancel();
                         } catch {
                             // Error path body cancel is best effort.
                         }
+                        logModalUpstreamFailure(upstream.status, upstreamRetry, preview);
                         finish();
                         writeGenericModalError(res, upstream.status, upstreamRetry);
                         return;
@@ -486,7 +516,9 @@ export function modalProxy(deps: ModalProxyDeps = {}): {
                     if (upstreamRetry) res.setHeader("retry-after", upstreamRetry);
                     res.end(buf);
                 })
-                .catch(() => {
+                .catch((err: unknown) => {
+                    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+                    logModalUpstreamFailure("fetch-error", null, "", detail);
                     finish();
                     if (!res.writableEnded) {
                         res.statusCode = 502;
