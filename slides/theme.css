@@ -32,3 +32,8 @@ section span.amber {
 section span.muted {
   color: var(--color-muted);
 }
+section footer { display: flex; justify-content: space-between; align-items: flex-end; text-align: left; }
+section footer .foot-right { text-align: right; }
+section .brand { display: flex; align-items: center; justify-content: center; gap: 48px; }
+section .brand img { width: 180px; height: auto; flex: none; }
+section .brand-title { font-size: 1.5em; font-weight: 700; line-height: 1.25; margin: 0; text-align: left; letter-spacing: 2px; }
