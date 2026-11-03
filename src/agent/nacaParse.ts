@@ -157,7 +157,7 @@ const BARE_RE = /(?<!\d)(?:\d[\s\-_]?){4,5}(?!\d)/g;
 const KEYWORD_CTX_RE = /\b(?:naca|airfoil)\b/;
 
 const RE_EXPR_MASK = /\bre(?:ynolds)?(?:\s*(?:number|value|of|at|to|=|:))?\s*\d[\d,]*(?:\.\d+)?(?:e[+-]?\d+)?\s*[kKmM]?(?![\w])/gi;
-const ALPHA_KEY_MASK = /(?:alpha|aoa)(?:\s+of\s+attack)?[^-\d]{0,8}-?\d+(?:\.\d+)?/gi;
+const ALPHA_KEY_MASK = /(?:alpha|aoa)(?:\s+of\s+attack)?[^-\d]{0,8}-?\d+(?:\.\d+)?|(?<!\d)-?\d{1,3}(?:\.\d+)?\s*(?:alpha|aoa)\b/gi;
 const DEG_MASK = /-?\d+(?:\.\d+)?\s*(?:degrees?|deg|°)/gi;
 const PERCENT_MASK = /\d+(?:\.\d+)?\s*(?:%|percent)/gi;
 
@@ -268,19 +268,23 @@ export function parseNacaLoose(text: unknown): NacaParseResult {
             if (!seen.includes(digits)) seen.push(digits);
             if (isGrounded) grounded.add(digits);
         };
+        // Keyword-led captures run on the masked text so a stated alpha
+        // beside the code (naca 2412 6 aoa) cannot fuse into a five-digit
+        // hit. Masks blank only alpha, Re, degree, and percent numbers, so
+        // real five-digit typos still surface as ambiguous below.
+        const masked = maskedForBare(folded);
         for (const re of [EXPLICIT_RE, KEYWORD_BEFORE_RE]) {
             re.lastIndex = 0;
-            for (const m of folded.matchAll(re)) {
+            for (const m of masked.matchAll(re)) {
                 const digits = collapseDigits(m[1] ?? "");
                 if (digits.length >= 3 && digits.length <= 5) add(digits, true);
             }
         }
         SUFFIXED_RE.lastIndex = 0;
-        for (const m of folded.matchAll(SUFFIXED_RE)) {
+        for (const m of masked.matchAll(SUFFIXED_RE)) {
             const digits = collapseDigits(m[1] ?? "");
             if (digits.length === 4) add(digits, true);
         }
-        const masked = maskedForBare(folded);
         BARE_RE.lastIndex = 0;
         for (const m of masked.matchAll(BARE_RE)) {
             const digits = collapseDigits(m[0] ?? "");

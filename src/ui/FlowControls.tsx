@@ -178,7 +178,7 @@ export default function FlowControls({
                     onChange={(e) => onReynoldsChange(Math.round(10 ** Number(e.target.value)))}
                     aria-label="Reynolds number, log scale, 100 to 1 million"
                 />
-                <p className="hint">Log scale. Re shades the wake deficit only, the potential core stays inviscid.</p>
+                <p className="hint">Re changes flow speed, and the slider changes speed in the simulation and on the canvas.</p>
             </div>
 
             <div className="field">

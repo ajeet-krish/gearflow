@@ -152,10 +152,10 @@ describe("P4 1024 analytic cap plus fixture parser intact", () => {
         expect(parseCustomGrid(Number.NaN).ok).toBe(false);
     });
 
-    it("SettingsModal and App copy name the fixed 512 contract", () => {
+    it("SettingsModal carries no resolution section while App keeps the fixed 512 contract", () => {
         const modal = readFileSync(resolve(root, "src/ui/SettingsModal.tsx"), "utf8");
-        expect(modal).toContain("Fixed grid");
-        expect(modal).toContain("512 only");
+        expect(modal).not.toContain("RESOLUTION");
+        expect(modal).not.toContain("Fixed grid");
         expect(modal).not.toContain("Auto (512, fallback to 256)");
         expect(modal).not.toContain("Custom square");
         const app = readFileSync(resolve(root, "src/App.tsx"), "utf8");

@@ -1,12 +1,14 @@
-// Particle color resolution: auto returns null, fixed modes return
-// exact normalized triples.
+// Particle color resolution: every mode returns an exact normalized
+// triple, white is the default. The Auto option is retired.
 
 import { describe, expect, it } from "vitest";
-import { particleRgb } from "@/render/particleColor";
+import { PARTICLE_COLOR_OPTIONS, particleRgb } from "@/render/particleColor";
 
 describe("particleRgb", () => {
-    it("returns null for auto", () => {
-        expect(particleRgb("auto")).toBeNull();
+    it("offers no Auto option with White first", () => {
+        expect(PARTICLE_COLOR_OPTIONS.some((opt) => opt.id === ("auto" as never))).toBe(false);
+        expect(PARTICLE_COLOR_OPTIONS[0].id).toBe("white");
+        expect(PARTICLE_COLOR_OPTIONS).toHaveLength(5);
     });
 
     it("returns exact triples for each fixed mode", () => {

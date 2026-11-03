@@ -54,7 +54,7 @@ describe("display store phase 12b meanFields", () => {
             );
             expect(loadDisplayPrefs().meanFields).toBe(false);
         }
-        expect(DISPLAY_VERSION).toBe(5);
+        expect(DISPLAY_VERSION).toBe(6);
     });
 
     it("rejects a non-boolean meanFields value", () => {

@@ -2494,3 +2494,44 @@ Checks: widened NACA envelope PASS (schema.ts:68-81,149-153, parametric.ts:31-59
 - [ ] Phase code integrates cleanly with prior phases
 
 Tests were inspected, not executed, in this review session (no shell tool available to the reviewer). Delegate fixes: sweep trigger and copy to backend-dev, EditorTabs keyboard fix to frontend-dev, added negative and keyboard coverage to tester. Recurring pattern: intent regexes are pinned on positive phrasings only, so a broadened trigger class escapes its named variable and acts on unrelated prompts, the same positive-only pinning gap seen in earlier isolated tests.
+
+## 2026-11-03 - Combined Batch Review: Sweep Ordering, Aliases, Canonical NACA, Orifice, Teaching and Display Removals
+
+Date: 2026-11-03
+Reviewer: code-reviewer
+Scope: Combined batch (sweep-always-runs ordering, set_re alias normalization, NACA canonical fractions, orifice mapping, misconception removal, one-sentence reply discipline, particle size removal with white default, resolution removal with Display Settings title, Re sentence, cached pill removal, camber-compare removal; Modal-only intact, validator strictness, no solver talk, conventions)
+Verdict: PASS
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| Sweep always runs ordering | PASS | src/ui/AgentConsole.tsx:1702-1718 checks isAlphaSweepIntent before forcedLocal at 1719; guards in src/agent/alphaSweep.ts:56-57,74-76 keep explain, what, why, compare and negation from firing, alpha scoped impact and affect only at 65-67 |
+| set_re alias normalization | PASS | src/agent/agentActions.ts:176-190 maps case and separator set_re variants plus reynolds, re, value fields in parseAgentEnvelope only (552-558, 580-586); direct validator stays strict, pinned at src/agent/agentActions.test.ts:140-156 |
+| NACA canonical fractions | PASS | src/agent/agentActions.ts:198-240 derives m, p, t from a schema valid code, notes the correction, then validateParametricSpec still rejects direct mismatches at src/contracts/schema.ts:154-175; pinned at src/agent/agentActions.test.ts:158-211 |
+| Orifice mapping | PASS | src/ui/AgentConsole.tsx:416 maps constriction, tunnel, venturi, throat and orifice language to the orifice body at plate 0.08 and gap 0.4, matching src/contracts/types.ts:342-345; local trigger parity at src/agent/localAssistant.ts:96-101,608-621 |
+| Misconception removal | PASS | No detectMisconception or Teaching note in src/agent/localAssistant.ts chat path; src/agent/tutorPrompt.ts:30-33,77-78,120 accepts the input for shape only and ignores it; pinned at src/agent/misconceptions.test.ts:131-145 |
+| One-sentence reply discipline | PASS | src/ui/AgentConsole.tsx:429 requires one sentence describing the new case plus the fence only, with teaching deferred to the tutor turn; contract pin at src/agent/actionContract.test.ts:137-138 |
+| Particle size removal, white default | PASS | No Particle size control or settingsParticleSize id at src/ui/SettingsModal.tsx:274-320, pinned at src/ui/SettingsModal.test.tsx:110-115; particleColor default white at src/contracts/types.ts:389 and swatches render at SettingsModal.tsx:295-319 |
+| Resolution removal, Display Settings title | PASS | Title DISPLAY SETTINGS at src/ui/SettingsModal.tsx:187, no resolution section rendered; pinned at src/ui/SettingsModal.test.tsx:39-51; stale header comment Minor below |
+| Re sentence | PASS | Exact sentence at src/ui/SimulationSection.tsx:166, pinned at src/ui/p3Removals.test.tsx:298-305 |
+| Cached pill removal | PASS | src/ui/AgentConsole.tsx:1904 renders a status badge only when status is neither live nor cached; pinned at src/ui/agentConsoleBaseten.test.tsx:402-412 |
+| Camber-compare removal | PASS | CURRICULUM_CHIPS at src/agent/curriculum.ts:22-44 carries airfoil, stall and Re lessons only, no camber compare chip; sweep compare guard at alphaSweep.ts:56 also keeps compare phrasing from firing the staircase |
+| Modal-only intact | PASS | No localAssistant or local reply import in src/ui/AgentConsole.tsx; non-sweep live turns ride the Modal port, sweep summary rides Modal when up at AgentConsole.tsx:1614 and lands an honest offline error with zero local prose when down at 1558-1572 |
+| Validator strictness kept | PASS | validateAgentAction accepts only exact kinds after envelope normalization (agentActions.ts:349-497), hard alpha and Re bounds at 363-382, set_spec through validateParametricSpec at 431-442 |
+| No solver talk | PASS | Prompt bans at src/ui/AgentConsole.tsx:431 and src/agent/tutorPrompt.ts:139, physics-only context projection at tutorPrompt.ts:89-112, applied notes neutral per AgentConsole.tsx:464-470 |
+| Conventions | PASS | 4-space indent and PascalCase types in scoped files, no em dashes in scoped agent or console prose, no eval or exec |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Minor | src/ui/SettingsModal.tsx:1-2 | Header comment still lists resolution in the panel after the resolution section removal, comment only | frontend-dev: drop resolution from the header wording in a cleanup pass. Delegate via orchestrator. |
+| Minor | src/contracts/types.ts:362,392, src/ui/displayStore.ts:46-57, src/App.tsx:2176 | Particle size is removed from Settings but the legacy stored particleSize still flows to the canvas and Reset defaults in SettingsModal.tsx:148-163 does not restore it, so an old stored size persists invisibly | frontend-dev: either document the retained internal size as intentional, or reset particleSize with the other defaults. Delegate via orchestrator. |
+
+### Verification Checklist
+- [x] All checks passed (two Minor findings, neither blocking)
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: none new for this batch. Normalization now sits explicitly before the strict validator rather than loosening it, and removed surfaces are pinned by rendered markup tests instead of source presence alone.

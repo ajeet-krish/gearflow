@@ -263,13 +263,13 @@ describe("sweepToTutorRows", () => {
     });
 });
 
-describe("localAssistant sweep intent", () => {
-    it("answers sweep phrasings locally with zero actions", () => {
+describe("localAssistant never narrates a sweep without running it", () => {
+    it("serves no staircase narration or point promises from the offline path", () => {
         for (const text of ["sweep alpha -4 to 12", "what if alpha were higher", "run the alpha staircase", "how does AoA influence lift", "show the effect of alpha"]) {
             const out = localReply(text, makeCtx());
-            expect(out.actions).toEqual([]);
-            expect(out.reply).toContain("staircase");
-            expect(out.reply).toContain("9 points");
+            expect(out.reply).not.toContain("staircase");
+            expect(out.reply).not.toContain("9 points");
+            expect(out.reply).not.toContain("runs the live alpha staircase");
         }
     });
 });

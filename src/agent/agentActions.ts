@@ -6,6 +6,7 @@
 import type { AgentAction, BodyToken, FieldMode, ParametricSpec } from "@/contracts/types";
 import { THEORY_TOPICS } from "@/contracts/types";
 import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, RE_MAX, RE_MIN, validateParametricSpec } from "@/contracts/schema";
+import { isSchemaValidCode } from "./nacaParse";
 import { expandCasePreset } from "./casePresets";
 import { resolveAgentFirst } from "@/config/agentFirst";
 import { PROVISIONAL_NEURAL_ENVELOPE, classifyNeuralDomain, type NeuralEnvelope } from "@/flow/neuralDomain";
@@ -165,6 +166,77 @@ const ACTION_FENCE_RE = /```action-json\s*([\s\S]*?)```/g;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
     return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Normalize a model-invented Reynolds alias to the exact set_reynolds
+ *  kind before validation. The model sometimes emits set_re (plus case or
+ *  separator variants); the validator stays strict and only accepts the
+ *  exact set_reynolds kind, so this maps the alias here and translates the
+ *  likely value fields (reynolds, re, value) onto reynolds. Never throws. */
+function normalizeReynoldsAlias(candidate: unknown): unknown {
+    try {
+        if (!isRecord(candidate) || typeof candidate.kind !== "string") return candidate;
+        const squashed = candidate.kind.toLowerCase().replace(/[\s\-_]/g, "");
+        if (squashed !== "setre") return candidate;
+        const rec = candidate as Record<string, unknown>;
+        const raw = rec.reynolds ?? rec.re ?? rec.value;
+        const numeric = typeof raw === "string" ? Number(raw) : raw;
+        const next: Record<string, unknown> = { ...rec, kind: "set_reynolds" };
+        if (numeric !== undefined) next.reynolds = numeric;
+        return next;
+    } catch {
+        return candidate;
+    }
+}
+
+/** Normalize a model set_spec carrying NACA fractions that do not match
+ *  its own valid 4-digit code. The canonical fractions derive from the
+ *  code digits, so 2197 can never mismatch to 2297: the override applies
+ *  the code digits and records a note the envelope appends to the reply.
+ *  Invalid codes stay untouched for the strict validator to reject.
+ *  Never throws. */
+function normalizeNacaFractions(candidate: unknown): { candidate: unknown; note: string | null } {
+    try {
+        if (!isRecord(candidate) || candidate.kind !== "set_spec") return { candidate, note: null };
+        const spec = candidate.spec;
+        if (!isRecord(spec)) return { candidate, note: null };
+        const geometry = spec.geometry;
+        if (!isRecord(geometry) || geometry.kind !== "naca4") return { candidate, note: null };
+        const naca = geometry.naca;
+        if (!isRecord(naca) || typeof naca.code !== "string") return { candidate, note: null };
+        const check = isSchemaValidCode(naca.code);
+        if (!check.ok) return { candidate, note: null };
+        if (naca.m === check.m && naca.p === check.p && naca.t === check.t) return { candidate, note: null };
+        const fixed: Record<string, unknown> = {
+            ...(candidate as Record<string, unknown>),
+            spec: {
+                ...(spec as Record<string, unknown>),
+                geometry: {
+                    ...(geometry as Record<string, unknown>),
+                    naca: { code: check.code, m: check.m, p: check.p, t: check.t },
+                },
+            },
+        };
+        return {
+            candidate: fixed,
+            note: `Note: NACA ${check.code} fractions set from the code digits (m ${check.m}, p ${check.p}, t ${check.t}).`,
+        };
+    } catch {
+        return { candidate, note: null };
+    }
+}
+
+/** Apply the envelope normalizations to one candidate before the strict
+ *  validator runs: Reynolds alias mapping first, then canonical NACA
+ *  fractions. Returns the normalized candidate plus an optional note.
+ *  Never throws. */
+function normalizeEnvelopeCandidate(candidate: unknown): { candidate: unknown; note: string | null } {
+    try {
+        const aliased = normalizeReynoldsAlias(candidate);
+        return normalizeNacaFractions(aliased);
+    } catch {
+        return { candidate, note: null };
+    }
 }
 
 function capReply(v: unknown): string {
@@ -467,7 +539,7 @@ export function parseAgentEnvelope(raw: unknown, ctx: AgentValidationContext | n
         }
         if (fenceCount > 0) {
             const stripped = raw.replace(ACTION_FENCE_RE, "").trim();
-            const replyText = capReply(stripped.length > 0 ? stripped : raw.trim());
+            let replyText = capReply(stripped.length > 0 ? stripped : raw.trim());
             if (fenced.length === 0) {
                 return { reply: replyText, actions: [], rejections: ["action envelope malformed, ignored"] };
             }
@@ -476,11 +548,15 @@ export function parseAgentEnvelope(raw: unknown, ctx: AgentValidationContext | n
             if (malformed) rejections.push("one action fence malformed, skipped");
             const cappedFences = fenced.slice(0, MAX_ENVELOPE_ACTIONS);
             if (fenced.length > cappedFences.length) rejections.push(`extra actions beyond ${MAX_ENVELOPE_ACTIONS} ignored`);
+            const notes: string[] = [];
             for (const cand of cappedFences) {
-                const checked = validateAgentAction(cand, safeCtx);
+                const normalized = normalizeEnvelopeCandidate(cand);
+                if (normalized.note !== null) notes.push(normalized.note);
+                const checked = validateAgentAction(normalized.candidate, safeCtx);
                 if (checked.ok && checked.action !== null) actions.push(checked.action);
                 else rejections.push(checked.reason ?? "action rejected");
             }
+            if (notes.length > 0) replyText = capReply(`${replyText} ${notes.join(" ")}`);
             return { reply: replyText, actions, rejections };
         }
         const trimmed = raw.trim();
@@ -500,12 +576,17 @@ export function parseAgentEnvelope(raw: unknown, ctx: AgentValidationContext | n
         const cands = payloadToCandidates(parsed);
         const cappedCands = cands.slice(0, MAX_ENVELOPE_ACTIONS);
         if (cands.length > cappedCands.length) rejections.push(`extra actions beyond ${MAX_ENVELOPE_ACTIONS} ignored`);
+        const plainNotes: string[] = [];
         for (const cand of cappedCands) {
-            const checked = validateAgentAction(cand, safeCtx);
+            const normalized = normalizeEnvelopeCandidate(cand);
+            if (normalized.note !== null) plainNotes.push(normalized.note);
+            const checked = validateAgentAction(normalized.candidate, safeCtx);
             if (checked.ok && checked.action !== null) actions.push(checked.action);
             else rejections.push(checked.reason ?? "action rejected");
         }
-        return { reply: reply === null ? capReply("") : capReply(reply), actions, rejections };
+        const baseReply = reply === null ? capReply("") : capReply(reply);
+        const finalReply = plainNotes.length > 0 ? capReply(`${baseReply} ${plainNotes.join(" ")}`) : baseReply;
+        return { reply: finalReply, actions, rejections };
     } catch {
         return { reply: "", actions: [], rejections: ["envelope unreadable, ignored"] };
     }

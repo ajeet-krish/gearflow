@@ -7,7 +7,7 @@
 // persists capped at 50. React plus plain CSS classes from the Zenith
 // shell, react-markdown plus remark-gfm for agent prose (user turns stay
 // plain text). Single agent response: the tutor teaches in place on the
-// applied action turn (What changed, Why, a Misconception line, one
+// applied action turn (What changed, Why, one
 // physics-only Try next, plus a short physics note only when needed)
 // with a real before vs after table, never a second tutor turn and never
 // rendered apply receipts, reasoning traces, or concept badges.
@@ -22,12 +22,11 @@ import { MODAL_MODEL_ID, MODAL_TIMEOUT_MS } from "@/agent/modalGate";
 import { actionContractSummary, parseAgentEnvelope, validateAgentAction, type AgentValidationContext } from "@/agent/agentActions";
 import { buildTutorTable, tutorRowsText, type TutorSnapshotLite, type TutorTableRow } from "@/agent/tutorTable";
 import { detectConcept, fieldForConcept, type TutorConcept, type TutorFieldSuggestion } from "@/agent/tutorPolicy";
-import { buildTutorMessages, type TutorMisconceptionInput } from "@/agent/tutorPrompt";
-import { detectMisconception } from "@/agent/misconceptions";
+import { buildTutorMessages } from "@/agent/tutorPrompt";
 import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/agent/airfoilIntent";
 import { buildBlockEnvelope, parseBlockIntent } from "@/agent/blockIntent";
 import { expandCasePreset } from "@/agent/casePresets";
-import { describeSweepResult, isAlphaSweepIntent, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
+import { isAlphaSweepIntent, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
 import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
 import { appendTurns, CHAT_TEXT_MAX, loadTurns, saveTurns } from "@/agent/chatStore";
 import { resolveAgentFirst } from "@/config/agentFirst";
@@ -248,7 +247,7 @@ export function snapshotLiteFor(ctx: AgentContext | null | undefined): TutorSnap
 }
 
 /** Pending tutor capture: the turn that applied plus the before snapshot
- *  plus the triggering user text for misconception detection. baseText is
+ *  plus the after-caseKey. baseText is
  *  the applied turn reply the teaching appends to in place. The effect
  *  fires once the settled context moves past caseKeyBefore. */
 export interface PendingTutor {
@@ -413,6 +412,8 @@ export function buildModalMessages(
         '{"kind":"set_spec","spec":{"geometry":{"kind":"naca4","naca":{"code":"2415","m":0.02,"p":0.4,"t":0.15},"chord":1,"alphaDeg":6,"nPoints":120},"reynolds":200000,"rationale":"Agent setup NACA 2415 alpha 6."}}',
         "```",
         `Valid actions: adjust angle of attack (alpha), adjust Reynolds number (Re), apply a body setup preset, or ask for an alpha sweep summary.`,
+        `The exact Reynolds number (Re) action kind is "set_reynolds".`,
+        `Constriction, tunnel, venturi, throat, or orifice language means the orifice body (plate thickness 0.08, gap opening 0.4); explain it as a narrower gap speeding the flow like a venturi, never canvas limits.`,
         `Setup presets expand atomically: ${presetLines.live}.`,
         presetLines.retired,
         'Any 4-digit NACA rides one set_spec with the full parametric geometry plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup NACA 2415 alpha 6.").',
@@ -425,7 +426,7 @@ export function buildModalMessages(
         '{"kind":"set_spec","spec":{"geometry":{"kind":"block","chord":1,"alphaDeg":0,"nPoints":120,"width":0.5,"height":0.5,"center":{"x":0.5,"y":0}},"reynolds":200000,"rationale":"Agent setup Rectangle 0.5 by 0.5."}}',
         "```",
         "Angle of attack (alpha) influence: when the user asks to see angle of attack (alpha) influence or effect, answer with no action fence and name the live analytic staircase (-4 to 12 step 2, 9 points) that the agent runs now with Stop plus per-point Apply chips, never just describe it and never promise a run the agent did not take.",
-        "Reply with one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas), then the validated apply follows and the tutor turn teaches the result with a before versus after table plus Why plus Try next.",
+        "Reply with one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas) plus the fence only, never duplicate What changed, Why, or Try next in the model reply; then the validated apply follows and the tutor turn teaches the result with a before versus after table plus Why plus Try next. Questions with no actions answer fully.",
         "Try next is a physics thought experiment only: nudge angle of attack by 1 deg or change Reynolds number and reason about the effect. Never a field switch, never a view change, never a run.",
         "No solver or tech stack talk: teach flow physics only, no solver names, no statistics, no spinning-flow copy, no field views. Physics note only when the idea needs it: the potential flow picture omits separation and stall.",
     ];
@@ -783,7 +784,7 @@ export default function AgentConsole({
         // extras receipt (never rendered), the tutor teaching appends to
         // the same turn in place (single agent response, never a second
         // tutor turn). P3 sweep gate: while the live staircase runs, per-step applies never arm the hook. The
-        // triggering user text rides along for misconception detection.
+        // triggering user text rides along for the tutor teaching.
         if (appliedActions.length > 0 && !sweepingRef.current) {
             try {
                 const before = snapshotLiteFor(agentContext ?? null);
@@ -915,22 +916,6 @@ export default function AgentConsole({
             return t.slice(0, 2000);
         } catch {
             return "";
-        }
-    }
-
-    /** Build the misconception input for the tutor prompt from the
-     *  triggering user text. Deterministic table, never throws. */
-    function misconceptionFor(triggerText: string): TutorMisconceptionInput | null {
-        try {
-            const flow = detectMisconception(triggerText, null);
-            if (flow === null) return null;
-            const claim = typeof flow.claim === "string" ? flow.claim.trim() : "";
-            const correction = typeof flow.whatModelShows === "string" ? flow.whatModelShows.trim() : "";
-            const experimentText = typeof flow.experimentText === "string" ? flow.experimentText.trim() : "";
-            if (claim.length === 0 || correction.length === 0) return null;
-            return { claim, correction, experimentText };
-        } catch {
-            return null;
         }
     }
 
@@ -1094,10 +1079,9 @@ export default function AgentConsole({
             }
             return;
         }
-        const misconception = misconceptionFor(capture.triggerText ?? "");
         let messages: ModalMessage[] = [];
         try {
-            messages = buildTutorMessages({ after: ctx, rows, concept: concept as never, suggestion, misconception });
+            messages = buildTutorMessages({ after: ctx, rows, concept: concept as never, suggestion });
         } catch {
             messages = [];
         }
@@ -1465,12 +1449,14 @@ export default function AgentConsole({
         settleEnvelope(id, fullText, userText);
     }
 
-    /** P3 live what-if sweep. Analytic only, zero network: steps the
-     *  staircase through the injected onWhatIfSweep stepper, morphs the
+    /** P3 live what-if sweep. Analytic only, always runs the staircase:
+     *  steps through the injected onWhatIfSweep stepper, morphs the
      *  canvas per point through onAgentAction set_alpha, suppresses
      *  per-step tutor turns, then lands one summary with the delta table
-     *  plus per-point Apply chips. Stop leaves the last applied alpha in
-     *  place with an honest note. Never throws. */
+     *  plus per-point Apply chips. The summary and its teaching ride one
+     *  Modal call when the network is up; when truly down the turn shows
+     *  rows plus an honest error with zero local prose. Stop leaves the
+     *  last applied alpha in place with an honest note. Never throws. */
     async function runSweepFlow(userText: string): Promise<void> {
         const bodyLabel = (() => {
             try {
@@ -1540,45 +1526,151 @@ export default function AgentConsole({
             } catch {
                 result = { points: [], cancelled: true, startedFrom: startAlpha, finalAlpha: null };
             }
-            let narration = "";
-            try {
-                narration = describeSweepResult(result);
-            } catch {
-                narration = "Sweep summary is unavailable, canvas unchanged.";
-            }
             let rows: Array<{ metric: string; before: string; after: string; delta: string }> = [];
             try {
                 rows = sweepToTutorRows(result, bodyLabel);
             } catch {
                 rows = [];
             }
+            const tableText = tutorRowsText(rows);
             const summaryId = nextId();
             const caseKey = `sweep|a${SWEEP_ALPHAS[0]}-a${SWEEP_ALPHAS[SWEEP_ALPHAS.length - 1]}|n${result.points.length}${result.cancelled ? "|stopped" : ""}`;
-            pushTurn({
-                id: summaryId,
-                role: "assistant",
-                at: nowIso(),
-                text: narration,
-                tool: "modal",
-                status: "offline",
-                tutor: {
-                    concept: "general",
-                    primary: "speed",
-                    secondary: "cp",
-                    rows: rows.slice(0, 12).map((row) => ({
-                        metric: String(row.metric).slice(0, 80),
-                        before: String(row.before).slice(0, 80),
-                        after: String(row.after).slice(0, 80),
-                        delta: String(row.delta).slice(0, 80),
-                    })),
-                    caseKey: caseKey.slice(0, 80),
-                },
-            });
-            setExtra(summaryId, makeExtra({
+            const payloadRows = rows.slice(0, 12).map((row) => ({
+                metric: String(row.metric).slice(0, 80),
+                before: String(row.before).slice(0, 80),
+                after: String(row.after).slice(0, 80),
+                delta: String(row.delta).slice(0, 80),
+            }));
+            const tutorPayload: NonNullable<ChatTurn["tutor"]> = {
+                concept: "general",
+                primary: "speed",
+                secondary: "cp",
+                rows: payloadRows,
+                caseKey: caseKey.slice(0, 80),
+            };
+            const sweepExtra = makeExtra({
                 streaming: false,
                 sweepPoints: result.points.map((p) => ({ alphaDeg: p.alphaDeg, cl: p.cl, cpMin: p.cpMin })),
                 sweepCancelled: result.cancelled,
-            }));
+            });
+            // Truly down: rows plus an honest error, zero local prose, the
+            // staircase still ran with the last applied alpha in place.
+            if (forcedRef.current) {
+                const detail = "offline demo mode, cached table only";
+                const offlineText = result.points.length === 0
+                    ? `Sweep summary unavailable offline (${detail}). No sweep points landed, canvas unchanged.`
+                    : `Sweep summary unavailable offline (${detail}). The staircase ran ${result.points.length} of ${SWEEP_ALPHAS.length} points on the analytic path with the last applied alpha in place; per-point Apply chips below restage any alpha. Canvas unchanged.`;
+                pushTurn({
+                    id: summaryId,
+                    role: "assistant",
+                    at: nowIso(),
+                    text: `${offlineText}\n\nBefore vs after\n${tableText}`,
+                    tool: "modal",
+                    status: "offline",
+                    tutor: tutorPayload,
+                });
+                setExtra(summaryId, { ...sweepExtra, chatError: detail });
+            } else {
+                // Network up: one Modal call carries the summary plus the
+                // teaching, citing only the swept table numbers. A Modal
+                // failure lands rows plus an honest error, never local prose.
+                try {
+                    const pointsText = result.points
+                        .map((p) => `alpha ${p.alphaDeg} deg, Cl ${p.cl === null ? "n/a" : p.cl.toFixed(3)}, CpMin ${p.cpMin === null ? "n/a" : p.cpMin.toFixed(3)}`)
+                        .join("\n");
+                    let liveCtx = "{}";
+                    try {
+                        liveCtx = JSON.stringify(physicsViewFor(agentContext ?? null)).slice(0, 3500);
+                    } catch {
+                        liveCtx = "{}";
+                    }
+                    const messages: ModalMessage[] = [
+                        {
+                            role: "system",
+                            content: [
+                                "You are the GearFlow flow tutor.",
+                                "Teach the sweep result in plain grade 8 to 10 language, like an interactive textbook.",
+                                "First mention per turn expands each term, then symbols after: lift coefficient (Cl), pressure coefficient (Cp), angle of attack (alpha), Reynolds number (Re).",
+                                "Cite only the Before vs after table and the swept points below, never invent numbers. When a value reads n/a, call it pending.",
+                                "Final reply order: one sentence summary of the staircase, Why (one cause and effect), Try next (one physics-only thought experiment: nudge angle of attack (alpha) by 1 deg and compare). Never a field switch, never a view change, never a run.",
+                                "No solver or tech stack talk: teach flow physics only. The potential flow picture omits separation and stall, so treat higher alpha lift past 12 deg as unvalidated.",
+                                "Answer with no action fence and no field suggestion.",
+                            ].join("\n"),
+                        },
+                        {
+                            role: "user",
+                            content: [
+                                "Concept: alpha sweep",
+                                `The user asked: ${userText.slice(0, 500)}`,
+                                "Swept points:",
+                                pointsText.length > 0 ? pointsText : "no points landed",
+                                "Before vs after table:",
+                                tableText,
+                                `Live context: ${liveCtx}`,
+                                "Summarize this sweep.",
+                            ].join("\n"),
+                        },
+                    ];
+                    const modalResult = await port.chat(messages, { feature: MODAL_FEATURE, timeoutMs: MODAL_TIMEOUT_MS });
+                    recordSpend(modalResult);
+                    try {
+                        await g_evalLog.add({
+                            feature: MODAL_FEATURE,
+                            model: modalResult.model,
+                            latencyMs: modalResult.latencyMs ?? 0,
+                            costUsd: modalResult.costUsd ?? 0,
+                            costEstimated: true,
+                            cached: (modalResult.usage?.cachedTokens ?? 0) > 0,
+                            ok: true,
+                            fallback: null,
+                            hash: MODAL_FEATURE,
+                        });
+                    } catch {
+                        // Eval faults never break the sweep path.
+                    }
+                    try {
+                        if (evalSink !== undefined && evalSink !== null) evalSink({ feature: MODAL_FEATURE, model: modalResult.model });
+                    } catch {
+                        // Optional test sink faults never break the sweep path.
+                    }
+                    const reasoning = tutorReasoningOf(modalResult);
+                    const fence = tutorFenceField(modalResult.text);
+                    void fence;
+                    const prose = stripTutorPipeTable(fence.stripped);
+                    const cached = (modalResult.usage?.cachedTokens ?? 0) > 0;
+                    pushTurn({
+                        id: summaryId,
+                        role: "assistant",
+                        at: nowIso(),
+                        text: `${prose}\n\nBefore vs after\n${tableText}`,
+                        tool: "modal",
+                        status: cached ? "cached" : "live",
+                        tutor: tutorPayload,
+                    });
+                    setExtra(summaryId, {
+                        ...sweepExtra,
+                        model: modalResult.model,
+                        inputTokens: modalResult.usage?.inputTokens ?? 0,
+                        outputTokens: modalResult.usage?.outputTokens ?? 0,
+                        costUsd: modalResult.costUsd ?? 0,
+                        reasoning,
+                    });
+                } catch (err) {
+                    const reason = err instanceof Error ? err.message : String(err);
+                    const detail = (reason.length > 0 ? reason : "unknown error").slice(0, 160);
+                    const failText = `Sweep summary request failed (${detail}). The staircase ran ${result.points.length} of ${SWEEP_ALPHAS.length} points with the last applied alpha in place; per-point Apply chips below restage any alpha. Canvas unchanged.`;
+                    pushTurn({
+                        id: summaryId,
+                        role: "assistant",
+                        at: nowIso(),
+                        text: `${failText}\n\nBefore vs after\n${tableText}`,
+                        tool: "modal",
+                        status: "fallback",
+                        tutor: tutorPayload,
+                    });
+                    setExtra(summaryId, { ...sweepExtra, chatError: detail });
+                }
+            }
             setTurns((prev) => {
                 const merged = prev.map((t) => (t.id === runId
                     ? { ...t, text: result.cancelled ? `Sweep stopped at ${result.points.length} of ${SWEEP_ALPHAS.length} points, leaving the last applied alpha in place. Summary follows.` : `Sweep complete, ${result.points.length} of ${SWEEP_ALPHAS.length} points. Summary follows.` }
@@ -1591,7 +1683,6 @@ export default function AgentConsole({
                 return merged.slice(-TRANSCRIPT_CAP);
             });
             setExtra(runId, { streaming: false });
-            void userText;
         } finally {
             sweepingRef.current = false;
             setSweeping(false);
@@ -1608,8 +1699,11 @@ export default function AgentConsole({
         const userTurn: ChatTurn = { id: nextId(), role: "user", text: text.slice(0, 2000), at: nowIso() };
         pushTurn(userTurn);
         setInput("");
-        // P3 sweep fast path: live analytic staircase with canvas morph,
-        // zero network in offline and live modes alike.
+        // P3 sweep fast path: the sweep check sits before any
+        // forcedLocal/offline branch, so the live analytic staircase with
+        // canvas morph, Stop, and per-point Apply chips always runs. The
+        // summary and its teaching ride Modal when the network is up and
+        // land an honest error only when truly down.
         if (isAlphaSweepIntent(text)) {
             try {
                 await runSweepFlow(text);
@@ -1807,8 +1901,8 @@ export default function AgentConsole({
                                         <span className="visuallyHidden">live</span>
                                     </span>
                                 )}
-                                {isAssistant && statusText !== "live" && (
-                                    <span className={`badge tuiPill status-${statusText === "cached" ? "info" : statusText === "offline" ? "warn" : "fail"}`}>{statusText}</span>
+                                {isAssistant && statusText !== "live" && statusText !== "cached" && (
+                                    <span className={`badge tuiPill status-${statusText === "offline" ? "warn" : "fail"}`}>{statusText}</span>
                                 )}
                                 {extra?.streaming === true && <span className="badge tuiPill status-info">streaming</span>}
                                 {extra?.stopped === true && <span className="badge tuiPill status-warn">stopped</span>}

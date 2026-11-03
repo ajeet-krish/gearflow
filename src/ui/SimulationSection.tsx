@@ -163,7 +163,7 @@ export function SimulationSectionView(props: SimulationSectionViewProps): JSX.El
                 {rePopup !== null && (
                     <p className="mError" role="alert">{rePopup}</p>
                 )}
-                <p className="hint">Log scale. Re shades the wake deficit only, the potential core stays inviscid. Invalid typing holds the last good solve.</p>
+                <p className="hint">Re changes flow speed, and the slider changes speed in the simulation and on the canvas.</p>
             </div>
 
             {!agentFirst && (

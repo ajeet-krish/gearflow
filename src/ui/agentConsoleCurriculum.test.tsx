@@ -205,7 +205,7 @@ describe("agent console tutorial dropdown", () => {
             initialTurns: [],
         });
         try {
-            expect(CURRICULUM_CHIPS).toHaveLength(4);
+            expect(CURRICULUM_CHIPS).toHaveLength(3);
             const tutorials = selectsByLabel(m.tree(), "Tutorials");
             expect(tutorials).toHaveLength(1);
             expect(tutorials[0].props.disabled).toBe(false);

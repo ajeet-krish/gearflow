@@ -1,4 +1,4 @@
-// Settings popover: appearance, field, particles, resolution in one small
+// Settings popover: appearance, field, particles in one small
 // panel anchored under the gear button. Rendered only when open. No
 // backdrop tint, the canvas stays visible while colormap and particles
 // adjust live. Click outside plus Escape close, focus trap kept light,
@@ -6,7 +6,7 @@
 
 import { useEffect, useRef } from "react";
 import { COLORMAPS, type ColormapName } from "@/flow/colormap";
-import { DEFAULT_DISPLAY_PREFS, PARTICLE_COUNT_MAX, PARTICLE_COUNT_MIN, PARTICLE_COUNT_STEP, PARTICLE_SIZE_MAX, PARTICLE_SIZE_MIN, type DisplayPrefs, type FieldMode, type ParticleColorMode } from "@/contracts/types";
+import { DEFAULT_DISPLAY_PREFS, PARTICLE_COUNT_MAX, PARTICLE_COUNT_MIN, PARTICLE_COUNT_STEP, type DisplayPrefs, type FieldMode, type ParticleColorMode } from "@/contracts/types";
 import { PARTICLE_COLOR_OPTIONS } from "@/render/particleColor";
 import { parseCustomGrid, type GridMode } from "@/flow/gridController";
 import type { GridSize } from "@/contracts/types";
@@ -70,6 +70,7 @@ export default function SettingsModal({
     variable,
 }: SettingsModalProps) {
     void gridMode;
+    void activeGrid;
     void customSize;
     void gridNotice;
     void onGridMode;
@@ -184,7 +185,7 @@ export default function SettingsModal({
                 aria-labelledby="settingsTitle"
             >
                 <div className="settingsHeader">
-                    <span id="settingsTitle" className="settingsTitle">SETTINGS</span>
+                    <span id="settingsTitle" className="settingsTitle">DISPLAY SETTINGS</span>
                     <button
                         ref={closeRef}
                         type="button"
@@ -293,22 +294,6 @@ export default function SettingsModal({
                             </output>
                         </div>
                         <div className="settingsRow">
-                            <label className="settingsLabel" htmlFor="settingsParticleSize">Particle size</label>
-                            <input
-                                id="settingsParticleSize"
-                                type="range"
-                                min={PARTICLE_SIZE_MIN}
-                                max={PARTICLE_SIZE_MAX}
-                                step={0.002}
-                                value={prefs.particleSize}
-                                onChange={(e) => onPatch({ particleSize: Number(e.target.value) })}
-                                aria-describedby="settingsParticleSizeValue"
-                            />
-                            <output id="settingsParticleSizeValue" className="mono" htmlFor="settingsParticleSize">
-                                {prefs.particleSize.toFixed(3)}
-                            </output>
-                        </div>
-                        <div className="settingsRow">
                             <span className="settingsLabel" id="particleColorLabel">Particle color</span>
                             <div className="swatchRow" role="radiogroup" aria-labelledby="particleColorLabel">
                                 {PARTICLE_COLOR_OPTIONS.map((opt) => (
@@ -334,13 +319,8 @@ export default function SettingsModal({
                             </div>
                         </div>
                     </section>
-                    <section className="settingsSection" aria-label="Resolution">
-                        <h3>RESOLUTION</h3>
-                        <p className="hint mono" id="settingsGridHint">Fixed grid {activeGrid} x {activeGrid}, 512 only.</p>
-                    </section>
                 </div>
                 <div className="settingsFooter">
-                    <p className="hint mono">Re and the wake model are handled by the solver. This panel changes display only.</p>
                     <button type="button" className="settingsReset" onClick={onReset}>
                         Reset defaults
                     </button>

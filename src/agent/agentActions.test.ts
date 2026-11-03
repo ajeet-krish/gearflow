@@ -137,6 +137,39 @@ describe("parseAgentEnvelope B2 minors", () => {
     });
 });
 
+describe("envelope alias plus canonical fraction normalization", () => {
+    it("maps model-invented set_re to set_reynolds across case and value shapes", () => {
+        for (const kind of ["set_re", "Set_Re", "SET_RE", "set-re"]) {
+            const raw = `Tuning.\n\`\`\`action-json\n{"kind": "${kind}", "re": 80000}\n\`\`\``;
+            const out = parseAgentEnvelope(raw, ANALYTIC);
+            expect(out.actions).toEqual([{ kind: "set_reynolds", reynolds: 80000 }]);
+            expect(out.rejections).toEqual([]);
+        }
+        const byValue = parseAgentEnvelope(`Tuning.\n\`\`\`action-json\n{"kind": "set_re", "value": 120000}\n\`\`\``, ANALYTIC);
+        expect(byValue.actions).toEqual([{ kind: "set_reynolds", reynolds: 120000 }]);
+        const plain = parseAgentEnvelope(`{"kind": "set_re", "reynolds": 50000}`, ANALYTIC);
+        expect(plain.actions).toEqual([{ kind: "set_reynolds", reynolds: 50000 }]);
+    });
+
+    it("keeps the validator strict on the bare set_re kind", () => {
+        expect(validateAgentAction({ kind: "set_re", re: 80000 }, ANALYTIC).ok).toBe(false);
+    });
+
+    it("overrides mismatched NACA fractions from the code digits with a note", () => {
+        const raw = `Setting up.\n\`\`\`action-json\n{"kind": "set_spec", "spec": {"geometry": {"kind": "naca4", "naca": {"code": "2197", "m": 0.02, "p": 0.2, "t": 0.97}, "chord": 1, "alphaDeg": 6, "nPoints": 120}, "reynolds": 50000, "rationale": "Agent setup NACA 2197 alpha 6."}}\n\`\`\``;
+        const out = parseAgentEnvelope(raw, ANALYTIC);
+        expect(out.actions).toHaveLength(1);
+        const only = out.actions[0];
+        expect(only.kind).toBe("set_spec");
+        if (only.kind === "set_spec") {
+            expect(only.spec.geometry.naca).toEqual({ code: "2197", m: 0.02, p: 0.1, t: 0.97 });
+        }
+        expect(out.rejections).toEqual([]);
+        expect(out.reply).toContain("2197");
+        expect(out.reply).toContain("fractions set from the code digits");
+    });
+});
+
 describe("trusted preset setup actions", () => {
     it("accepts setup_shedding at Re 100 through the preset path while the bare Re floor rejects it", () => {
         const bare = validateAgentAction({ kind: "set_reynolds", reynolds: 100 }, ANALYTIC);

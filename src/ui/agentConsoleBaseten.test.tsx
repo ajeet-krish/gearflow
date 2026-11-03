@@ -407,7 +407,9 @@ describe("modal console B2 fixes", () => {
             />
         );
         expect(cachedHtml).toContain(">Tutor</span>");
-        expect(cachedHtml).toContain(">cached</span>");
+        // No cached pill beside Tutor: the cached status renders no badge,
+        // the honest cached-table note plus Retry carry the signal instead.
+        expect(cachedHtml).not.toContain(">cached</span>");
     });
 
     it("user turns are not labelled modal live", () => {

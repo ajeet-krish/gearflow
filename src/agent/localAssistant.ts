@@ -22,11 +22,9 @@ import {
     type AgentValidationContext,
 } from "./agentActions";
 import { parseAirfoilIntent, parseAlphaDeg, parseReynolds } from "./airfoilIntent";
-import { isAlphaSweepIntent } from "./alphaSweep";
 import { isSchemaValidCode, nearestValidCode, parseNacaLoose } from "./nacaParse";
 import { resolveAgentFirst } from "@/config/agentFirst";
-import { experimentFor, localTutorReply } from "./tutorPolicy";
-import { detectMisconception } from "./misconceptions";
+import { localTutorReply } from "./tutorPolicy";
 import type { TutorSnapshotLite } from "./tutorTable";
 import type { AgentAction, BodyToken } from "@/contracts/types";
 
@@ -95,6 +93,12 @@ const SETUP_WORD_RE = /(set\s*up|setup|redesign|reconfig|propos|thicker|thinner|
 /** Phenomenological case triggers. Each maps to one trusted setup preset. */
 const SHEDDING_RE = /(karman|vortex shedding|vortex street|shedding)/;
 const HIGH_PRESSURE_PHENOM_RE = /(high pressure|stagnation)/;
+/** Constriction language maps to the orifice body with the live orifice
+ *  gap and width defaults. Tunnel, venturi, throat, and constriction all
+ *  name the narrowed passage the orifice plate carries; the reply stays
+ *  purely physical (a narrower gap speeds the flow like a venturi) with
+ *  no canvas limit talk. */
+const ORIFICE_TRIGGER_RE = /\borifice\b|\bventuri\b|\bthroat\b|\bconstriction\b|\btunnel\b/;
 const AIRFOIL_WORD_RE = /\bairfoil\b/;
 /** Honest cannot do triggers. The tunnel is 2D incompressible analytic plus
  *  low speed LBM, so these answer with zero actions, canvas unchanged. */
@@ -278,21 +282,6 @@ function anyAirfoilSpec(code: string, m: number, p: number, t: number, alpha: nu
     };
 }
 
-/** P4 misconception concept map. Each flow id lands one tutor concept so
- *  the Try next line can reuse the analytic-only tutorPolicy experiment.
- *  Never throws. */
-function conceptForMisconception(id: string): "attached-lift" | "suction-peak" | "stall-separation" | "general" {
-    try {
-        if (id === "stall-potential") return "stall-separation";
-        if (id === "re-no-effect") return "suction-peak";
-        if (id === "cl-forever") return "attached-lift";
-        if (id === "cpmin-measured") return "suction-peak";
-        return "general";
-    } catch {
-        return "general";
-    }
-}
-
 /** Plain physics definitions with current case numbers when the context
  *  carries them. Zero actions, questions never auto-apply. Never throws. */
 function buildGlossary(lower: string, ctx: AgentContext | null): string | null {
@@ -359,51 +348,9 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         if (lower.trim().length === 0) {
             return { reply: buildGeneric(vctx.agentFirst === true), actions: [], rejections: [] };
         }
-        if (isAlphaSweepIntent(raw)) {
-            return {
-                reply: "Local sweep note, no network. The agent runs the live alpha staircase now, -4 to 12 deg in 2 deg steps (9 points) on the analytic path, the canvas morphs as each alpha applies. Cancel with Stop, per-point Apply chips land after the run. Canvas updates on apply.",
-                actions: [],
-                rejections: [],
-            };
-        }
-        // P4 teaching layer: misconception correction before every other
-        // branch (still before the generic fallback). One claim plus why it
-        // tempts plus what the model shows plus one analytic-only
-        // experiment. The experiment rides one existing validated action
-        // kind, never an LBM run, so the console stages it on apply.
-        const mis = detectMisconception(raw, safe);
-        if (mis !== null) {
-            try {
-                const concept = conceptForMisconception(mis.id);
-                let tutorTry = "";
-                try {
-                    tutorTry = experimentFor(concept);
-                } catch {
-                    tutorTry = "";
-                }
-                if (typeof tutorTry !== "string" || /lbm|press run|run_lbm/i.test(tutorTry)) tutorTry = "";
-                const checked = validateAgentAction(mis.experimentAction, vctx);
-                const misActions = checked.ok && checked.action !== null ? [checked.action] : [];
-                const misRejections: string[] = checked.ok ? [] : [checked.reason ?? "experiment gated, canvas unchanged"];
-                const extraTry = tutorTry.length > 0 && !mis.experimentText.includes(tutorTry.slice(0, 24))
-                    ? ` Tutor try next: ${tutorTry}`
-                    : "";
-                const teaching = (
-                    `Teaching note, local only. Claim: ${mis.claim} ` +
-                    `Why it tempts: ${mis.whyTempting} ` +
-                    `What the model shows: ${mis.whatModelShows} ` +
-                    `Try next: ${mis.experimentText}${extraTry} ` +
-                    (misActions.length > 0 ? "Canvas updates on apply." : "Canvas unchanged.")
-                );
-                return {
-                    reply: teaching.length > REPLY_MAX ? teaching.slice(0, REPLY_MAX) : teaching,
-                    actions: misActions,
-                    rejections: misRejections,
-                };
-            } catch {
-                // Teaching faults fall through to the normal branches below.
-            }
-        }
+        // Sweep phrasings never narrate here: the console runs the live
+        // analytic staircase before any offline branch, so a sweep summary
+        // without a run cannot be served from this path.
         if (CANNOT_3D_RE.test(lower)) {
             return {
                 reply: "Cannot do 3D: the tunnel is 2D only (chord normalized, y-up). Set up a 2D section instead, a rectangular section narrows the passage like a venturi and speeds the flow. Canvas unchanged.",
@@ -658,6 +605,22 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 bodyTok = null;
             }
         }
+        // Constriction language rides the orifice body: tunnel, venturi,
+        // throat, or constriction names the narrowed passage, staged with
+        // the live orifice gap and width defaults behind set_body orifice.
+        // Verb gated like other bare mentions, so questions and plain
+        // mentions leave the canvas alone.
+        let orificeViaTrigger = false;
+        if (bodyTok === null && !presetHandled && ORIFICE_TRIGGER_RE.test(lower) && VERB_GATE_RE.test(lower)) {
+            try {
+                if (parseNacaLoose(raw).status !== "ambiguous") {
+                    bodyTok = "orifice";
+                    orificeViaTrigger = true;
+                }
+            } catch {
+                // Parse faults leave the orifice trigger unstaged.
+            }
+        }
         if (bodyTok === null && intentCode !== null && CANONICAL_NACA.has(`naca${intentCode}`)) {
             bodyTok = `naca${intentCode}`;
         }
@@ -682,6 +645,9 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 if (accept({ kind: "set_body", body: bodyTok as BodyToken })) {
                     const displayTok = bodyTok === "block" ? "Rectangle" : bodyTok;
                     applied.push(`body ${displayTok}`);
+                    if (orificeViaTrigger) {
+                        notices.push("Note: a narrower gap speeds the flow like a venturi.");
+                    }
                 }
             } else if (unknownNaca !== null) {
                 // Valid non-canonical code: ride one set_spec like the online

@@ -346,7 +346,7 @@ export const ORIFICE_THICKNESS_DEFAULT = 0.08;
 export const ORIFICE_WALL_HALF = 1.5;
 
 /** User controlled display preferences, persisted to localStorage. */
-export type ParticleColorMode = "auto" | "white" | "black" | "cyan" | "magenta" | "orange";
+export type ParticleColorMode = "white" | "black" | "cyan" | "magenta" | "orange";
 
 export interface DisplayPrefs {
     colormap: ColormapName;
@@ -386,7 +386,7 @@ export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
     fieldVisible: true,
     contours: false,
     particleCount: 3000,
-    particleColor: "auto",
+    particleColor: "white",
     showStreamlines: false,
     meanFields: false,
     particleSize: PARTICLE_SIZE_DEFAULT,

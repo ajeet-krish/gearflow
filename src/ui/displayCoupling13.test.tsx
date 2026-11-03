@@ -215,14 +215,10 @@ describe("Settings effective rows and slider", () => {
         expect(html.slice(contours, contours + 160)).not.toContain("checked");
     });
 
-    it("renders the particle size slider in the contract band with a readout", () => {
+    it("renders no particle size control in the settings panel", () => {
         const html = settingsHtml({ ...DEFAULT_DISPLAY_PREFS, particleSize: 0.024 }, "speed");
-        expect(html).toContain('id="settingsParticleSize"');
-        expect(html).toContain('type="range"');
-        expect(html).toContain('min="0.008"');
-        expect(html).toContain('max="0.12"');
-        expect(html).toContain('step="0.002"');
-        expect(html).toContain("0.024");
+        expect(html).not.toContain('id="settingsParticleSize"');
+        expect(html).toContain('id="settingsParticles"');
     });
 
     it("pins a manual toggle from the effective pair through the funnel patch", async () => {

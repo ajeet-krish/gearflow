@@ -1,16 +1,16 @@
-// Particle color options for the tunnel canvas. Auto colors particles by
-// the active colormap LUT; fixed modes paint every particle one color.
+// Particle color options for the tunnel canvas. Every mode paints a
+// fixed color; white is the default. Legacy stored "auto" values sanitize
+// to white through the display store.
 
 import type { ParticleColorMode } from "@/contracts/types";
 
 export interface ParticleColorOption {
     id: ParticleColorMode;
     label: string;
-    hex: string | null;
+    hex: string;
 }
 
 export const PARTICLE_COLOR_OPTIONS: ParticleColorOption[] = [
-    { id: "auto", label: "Auto", hex: null },
     { id: "white", label: "White", hex: "#ffffff" },
     { id: "black", label: "Black", hex: "#000000" },
     { id: "cyan", label: "Cyan", hex: "#8be9fd" },
@@ -29,8 +29,7 @@ function hexToTriple(hex: string): [number, number, number] {
 function frozen(triple: [number, number, number]): [number, number, number] {
     return Object.freeze(triple) as [number, number, number];
 }
-const RGB_BY_MODE: Record<ParticleColorMode, [number, number, number] | null> = {
-    auto: null,
+const RGB_BY_MODE: Record<ParticleColorMode, [number, number, number]> = {
     white: frozen(hexToTriple("#ffffff")),
     black: frozen(hexToTriple("#000000")),
     cyan: frozen(hexToTriple("#8be9fd")),
@@ -39,7 +38,8 @@ const RGB_BY_MODE: Record<ParticleColorMode, [number, number, number] | null> = 
 };
 Object.freeze(RGB_BY_MODE);
 
-/** Resolve a fixed particle color to a normalized RGB triple, or null for auto. */
-export function particleRgb(mode: ParticleColorMode): [number, number, number] | null {
-    return RGB_BY_MODE[mode] ?? null;
+/** Resolve a fixed particle color to a normalized RGB triple. Unknown or
+ *  legacy modes fall back to white. Never throws. */
+export function particleRgb(mode: ParticleColorMode): [number, number, number] {
+    return RGB_BY_MODE[mode] ?? RGB_BY_MODE.white;
 }

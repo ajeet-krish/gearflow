@@ -44,8 +44,8 @@ describe("buildTutorMessages", () => {
         });
         expect(messages.length).toBeGreaterThanOrEqual(2);
         const system = messages[0].content;
-        expect(TUTOR_PROMPT_VERSION).toBe("tutor-v3");
-        expect(system).toContain("tutor-v3");
+        expect(TUTOR_PROMPT_VERSION).toBe("tutor-v4");
+        expect(system).toContain("tutor-v4");
         expect(system).toContain("GearFlow flow tutor");
         expect(system).toContain("one idea per reply");
         expect(system).toContain("grade 8 to 10");
@@ -79,6 +79,10 @@ describe("buildTutorMessages", () => {
         expect(system).toContain("angle of attack (alpha)");
         expect(system).toContain("Reynolds number (Re)");
         expect(system).toContain("potential flow picture omits separation and stall");
+        // No Misconception section: the chat path no longer detects or
+        // teaches misconceptions, Try next stays physics-only.
+        expect(system).not.toContain("Misconception");
+        expect(system).not.toContain("No misconception spotted");
         expect(system).not.toContain("predicted, not validated");
         expect(system).not.toContain("may be called solved");
         expect(system).not.toContain("What to look at");
@@ -116,6 +120,7 @@ describe("buildTutorMessages", () => {
         expect(user.content).toContain("attached-lift");
         expect(user.content).toContain("0.721");
         expect(user.content).toContain("Before vs after");
+        expect(user.content).not.toContain("Misconception under test");
         expect(messages.length).toBe(3);
     });
 

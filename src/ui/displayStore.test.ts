@@ -39,8 +39,8 @@ describe("display store phase 9", () => {
         expect(DISPLAY_STORAGE_KEY).toBe("gearflow:display:v1");
     });
 
-    it("bumps the payload version to 5", () => {
-        expect(DISPLAY_VERSION).toBe(5);
+    it("bumps the payload version to 6", () => {
+        expect(DISPLAY_VERSION).toBe(6);
     });
 
     it("fills v1 payloads with new defaults", () => {
@@ -59,7 +59,7 @@ describe("display store phase 9", () => {
         expect(prefs.fieldVisible).toBe(true);
         expect(prefs.contours).toBe(false);
         expect(prefs.particleCount).toBe(3000);
-        expect(prefs.particleColor).toBe("auto");
+        expect(prefs.particleColor).toBe("white");
         expect(prefs.showStreamlines).toBe(false);
         expect(prefs.meanFields).toBe(false);
     });
@@ -123,12 +123,14 @@ describe("display store phase 9", () => {
         expect(loadDisplayPrefs().particleCount).toBe(3000);
     });
 
-    it("rejects a bad particle color", () => {
-        localStorage.setItem(
-            DISPLAY_STORAGE_KEY,
-            JSON.stringify({ version: 2, prefs: { ...DEFAULT_DISPLAY_PREFS, particleColor: "rainbow" } }),
-        );
-        expect(loadDisplayPrefs().particleColor).toBe("auto");
+    it("maps a legacy auto color plus bad colors to white", () => {
+        for (const color of ["auto", "rainbow"]) {
+            localStorage.setItem(
+                DISPLAY_STORAGE_KEY,
+                JSON.stringify({ version: 2, prefs: { ...DEFAULT_DISPLAY_PREFS, particleColor: color } }),
+            );
+            expect(loadDisplayPrefs().particleColor).toBe("white");
+        }
     });
 
     it("rejects non-boolean overlay flags", () => {

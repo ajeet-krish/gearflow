@@ -416,7 +416,7 @@ describe("Settings fixed grid", () => {
         fieldVisible: true,
         contours: false,
         particleCount: 3000,
-        particleColor: "auto",
+        particleColor: "white",
         showStreamlines: false,
         meanFields: false,
         particleSize: 0.018,
@@ -440,11 +440,12 @@ describe("Settings fixed grid", () => {
         );
     }
 
-    it("renders the fixed 512 label with no pinned or custom options", () => {
+    it("renders no resolution section: display settings only", () => {
         const html = renderSettings();
-        expect(html).toContain("Fixed grid");
-        expect(html).toContain("512 x 512");
-        for (const label of ["Auto (512, fallback to 256)", "1024 x 1024 pinned", "512 x 512 pinned", "256 x 256 pinned", "Custom square", "Grid mode"]) {
+        expect(html).toContain("DISPLAY SETTINGS");
+        expect(html).not.toContain("Fixed grid");
+        expect(html).not.toContain("512 x 512");
+        for (const label of ["Auto (512, fallback to 256)", "1024 x 1024 pinned", "512 x 512 pinned", "256 x 256 pinned", "Custom square", "Grid mode", "RESOLUTION"]) {
             expect(html).not.toContain(label);
         }
     });

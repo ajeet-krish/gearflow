@@ -1349,3 +1349,47 @@ Phase tests integrate with prior phase tests (all 1733 pre-existing tests still 
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - Full Batch Verification: Test Report (sweep guards, set_re alias, canonical NACA fractions, orifice mapping, misconceptions removed, one-sentence setups, Settings batch, Re sentence, no cached pill, 3 tutorials)
+
+### Test Results
+npm test: 130 files, 1750 tests, 1749 passed, 1 failed (settingsManualToggle Reset defaults, stale expectation missing particleSize).
+Focused batch rerun: 11 files, 137 tests, all passed (agentActions, misconceptions, caseSetup, curriculum, agentConsoleCurriculum, agentConsoleBaseten, sweepPaintWiring, agentConsoleSweep, fixed512 sweepguard, gridUiBatch, batchCombined).
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| sweep always runs with guards (sweepPaintWiring 4, agentConsoleSweep 5, alphaSweep 18, sweepguard 16) | PASS | Sweep intent fires on show/run/influence/effect/across/impact phrasings with alpha or AoA, blocked on explain/what/why/negation/bare setup; live staircase 9 points minus 4 to 12; no fence promises |
+| set_re alias (agentActions 23) | PASS | set_re plus case variants plus set-re map to set_reynolds across case and value shapes; bare set_re kind stays strict reject |
+| canonical NACA fractions (agentActions 23, nacaParse 30) | PASS | Mismatched m/p/t overridden from code digits with note; code versus fraction mismatch rejected |
+| orifice mapping (phaseB, potential, engineMode, analyticFlow) | PASS | Duct retired to orifice plate, width resets, height clamps to gap envelope, gap opening report with by design copy |
+| no misconceptions (misconceptions 14) | PASS | Misconception handling removed from chat; flows use valid action kinds only |
+| one-sentence setups (actionContract, AgentConsole prompt) | PASS | System prompt pins one sentence describing the new case plus fence only, no duplicate What changed/Why/Try next |
+| no particle size with white default (gridUiBatch 18, SettingsModal) | PASS | No settingsParticleSize slider in render; particleColor defaults to white; count envelope 0 to 8000 with Off at 0 |
+| no resolution with Display Settings title (sweepguard 16, gridUiBatch 18) | PASS | Settings renders DISPLAY SETTINGS with no RESOLUTION section, no grid mode or custom square controls; live grid fixed at 512 |
+| Re sentence (App rail wiring, gridUiBatch agent setups) | PASS | Rail plus scene bars read live spec, Re, and tab sources |
+| no cached pill (agentConsoleBaseten 22) | PASS | Assistant turns render Tutor with live dot and no model or cached pill; SAM cached offline copy absent |
+| 3 tutorials (agentConsoleCurriculum 4, curriculum 2) | PASS | Tutorial dropdown offers one option per curriculum lesson plus example dropdown side by side; dispatch is a normal offline turn with zero port calls |
+| batchCombined.verify (8) | PASS | Sweep gating, appearance lines, tab keys, Rectangle naming, single 512, turn chrome removed |
+| all other Node suites | PASS | No regressions outside the one stale reset expectation |
+| settingsManualToggle Reset defaults | FAIL | Stale expectation omits particleSize; see failure analysis |
+
+### Coverage Summary
+Happy path covered (sweep triggers, alias mapping, fraction normalization, orifice migration, one-sentence setup, white particle default, Display Settings title, tutorial dispatch).
+Edge cases covered (Reynolds/temperature/drag never fire sweep, bare set_re rejected, fraction mismatch rejected, count clamp 0 to 8000, legacy grid modes coerce to 512).
+Error conditions covered (negation/bare setup never fires, malformed envelope fallback, corrupt chat JSON, oversize grid rejected, offline pack failures).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (batch suites green alongside full suite).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| settingsManualToggle Reset defaults restores contract defaults | SettingsModal onReset now includes particleSize from DEFAULT_DISPLAY_PREFS, but the test expected object lists only 11 keys and omits particleSize | Add particleSize: DEFAULT_DISPLAY_PREFS.particleSize to the expected object in src/ui/settingsManualToggle.test.tsx line 268; no production code change needed |
+
+### Verification Checklist
+- [ ] All tests pass (1749 of 1750; 1 stale expectation FAIL, fix proposed)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

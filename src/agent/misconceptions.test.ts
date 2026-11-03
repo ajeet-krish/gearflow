@@ -128,16 +128,18 @@ describe("misconception experiments use valid action kinds only", () => {
     });
 });
 
-describe("misconception end to end via localAssistant", () => {
-    it("teaches on the stall claim with a staged action", () => {
+describe("misconception handling removed from chat", () => {
+    it("answers the stall claim with the separation note and zero staged actions", () => {
         const out = localReply("stall is shown by the potential model", makeCtx());
-        expect(out.reply).toContain("Teaching note");
+        expect(out.reply).not.toContain("Teaching note");
         expect(out.reply).toContain("omits separation");
-        expect(out.actions.length).toBeGreaterThan(0);
+        expect(out.actions).toEqual([]);
+        expect(out.reply).toContain("Canvas unchanged");
     });
-    it("teaches on Re does nothing with a staged action", () => {
+    it("answers Re does nothing with a plain note and zero staged actions", () => {
         const out = localReply("Re does nothing here", makeCtx());
-        expect(out.reply).toContain("Teaching note");
-        expect(out.actions.length).toBeGreaterThan(0);
+        expect(out.reply).not.toContain("Teaching note");
+        expect(out.actions).toEqual([]);
+        expect(out.reply).toContain("Canvas unchanged");
     });
 });

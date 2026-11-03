@@ -246,8 +246,7 @@ describe("particle count 0 to 8000 plus size max 0.12", () => {
     );
     expect(html).toContain('id="settingsParticles"');
     expect(html).toContain('max="8000"');
-    expect(html).toContain('id="settingsParticleSize"');
-    expect(html).toContain('max="0.12"');
+    expect(html).not.toContain('id="settingsParticleSize"');
     expect(decideParticleCountCommit("99999", 3000)).toBe(8000);
     expect(decideParticleCountCommit("-5", 3000)).toBe(0);
     expect(decideParticleCountCommit("0", 3000)).toBe(0);

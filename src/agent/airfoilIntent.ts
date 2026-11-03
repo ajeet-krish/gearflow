@@ -56,7 +56,8 @@ export const ACTION_VERBS: ReadonlyArray<string> = [
 ];
 
 const QUESTION_RE = /\bwhat\s+is\b|\bwhat'?s\b|\bwhy\b|\bexplain\b|\bcompar\w*|\bversus\b|\bvs\.?(?!\w)/i;
-const ALPHA_KEY_RE = /(?:alpha|aoa)(?:\s+of\s+attack)?[^-\d]{0,8}(-?\d+(?:\.\d+)?)/i;
+const ALPHA_KEY_RE = /(?:alpha|aoa)(?:\s+of(?:\s+attack)?)?[^-\d]{0,8}(-?\d+(?:\.\d+)?)/i;
+const ALPHA_TRAIL_RE = /(?<!\d)(-?\d{1,3}(?:\.\d+)?)\s*(?:alpha|aoa)\b/i;
 const ALPHA_DEG_RE = /(-?\d+(?:\.\d+)?)\s*(?:degrees?|deg|°)/i;
 const RE_RE = /\bre(?:ynolds)?(?:\s*(?:number|value|of|at|to|=|:))?\s*(\d[\d,]*(?:\.\d+)?(?:e[+-]?\d+)?)\s*([kKmM])?(?![\w])/i;
 const THICK_PCT_RE = /(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:thick(?:ness)?)/i;
@@ -105,14 +106,22 @@ export function hasShapeMods(mods: ShapeMods): boolean {
     );
 }
 
-/** Angle of attack from alpha/aoa keywords, deg/degrees words, or the degree symbol. */
+/** Angle of attack from alpha/aoa keywords in either order, aoa of
+ *  phrasings, deg/degrees words, or the degree symbol. Stated alpha wins:
+ *  keyword led (alpha 6, aoa 6, aoa of 6) and keyword trailed (6 aoa)
+ *  phrasings all resolve before any live context fills a default. */
 export function parseAlphaDeg(text: unknown): number | null {
     try {
         if (typeof text !== "string") return null;
         const keyed = text.match(ALPHA_KEY_RE);
         if (keyed !== null) {
             const v = Number(keyed[1]);
-            return Number.isFinite(v) ? v : null;
+            if (Number.isFinite(v)) return v;
+        }
+        const trailed = text.match(ALPHA_TRAIL_RE);
+        if (trailed !== null) {
+            const v = Number(trailed[1]);
+            if (Number.isFinite(v)) return v;
         }
         const deg = text.match(ALPHA_DEG_RE);
         if (deg !== null) {

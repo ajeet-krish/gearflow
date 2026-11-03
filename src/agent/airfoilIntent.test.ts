@@ -3,7 +3,7 @@
 // ambiguous never auto-applying.
 
 import { describe, expect, it } from "vitest";
-import { buildAirfoilEnvelope, parseAirfoilIntent } from "./airfoilIntent";
+import { buildAirfoilEnvelope, parseAirfoilIntent, parseAlphaDeg } from "./airfoilIntent";
 import { validateAgentAction } from "./agentActions";
 import corpus from "./fixtures/airfoilCorpus.json";
 import { parseNacaLoose } from "./nacaParse";
@@ -203,6 +203,21 @@ describe("buildAirfoilEnvelope (R3)", () => {
         const env = buildAirfoilEnvelope(apply, { alphaDeg: 6, reynolds: 50000 });
         expect(env.candidates).toHaveLength(1);
         expect(validateAgentAction(env.candidates[0], live).ok).toBe(true);
+    });
+
+    it("resolves keyword trailed and aoa of phrasings", () => {
+        expect(parseAlphaDeg("6 aoa")).toBe(6);
+        expect(parseAlphaDeg("aoa 6")).toBe(6);
+        expect(parseAlphaDeg("aoa of 6")).toBe(6);
+        expect(parseAlphaDeg("alpha of 6")).toBe(6);
+        expect(parseAlphaDeg("Set up NACA 2412 6 aoa")).toBe(6);
+        expect(parseAlphaDeg("hello there")).toBeNull();
+    });
+
+    it("lets stated alpha beat context alpha on trailed phrasings", () => {
+        const got = parseAirfoilIntent("Set up NACA 2412 6 aoa", { code: null, alphaDeg: 8, reynolds: 50000 });
+        expect(got?.kind).toBe("apply");
+        if (got?.kind === "apply") expect(got.alphaDeg).toBe(6);
     });
 
     it("never throws on bad input", () => {

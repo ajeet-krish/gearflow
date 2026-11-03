@@ -98,7 +98,7 @@ describe("SettingsModal effective overlays", () => {
         expect(html).toContain("Manual until field change");
     });
 
-    it("renders the particle size slider with the persisted readout", () => {
+    it("renders no particle size control, the count slider owns particles", () => {
         const html = renderToStaticMarkup(
             <SettingsModal
                 open={true}
@@ -111,7 +111,7 @@ describe("SettingsModal effective overlays", () => {
                 variable="speed"
             />,
         );
-        expect(html).toContain('id="settingsParticleSize"');
-        expect(html).toContain("0.024");
+        expect(html).not.toContain('id="settingsParticleSize"');
+        expect(html).toContain('id="settingsParticles"');
     });
 });

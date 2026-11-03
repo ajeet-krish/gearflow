@@ -41,11 +41,4 @@ export const CURRICULUM_CHIPS: ReadonlyArray<CurriculumChip> = [
         concept: "suction-peak",
         suggestedField: "cp",
     },
-    {
-        id: "camber-compare",
-        label: "Camber compare",
-        prompt: "Set up NACA 4412 alpha 6",
-        concept: "attached-lift",
-        suggestedField: "speed",
-    },
 ];

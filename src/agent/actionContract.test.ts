@@ -103,6 +103,16 @@ describe("action contract drift guard", () => {
 });
 
 describe("prompt snapshot", () => {
+    it("names the exact set_reynolds kind once plus the orifice body and fence-only discipline", () => {
+        const system = promptSystem();
+        expect(system.split("set_reynolds").length - 1).toBe(1);
+        expect(system).toContain("The exact Reynolds number (Re) action kind is");
+        expect(system).toContain("orifice body");
+        expect(system).toContain("narrower gap speeding the flow like a venturi");
+        expect(system).toContain("plus the fence only");
+        expect(system).toContain("Questions with no actions answer fully");
+    });
+
     it("labels high_pressure retired, quotes Re 1200, never 50000 or orifice Re 1000", () => {
         const system = promptSystem();
         expect(system).toContain("retired");

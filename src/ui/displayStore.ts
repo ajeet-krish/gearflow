@@ -9,15 +9,15 @@ import type { FieldMode } from "@/contracts/types";
 // Renaming this key would orphan deployed payloads, so the v1 string stays
 // even though DISPLAY_VERSION is now 5.
 export const DISPLAY_STORAGE_KEY = "gearflow:display:v1";
-export const DISPLAY_VERSION = 5;
+export const DISPLAY_VERSION = 6;
 
 const COLORMAPS: ColormapName[] = [
     "viridis", "turbo", "plasma", "inferno", "magma", "cividis", "jet", "rdbu", "coolwarm", "grayscale",
 ];
 const VARIABLES: FieldMode[] = ["speed", "cp", "omega", "u", "v", "k", "recirc"];
-/** Particle count is a free slider in [0, 8000], not an enum: any finite
- *  count in the envelope round trips, out of envelope clamps. */
-const PARTICLE_COLORS: ParticleColorMode[] = ["auto", "white", "black", "cyan", "magenta", "orange"];
+/** Particle color is a fixed swatch, white default. Legacy stored "auto"
+ *  values map to white so pre-removal payloads keep a valid color. */
+const PARTICLE_COLORS: ParticleColorMode[] = ["white", "black", "cyan", "magenta", "orange"];
 
 function sanitize(raw: unknown): DisplayPrefs {
     const r = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
@@ -37,9 +37,12 @@ function sanitize(raw: unknown): DisplayPrefs {
     const particleCount = typeof particleCountRaw === "number" && Number.isFinite(particleCountRaw)
         ? Math.min(PARTICLE_COUNT_MAX, Math.max(PARTICLE_COUNT_MIN, Math.round(particleCountRaw)))
         : DEFAULT_DISPLAY_PREFS.particleCount;
-    const particleColor: ParticleColorMode = typeof r.particleColor === "string" && (PARTICLE_COLORS as string[]).includes(r.particleColor)
-        ? (r.particleColor as ParticleColorMode)
-        : DEFAULT_DISPLAY_PREFS.particleColor;
+    const rawColor = typeof r.particleColor === "string" ? r.particleColor : "";
+    const particleColor: ParticleColorMode = (PARTICLE_COLORS as string[]).includes(rawColor)
+        ? (rawColor as ParticleColorMode)
+        : rawColor === "auto"
+            ? "white"
+            : DEFAULT_DISPLAY_PREFS.particleColor;
     const particleSizeRaw = r.particleSize;
     const particleSize = typeof particleSizeRaw === "number" && Number.isFinite(particleSizeRaw)
         ? Math.min(PARTICLE_SIZE_MAX, Math.max(PARTICLE_SIZE_MIN, particleSizeRaw))
@@ -61,7 +64,7 @@ export function loadDisplayPrefs(): DisplayPrefs {
         const raw = localStorage.getItem(DISPLAY_STORAGE_KEY);
         if (raw === null) return { ...DEFAULT_DISPLAY_PREFS };
         const parsed = JSON.parse(raw) as { version?: unknown; prefs?: unknown };
-        if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5) return { ...DEFAULT_DISPLAY_PREFS };
+        if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5 && parsed.version !== 6) return { ...DEFAULT_DISPLAY_PREFS };
         return sanitize(parsed.prefs);
     } catch {
         return { ...DEFAULT_DISPLAY_PREFS };

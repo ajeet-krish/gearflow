@@ -202,8 +202,31 @@ function fakeStepper() {
     });
 }
 
+/** Fake Modal port for the sweep summary call. The staircase itself stays
+ *  local through onWhatIfSweep; only the summary plus teaching rides chat. */
+function fakeSummaryPort(text = "Sweep summary from the tutor, plain words.") {
+    const result = () => ({
+        text,
+        action: null,
+        model: "test-spark",
+        usage: { inputTokens: 4, outputTokens: 8, cachedTokens: 0 },
+        costUsd: 0,
+        latencyMs: 2,
+        reasoning: "",
+    });
+    return {
+        async *streamChat(_m: unknown, _o?: unknown) {
+            yield { delta: "x", text: "x", done: false };
+            return result();
+        },
+        async chat(_m: unknown, _o?: unknown) {
+            return result();
+        },
+    };
+}
+
 describe("agent console sweep summary-only", () => {
-    it("paints every alpha in order with one offline summary and zero port calls", async () => {
+    it("paints every alpha in order with one Modal summary plus Apply chips", async () => {
         const ctx = buildAgentContext(pendingSnapshot() as never);
         const applied: number[] = [];
         const executor = vi.fn();
@@ -218,7 +241,7 @@ describe("agent console sweep summary-only", () => {
                 sweepApplied.push(alpha);
                 applied.push(alpha);
             },
-            chatClient: null,
+            chatClient: fakeSummaryPort(),
             initialTurns: [],
         });
         typeText(m, "sweep the alpha staircase");
@@ -229,7 +252,7 @@ describe("agent console sweep summary-only", () => {
             expect(applied).toEqual([...SWEEP_ALPHAS]);
             expect(executor).not.toHaveBeenCalled();
             expect(m.text()).toContain("Sweep complete");
-            expect(m.text()).toContain("Live alpha staircase -4 to 12 deg");
+            expect(m.text()).toContain("Sweep summary from the tutor");
             expect(m.text()).toContain("Summary follows");
             const chips = buttonsByLabel(m.tree(), "Apply angle of attack (alpha) 6 degrees");
             expect(chips.length).toBeGreaterThan(0);
@@ -258,7 +281,7 @@ describe("agent console sweep summary-only", () => {
             onSweepAlpha: async (alpha: number) => {
                 sweepApplied.push(alpha);
             },
-            chatClient: null,
+            chatClient: fakeSummaryPort(),
             initialTurns: [],
         });
         typeText(m, "sweep alpha");
@@ -272,6 +295,38 @@ describe("agent console sweep summary-only", () => {
         try {
             expect(sweepApplied.length).toBe(SWEEP_ALPHAS.length * 2);
             expect(m.text()).toContain("Sweep complete");
+        } finally {
+            m.unmount();
+        }
+    });
+
+    it("lands an honest offline error with rows when truly down", async () => {
+        const ctx = buildAgentContext(pendingSnapshot() as never);
+        const sweepApplied: number[] = [];
+        const m = mountConsole({
+            offline: true,
+            onOfflineChange: () => {},
+            agentContext: ctx,
+            onAgentAction: () => {},
+            onWhatIfSweep: fakeStepper(),
+            onSweepAlpha: async (alpha: number) => {
+                sweepApplied.push(alpha);
+            },
+            chatClient: fakeSummaryPort(),
+            initialTurns: [],
+        });
+        typeText(m, "sweep alpha");
+        submitForm(m);
+        await waitSweep();
+        try {
+            // The staircase still runs locally even when down.
+            expect(sweepApplied).toEqual([...SWEEP_ALPHAS]);
+            expect(m.text()).toContain("Sweep complete");
+            expect(m.text()).toContain("offline demo mode");
+            expect(m.text()).toContain("Canvas unchanged");
+            expect(m.text()).not.toContain("Sweep summary from the tutor");
+            const chips = buttonsByLabel(m.tree(), "Apply angle of attack (alpha) 6 degrees");
+            expect(chips.length).toBeGreaterThan(0);
         } finally {
             m.unmount();
         }
@@ -300,7 +355,7 @@ describe("agent console sweep stop", () => {
             onSweepAlpha: async (alpha: number) => {
                 sweepApplied.push(alpha);
             },
-            chatClient: null,
+            chatClient: fakeSummaryPort(),
             initialTurns: [],
         });
         typeText(m, "sweep alpha");
@@ -328,7 +383,7 @@ describe("agent console sweep chips", () => {
             onAgentAction: executor,
             onWhatIfSweep: fakeStepper(),
             onSweepAlpha: async () => {},
-            chatClient: null,
+            chatClient: fakeSummaryPort(),
             initialTurns: [],
         });
         typeText(m, "sweep alpha");

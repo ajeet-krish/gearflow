@@ -34,12 +34,9 @@ function makeCtx(): AgentContext {
 }
 
 describe("CURRICULUM_CHIPS", () => {
-    it("carries the four static lessons with concept plus field", () => {
+    it("carries the three static lessons with concept plus field", () => {
         const ids = CURRICULUM_CHIPS.map((c) => c.id);
-        expect(ids).toContain("airfoil-lesson");
-        expect(ids).toContain("stall-demo");
-        expect(ids).toContain("re-effect");
-        expect(ids).toContain("camber-compare");
+        expect(ids).toEqual(["airfoil-lesson", "stall-demo", "re-effect"]);
         for (const chip of CURRICULUM_CHIPS) {
             expect(chip.label.length).toBeGreaterThan(0);
             expect(chip.prompt.length).toBeGreaterThan(0);

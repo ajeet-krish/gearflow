@@ -181,7 +181,6 @@ describe("P3 settings popover: no tint, anchored, live patch", () => {
             "onPatch({ theme:",
             "onPatch({ colormap:",
             "onPatch({ particleCount:",
-            "onPatch({ particleSize:",
             "onPatch({ particleColor:",
             "manualPatchForToggle",
             "onPatch({ fieldVisible:",
@@ -189,6 +188,8 @@ describe("P3 settings popover: no tint, anchored, live patch", () => {
         ]) {
             expect(src).toContain(token);
         }
+        expect(src).not.toContain("onPatch({ particleSize:");
+        expect(src).not.toContain('id="settingsParticleSize"');
         const html = renderSettings();
         expect(html).not.toContain("Apply");
         expect(html).toContain("Theme");
@@ -298,7 +299,8 @@ describe("P3 velocity slider gone with Re kept", () => {
         const html = renderToStaticMarkup(SimulationSectionView(simProps()) as never);
         expect(html).toContain('id="simRey"');
         expect(html).toContain('id="simReNumber"');
-        expect(html).toContain("Log scale. Re shades the wake deficit only");
+        expect(html).toContain("Re changes flow speed, and the slider changes speed in the simulation and on the canvas.");
+        expect(html).not.toContain("Log scale. Re shades the wake deficit only");
         expect(html).not.toContain('id="simVel"');
     });
 

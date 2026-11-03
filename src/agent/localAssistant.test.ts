@@ -97,6 +97,24 @@ describe("localReply setup parsing", () => {
         expect(out.reply).not.toContain("Canvas unchanged");
     });
 
+    it("maps constriction language to the orifice body with a venturi note", () => {
+        for (const text of ["switch to venturi", "set up the throat constriction", "show the tunnel section"]) {
+            const out = localReply(text, makeCtx());
+            expect(out.actions).toContainEqual({ kind: "set_body", body: "orifice" });
+            expect(out.rejections).toEqual([]);
+            expect(out.reply).toContain("venturi");
+            expect(out.reply).toContain("Applying body orifice");
+        }
+        const orifice = localReply("switch to orifice", makeCtx());
+        expect(orifice.actions).toContainEqual({ kind: "set_body", body: "orifice" });
+    });
+
+    it("leaves venturi questions with zero actions and no canvas limits", () => {
+        const out = localReply("what is a venturi", makeCtx());
+        expect(out.actions).toEqual([]);
+        expect(out.reply).toContain("Canvas unchanged");
+    });
+
     it("parses Re and body tokens for cylinder, block, and orifice", () => {
         const cyl = localReply("set up cylinder at Re 80000", makeCtx());
         expect(cyl.actions).toContainEqual({ kind: "set_body", body: "cylinder" });

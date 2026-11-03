@@ -36,12 +36,13 @@ describe("SettingsModal", () => {
         expect(html).toContain("Viridis");
     });
 
-    it("renders the fixed 512 resolution with no mode picker", () => {
+    it("renders the display settings title with no resolution section", () => {
         const html = render();
-        expect(html).toContain("RESOLUTION");
-        expect(html).toContain("Fixed grid");
-        expect(html).toContain("512 x 512");
-        expect(html).toContain("512 only");
+        expect(html).toContain("DISPLAY SETTINGS");
+        expect(html).not.toContain("RESOLUTION");
+        expect(html).not.toContain("Fixed grid");
+        expect(html).not.toContain("512 x 512");
+        expect(html).not.toContain("512 only");
         expect(html).not.toContain("Grid mode");
         expect(html).not.toContain("Custom square");
         expect(html).not.toContain('id="settingsGrid"');
@@ -49,11 +50,12 @@ describe("SettingsModal", () => {
         expect(html).not.toContain("Surrogate and fixture stay at 128.");
     });
 
-    it("renders particle count and color swatches", () => {
+    it("renders particle count and color swatches with no Auto option", () => {
         const html = render();
         expect(html).toContain("PARTICLES");
         expect(html).toContain("Particle color");
-        for (const label of ["Auto", "White", "Black", "Cyan", "Magenta", "Orange"]) {
+        expect(html).not.toContain(">Auto<");
+        for (const label of ["White", "Black", "Cyan", "Magenta", "Orange"]) {
             expect(html).toContain(label);
         }
         expect(html).toContain('role="radio"');
@@ -105,18 +107,17 @@ describe("SettingsModal", () => {
         expect(html).not.toContain("RECIRC");
     });
 
-    it("renders the particle size slider with a readout", () => {
+    it("renders no particle size control", () => {
         const html = render();
-        expect(html).toContain("Particle size");
-        expect(html).toContain('id="settingsParticleSize"');
-        expect(html).toContain('id="settingsParticleSizeValue"');
-        expect(html).toContain('min="0.008"');
-        expect(html).toContain('max="0.12"');
+        expect(html).not.toContain("Particle size");
+        expect(html).not.toContain('id="settingsParticleSize"');
+        expect(html).not.toContain('id="settingsParticleSizeValue"');
     });
 
-    it("offers Reset defaults", () => {
+    it("renders no solver line in the footer", () => {
         const html = render();
         expect(html).toContain("Reset defaults");
+        expect(html).not.toContain("handled by the solver");
     });
 
     it("renders a labeled popover, not a dimmed modal", () => {

@@ -78,7 +78,7 @@ describe("verify fixed 512 grid, only 512 reachable with no picker", () => {
     expect(state.notice).toBeNull();
   });
 
-  it("renders Settings with Fixed grid 512 only and no picker", () => {
+  it("renders Settings with display controls and no resolution section", () => {
     const html = renderToStaticMarkup(
       <SettingsModal
         open={true}
@@ -91,19 +91,19 @@ describe("verify fixed 512 grid, only 512 reachable with no picker", () => {
         variable="speed"
       />,
     );
-    expect(html).toContain("Fixed grid");
-    expect(html).toContain("512 x 512");
-    expect(html).toContain("512 only");
+    expect(html).toContain("DISPLAY SETTINGS");
+    expect(html).not.toContain("RESOLUTION");
+    expect(html).not.toContain("Fixed grid");
+    expect(html).not.toContain("512 x 512");
     expect(html).not.toContain("Grid mode");
     expect(html).not.toContain("Custom square");
     expect(html).not.toContain('id="settingsGrid"');
     expect(html).not.toContain('id="settingsCustomGrid"');
   });
 
-  it("names the fixed 512 contract in SettingsModal and App sources", () => {
-    const modal = readFileSync(resolve(root, "src/ui/SettingsModal.tsx"), "utf8");
-    expect(modal).toContain("Fixed grid");
-    expect(modal).toContain("512 only");
+  it("names the fixed 512 contract in the grid controller and App sources", () => {
+    const controller = readFileSync(resolve(root, "src/flow/gridController.ts"), "utf8");
+    expect(controller).toContain("512");
     const app = readFileSync(resolve(root, "src/App.tsx"), "utf8");
     expect(app).toContain("fixed 512");
   });
