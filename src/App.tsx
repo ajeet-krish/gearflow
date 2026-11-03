@@ -5,13 +5,17 @@ import ResizeHandle from "@/components/ui/ResizeHandle";
 import AgentConsole from "@/ui/AgentConsole";
 import EvalLogPanel from "@/ui/EvalLogPanel";
 import SettingsModal from "@/ui/SettingsModal";
-import TopNav, { type NavId } from "@/ui/TopNav";
+import IdeTitleBar from "@/ui/IdeTitleBar";
+import ActivityBar from "@/ui/ActivityBar";
+import EditorTabs from "@/ui/EditorTabs";
+import IdeSidebar from "@/ui/IdeSidebar";
+import IdeStatusBar from "@/ui/IdeStatusBar";
+import { useCaseTabs, CaseFrameCache, caseKeyFor, selectErrorCount, tabTitleFor } from "@/ui/caseTabs";
+import type { IdeActivityView } from "@/ui/ideData";
 import { LbmEntryNotice, LbmFailoverNotice } from "@/ui/LbmSetupRow";
 import { fallbackVariableFor } from "@/ui/FieldBar";
 import FieldBar from "@/ui/FieldBar";
 import { overlayPatchForFieldChange, resolveOverlays } from "@/ui/fieldOverlay";
-import RunTerminal, { type TerminalRow, type TerminalStatus } from "@/ui/RunTerminal";
-import TelemetryBar from "@/ui/TelemetryBar";
 import AnalysisPanel from "@/ui/AnalysisPanel";
 import SimulationSection from "@/ui/SimulationSection";
 import GeometrySection from "@/ui/GeometrySection";
@@ -45,7 +49,7 @@ import { classifyNeuralDomain, PROVISIONAL_NEURAL_ENVELOPE } from "@/flow/neural
 import { useResolution } from "@/flow/gridController";
 import { useDisplayPrefs } from "@/ui/displayStore";
 import { useLayoutPrefs, shellVisibility } from "@/ui/layoutStore";
-import { RailShell, SceneBars, resolveShellShortcut, shouldCloseTerminalOnEscape } from "@/ui/shellRegions";
+import { RailShell, SceneBars, resolveShellShortcut } from "@/ui/shellRegions";
 import { applyTheme, storeTheme } from "@/ui/theme";
 import ValidationPanel, { type ValidationSummary } from "@/ui/ValidationPanel";
 import ExportBar from "@/ui/ExportBar";
@@ -373,9 +377,14 @@ export default function App() {
     const shell = shellVisibility(layoutPrefs);
     const { state: gridState, recordSolveMs, setMode: setGridMode, clearNotice } = useResolution();
     const [settingsOpen, setSettingsOpen] = useState(false);
-    // Bottom terminal: session only log panel, collapsed on load. Focus mode
-    // never hides it, first Escape closes the panel, second exits focus.
-    const [terminalOpen, setTerminalOpen] = useState(false);
+    // P1 IDE shell: no bottom terminal. Escape only exits focus mode.
+    const [activityView, setActivityView] = useState<IdeActivityView>("explorer");
+    // P1 IDE shell: case tab memories own the case list. The single solver
+    // reads only the active tab. Memories are data only, frame cache is
+    // capped at 4 and cleared on grid change below.
+    const caseTabs = useCaseTabs();
+    const frameCacheRef = useRef<CaseFrameCache<SolvedFrame> | null>(null);
+    if (frameCacheRef.current === null) frameCacheRef.current = new CaseFrameCache<SolvedFrame>();
 
     useEffect(() => {
         applyTheme(prefs.theme);
@@ -509,22 +518,8 @@ export default function App() {
 
     // Shell shortcuts: backtick focus, brackets rails, Escape exits focus.
     // Ignored in fields, with modifiers, and while Settings owns the dialog.
-    // The terminal capture runs first so Escape in a rail input closes the
-    // raised panel after the field reverts its own text.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (shouldCloseTerminalOnEscape(e.key, {
-                terminalOpen,
-                settingsOpen,
-                ctrl: e.ctrlKey,
-                meta: e.metaKey,
-                alt: e.altKey,
-                repeat: e.repeat,
-            })) {
-                e.preventDefault();
-                setTerminalOpen(false);
-                return;
-            }
             const action = resolveShellShortcut(e.key, {
                 settingsOpen,
                 target: e.target,
@@ -545,15 +540,12 @@ export default function App() {
                 toggleRight();
             } else if (action === "exitFocus") {
                 e.preventDefault();
-                // A raised terminal panel eats the first Escape so the strip
-                // stays put, the second Escape restores the prior layout.
-                if (terminalOpen) setTerminalOpen(false);
-                else if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
+                if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
             }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [settingsOpen, terminalOpen, layoutPrefs.focusMode, toggleFocus, toggleLeft, toggleRight, layoutPatch]);
+    }, [settingsOpen, layoutPrefs.focusMode, toggleFocus, toggleLeft, toggleRight, layoutPatch]);
 
     useEffect(() => {
         if (!offline) {
@@ -598,7 +590,6 @@ export default function App() {
     const [openSections, setOpenSections] = useState<Set<string>>(
         () => new Set(["geometry"])
     );
-    const [navActive, setNavActive] = useState<NavId>("studio");
     const toggleSection = useCallback((id: string) => {
         setOpenSections((prev) => {
             const next = new Set(prev);
@@ -610,11 +601,7 @@ export default function App() {
     const openSection = useCallback((id: string) => {
         setOpenSections((prev) => new Set(prev).add(id));
     }, []);
-    const handleNav = useCallback((id: NavId) => {
-        setNavActive(id);
-        openSection("geometry");
-        layoutPatch({ focusMode: false, rightCollapsed: false });
-    }, [openSection, layoutPatch]);
+    void openSection;
 
     const cacheRef = useRef<HashCache | null>(null);
     if (cacheRef.current === null) cacheRef.current = new HashCache(true);
@@ -686,6 +673,15 @@ export default function App() {
     // Last good analytic frame. On a failed solve the UI keeps rendering
     // this frame and reports the error inline instead of throwing.
     const lastGoodRef = useRef<SolvedFrame | null>(null);
+    // P1 IDE shell: frame cache capped at 4, cleared on grid change.
+    // Single solver, single canvas. Tabs hold data memories only.
+    useEffect(() => {
+        try {
+            frameCacheRef.current?.clear();
+        } catch {
+            // Clearing never breaks the solve path.
+        }
+    }, [activeGrid]);
 
     // LBM engine (?engine=lbm): worker backed viscous solve. The worker
     // owns one WasmLbmSolver; this component owns the client plus a passive
@@ -711,18 +707,13 @@ export default function App() {
     const [lbmLesAuto, setLbmLesAuto] = useState(true);
     const [lbmLesManual, setLbmLesManual] = useState(false);
     const [lbmNotice, setLbmNotice] = useState<string | null>(null);
-    // Append only run log feeding the bottom terminal. Capped at 200 rows,
-    // Clear empties the run event rows while derived fault rows persist.
-    const [runLog, setRunLog] = useState<RunLogEntry[]>([]);
-    const appendRunLog = useCallback((entry: RunLogEntry) => {
-        setRunLog((prev) => [...prev.slice(-199), entry]);
-    }, []);
-    const clearTerminal = useCallback(() => {
-        setRunLog([]);
+    // P1 IDE shell: run events surface through the LBM notice stack only.
+    // No bottom terminal state is owned here.
+    const appendRunLog = useCallback((_entry: RunLogEntry) => {
+        // Intentionally no terminal state. Notices carry the message.
     }, []);
     // Agent-first startup honesty: a ?engine=lbm URL that the flag held off
-    // lands one terminal row, once, so the ignored request is visible. The
-    // worker stays uncreated and the frame selector stays analytic.
+    // lands a notice, once. The worker stays uncreated and analytic serves.
     const agentFirstNoteRef = useRef(false);
     useEffect(() => {
         if (!agentFirst.agentFirst || agentFirstNoteRef.current) return;
@@ -738,6 +729,37 @@ export default function App() {
         appendRunLog({ step: 0, message: "Agent-first mode: analytic only, ?engine=lbm ignored, serving the analytic frame.", level: "info" });
     }, [agentFirst, appendRunLog]);
     const lbmLesEffective = lbmLesEnabled(lbmLesAuto, lbmLesManual, debouncedRe);
+    // P1 IDE shell: tab activation drives the single solver. Switching tabs
+    // writes that tab memory into spec and Re. Editing controls mirrors
+    // back into the active tab memory by key comparison, so memories stay
+    // isolated and no loop forms.
+    const tabSyncRef = useRef<string>("");
+    useEffect(() => {
+        const a = caseTabs.active;
+        if (a === null) return;
+        if (tabSyncRef.current === a.id) return;
+        tabSyncRef.current = a.id;
+        try {
+            setSpec(a.spec);
+            setReynolds(a.reynolds);
+        } catch {
+            // Tab switch never breaks the solver state.
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [caseTabs.activeId]);
+    useEffect(() => {
+        const a = caseTabs.active;
+        if (a === null) return;
+        try {
+            const liveKey = caseKeyFor(spec, reynolds, 0).split("|g")[0];
+            const tabKey = caseKeyFor(a.spec, a.reynolds, 0).split("|g")[0];
+            if (liveKey === tabKey) return;
+            caseTabs.updateActive({ spec, reynolds });
+        } catch {
+            // Mirror faults never break the controls.
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [spec, reynolds]);
     // Last completed progress plus the configured target, mirrored in refs
     // so the failover notice can name the death step without stale closures.
     const lbmProgressRef = useRef<LbmProgress>({ step: 0, targetSteps: 0, cd: NaN, cl: NaN });
@@ -1185,6 +1207,13 @@ export default function App() {
 
     const solved = useMemo<{ frame: SolvedFrame; error: string | null }>(() => {
         try {
+            const cache = frameCacheRef.current;
+            const cacheKey = caseKeyFor(debouncedSpec, debouncedRe, solveGrid.nx);
+            const hit = cache?.get(cacheKey) ?? null;
+            if (hit !== null) {
+                lastGoodRef.current = hit;
+                return { frame: hit, error: null };
+            }
             const gridKey = `${solveGrid.nx}x${solveGrid.ny}`;
             let provider = providerRef.current;
             if (provider === null || providerGridKeyRef.current !== gridKey) {
@@ -1211,6 +1240,11 @@ export default function App() {
             };
             const frame: SolvedFrame = { flow, polygons, cl, cpMin, solveMs, provenance };
             lastGoodRef.current = frame;
+            try {
+                cache?.set(cacheKey, frame);
+            } catch {
+                // Cache faults never break the solve path.
+            }
             return { frame, error: null };
         } catch (e: unknown) {
             const message = describeSolveError(e);
@@ -1496,39 +1530,11 @@ export default function App() {
         isNeuralV3Active,
         solveGridNx: solveGrid.nx,
     });
-    // Bottom terminal status: grey idle before the first LBM snapshot, green
-    // ready while live frames serve, pulsing accent while the worker runs,
-    // red while a failover or a held solve latches the fallback.
-    const terminalStatus: TerminalStatus =
-        solveError !== null || lbmFailedActive ? "failed"
-        : lbmStatus === "running" ? "running"
-        : lbmActive && !lbmHasSnapshot ? "idle"
-        : "ready";
-    // Bottom terminal rows: read only mirror of the run log plus the live
-    // failover and validation notices. No notice logic is duplicated, the
-    // notice stack stays the single owner of dismiss and recover actions.
-    const terminalRows = useMemo<TerminalRow[]>(() => {
-        const rows: TerminalRow[] = runLog.map((e, i) => ({
-            key: `run-${i}-s${e.step}`,
-            text: `step ${e.step}: ${e.message}`,
-            tone: e.level,
-        }));
-        if (lbmFailedActive && lbmFailed !== null) {
-            rows.push({ key: "failover", text: lbmFailed, tone: "error" });
-        }
-        if (solveError !== null && !isFixture) {
-            rows.push({ key: "solve", text: `Solve held, showing last good (${solveError})`, tone: "error" });
-        }
-        if (gridState.notice !== null) {
-            rows.push({ key: "grid", text: gridState.notice, tone: "warn" });
-        }
-        if (valSummary.blocking > 0) {
-            rows.push({ key: "val", text: `Validation: ${valSummary.blocking} blocking failures, see VALIDATION section.`, tone: "block" });
-        } else if (valSummary.fail > 0) {
-            rows.push({ key: "val", text: `Validation: ${valSummary.fail} failures, see VALIDATION section.`, tone: "warn" });
-        }
-        return rows;
-    }, [runLog, lbmFailedActive, lbmFailed, solveError, isFixture, gridState.notice, valSummary]);
+    // P1 IDE shell: status problems come from the errorCount selector.
+    // No terminal rows are owned here.
+    const errorCount = selectErrorCount(valSummary);
+    void lbmStatus;
+    void dotClass;
     const regime = regimeLabel(debouncedRe);
     const alphaNote = alphaOutOfBandNote(debouncedSpec.alphaDeg);
     const boundaryKey = `${debouncedSpec.kind}|a${debouncedSpec.alphaDeg}|Re${debouncedRe}|${solverPath}|${flow.nx}x${flow.ny}|${lbmTick}|${neuralKey}|${neuralV3Key}`;
@@ -1745,11 +1751,47 @@ export default function App() {
             gated,
             summary: describeApplyReceipt(applied, gated),
         });
+        // P1 IDE shell: every agent write routes through tab activation so
+        // the active tab owns the new case. Setup presets open or activate
+        // their tab first, primitives write onto the active tab memory.
+        const ensurePresetTab = (id: string, body: string, alphaDeg: number, reynolds: number): void => {
+            try {
+                const existing = caseTabs.tabs.find((t) => t.id === id);
+                if (existing !== undefined) {
+                    if (existing.id !== caseTabs.activeId) caseTabs.activate(existing.id);
+                    return;
+                }
+                let tabSpec: GeometrySpec = spec;
+                try {
+                    if (body === "cylinder") {
+                        tabSpec = { kind: "cylinder", chord: 1, alphaDeg, nPoints: 120, radius: 0.25 };
+                    } else if (body === "naca0012" || body === "naca2412" || body === "naca4412") {
+                        const code = body.slice(4);
+                        const m = body === "naca2412" ? 0.02 : body === "naca4412" ? 0.02 : 0;
+                        const p = body === "naca0012" ? 0.4 : 0.4;
+                        const t = 0.12;
+                        tabSpec = { kind: "naca4", naca: { code, m, p, t }, chord: 1, alphaDeg, nPoints: 120 };
+                    }
+                } catch {
+                    // Fallback keeps the current spec shape.
+                }
+                caseTabs.upsertTab({ id, title: tabTitleFor(tabSpec, reynolds), spec: tabSpec, reynolds, dirty: false }, true);
+            } catch {
+                // Activation faults never break the executor.
+            }
+        };
         if (agentFirst.agentFirst) {
             const blocked = agentFirstRejectionFor(action);
             if (blocked !== null) return finish([], [blocked]);
         }
         if (action.kind === "setup_shedding" || action.kind === "setup_high_pressure" || action.kind === "setup_high_re_wake" || action.kind === "setup_airfoil") {
+            if (action.kind === "setup_shedding") ensurePresetTab("case-shedding", "cylinder", 0, 100);
+            else if (action.kind === "setup_high_re_wake") ensurePresetTab("case-wake", "cylinder", 0, 700);
+            else if (action.kind === "setup_airfoil") {
+                const b = typeof action.body === "string" ? action.body : "naca2412";
+                const a = typeof action.alphaDeg === "number" ? action.alphaDeg : 6;
+                ensurePresetTab(`case-airfoil-${b}`, b, a, 1200);
+            }
             const request = action.kind === "setup_shedding"
                 ? { preset: "shedding" as const }
                 : action.kind === "setup_high_pressure"
@@ -1844,7 +1886,7 @@ export default function App() {
             return finish([action], []);
         }
         return finish([], ["unknown action kind, canvas unchanged"]);
-    }, [agentFirst, spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setLbmArmedAndMirror, applyParametric]);
+    }, [agentFirst, spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setLbmArmedAndMirror, applyParametric, caseTabs]);
 
     // Telemetry engine word. Short uppercase token for the status strip.
     // v3 names first: the v3 street is tried before v2. Agent-first pins
@@ -1992,19 +2034,17 @@ export default function App() {
     const agentContextValue = useMemo(() => buildAgentContext(agentSnapshot), [agentSnapshot]);
 
     return (
-        <div className="page">
+        <div className="page idePage">
             <a className="skip" href="#tunnel">Skip to flow canvas</a>
-            <TopNav
-                active={navActive}
-                onNav={handleNav}
-                settingsOpen={settingsOpen}
+            <IdeTitleBar
+                title={caseTabs.active !== null ? `GearFlow, ${caseTabs.active.title}` : "GearFlow"}
+                subtitle={provenanceLabel}
+                offline={offline}
                 onOpenSettings={() => setSettingsOpen(true)}
-                wasmActive={false}
-                focusMode={layoutPrefs.focusMode}
-                onToggleFocus={toggleFocus}
             />
 
-            <main id="flow" className="layout workbench">
+            <main id="flow" className="layout workbench ideWorkbench">
+                <ActivityBar active={activityView} onSelect={setActivityView} />
                 <RailShell
                     side="left"
                     label="Agent console: conversational assistant"
@@ -2065,7 +2105,8 @@ export default function App() {
                     />
                 )}
 
-                <section className="tunnelCol" aria-label="Tunnel window">
+                <section className="tunnelCol ideEditor" aria-label="Editor and tunnel window">
+                    <EditorTabs tabs={caseTabs.tabs} activeId={caseTabs.activeId} onActivate={caseTabs.activate} />
                     <SceneBars
                         bodyId="sceneBars"
                         collapsed={shell.bars}
@@ -2081,21 +2122,6 @@ export default function App() {
                             agentFirst={agentFirst.agentFirst}
                         />
                     </SceneBars>
-                    <TelemetryBar
-                        engine={engineLabel}
-                        dotClass={dotClass}
-                        gridLabel={`${flow.nx} x ${flow.ny}`}
-                        cells={flow.nx * flow.ny}
-                        solveMs={frame.solveMs}
-                        cl={frame.cl}
-                        cpMin={frame.cpMin}
-                        regime={regime}
-                        provenanceLabel={packLoading && fixtureDebug ? "Loading fixture" : provenanceLabel}
-                        pass={valSummary.pass}
-                        warn={valSummary.warn}
-                        fail={valSummary.fail}
-                        isFixture={isFixture}
-                    />
                     <div className="tunnel" id="tunnel">
                         {layoutPrefs.focusMode && (
                             <button
@@ -2192,18 +2218,15 @@ export default function App() {
                             Full 9 row ledger lives in the app side panel. PDF export carries the same counts plus report rows.
                         </p>
                     </div>
-                    <RunTerminal
-                        status={terminalStatus}
-                        engine={engineLabel}
-                        gridLabel={`${flow.nx} x ${flow.ny}`}
-                        reynolds={debouncedRe}
-                        stepText={lbmActive ? lbmProgressText : "single pass"}
-                        rows={terminalRows}
-                        expanded={terminalOpen}
-                        onToggle={() => setTerminalOpen((v) => !v)}
-                        onClear={clearTerminal}
-                    />
                 </section>
+
+                <IdeSidebar
+                    tabs={caseTabs.tabs}
+                    activeId={caseTabs.activeId}
+                    onActivate={caseTabs.activate}
+                    view={activityView}
+                    onSelectView={setActivityView}
+                />
 
                 {!shell.right && (
                     <ResizeHandle
@@ -2315,6 +2338,11 @@ export default function App() {
                     </ErrorBoundary>
                 </RailShell>
             </main>
+            <IdeStatusBar
+                branch="main"
+                changedCount={0}
+                errorCount={errorCount}
+            />
             <SettingsModal
                 open={settingsOpen}
                 onClose={handleCloseSettings}

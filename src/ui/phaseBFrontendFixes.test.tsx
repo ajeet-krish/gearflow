@@ -121,8 +121,8 @@ describe("Re 1500 LBM band warning funnel", () => {
     });
 });
 
-describe("terminal aware Escape capture", () => {
-    it("closes the raised panel on Escape while Settings is closed", () => {
+describe("IDE Escape without a terminal", () => {
+    it("closes nothing raised: Escape only exits focus while Settings is closed", () => {
         expect(shouldCloseTerminalOnEscape("Escape", { terminalOpen: true, settingsOpen: false })).toBe(true);
     });
 
@@ -146,12 +146,11 @@ describe("terminal aware Escape capture", () => {
         expect(shouldCloseTerminalOnEscape("Escape", { terminalOpen: true, settingsOpen: false, repeat: true })).toBe(false);
     });
 
-    it("App wires the capture before the shell shortcut funnel", async () => {
+    it("App routes Escape through the shell shortcut funnel with no terminal capture", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).toContain("shouldCloseTerminalOnEscape");
-        const captureAt = src.indexOf("shouldCloseTerminalOnEscape(e.key");
+        expect(src).not.toContain("shouldCloseTerminalOnEscape(e.key");
+        expect(src).not.toContain("<RunTerminal");
         const funnelAt = src.indexOf("resolveShellShortcut(e.key");
-        expect(captureAt).toBeGreaterThan(-1);
-        expect(funnelAt).toBeGreaterThan(captureAt);
+        expect(funnelAt).toBeGreaterThan(-1);
     });
 });

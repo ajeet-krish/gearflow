@@ -1,9 +1,11 @@
-// Phase 13 canvas top contract: the tunnel column keeps TopNav, the FIELD
-// bar inside the collapsible SceneBars, the TelemetryBar strip plus the run
-// card and the bottom terminal, while SolverBar and LbmSetupRow stay gone
-// from the canvas path and the right rail carries no DISPLAY section.
-// VALIDATION and EXPORT mount only behind ?debug=1. Reads App.tsx source
-// so the contract cannot drift without a test failure. No DOM needed.
+// P1 IDE shell canvas top contract: the tunnel column keeps the IDE
+// title bar, activity bar, sidebar, editor tabs, and status bar with the
+// FIELD bar inside the collapsible SceneBars plus the run card. SolverBar
+// and LbmSetupRow stay gone from the canvas path and the right rail carries
+// no DISPLAY section. TelemetryBar and RunTerminal stay unmounted, single
+// solver and single canvas only. VALIDATION and EXPORT mount only behind
+// ?debug=1. Reads App.tsx source so the contract cannot drift without a
+// test failure. No DOM needed.
 
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
@@ -14,15 +16,19 @@ const here = dirname(fileURLToPath(import.meta.url));
 const appPath = resolve(here, "../App.tsx");
 
 describe("Phase 13 canvas top", () => {
-    it("keeps TopNav, the FIELD bar, TelemetryBar, the run card, and the bottom terminal", async () => {
+    it("keeps the IDE shell, the FIELD bar, the run card, and the status bar", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).toContain("<TopNav");
+        expect(src).toContain("<IdeTitleBar");
+        expect(src).toContain("<ActivityBar");
+        expect(src).toContain("<IdeSidebar");
+        expect(src).toContain("<EditorTabs");
         expect(src).toContain("<SceneBars");
         expect(src).toContain("<FieldBar");
-        expect(src).toContain("<TelemetryBar");
+        expect(src).not.toContain("<TelemetryBar");
+        expect(src).not.toContain("<RunTerminal");
+        expect(src).not.toContain("<TopNav");
         expect(src).toContain('className="runCard"');
-        expect(src).toContain("<RunTerminal");
-        expect(src).toContain("terminalOpen");
+        expect(src).toContain("<IdeStatusBar");
     });
 
     it("mounts no solver or LBM setup bars above the canvas", async () => {
@@ -61,10 +67,12 @@ describe("Phase 13 canvas top", () => {
         expect(src).toMatch(/debugPanels\s*\?\s*\[/);
     });
 
-    it("keeps the terminal collapsed on load with Escape interplay", async () => {
+    it("owns no terminal state: Escape only exits focus, status carries counts", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).toContain("const [terminalOpen, setTerminalOpen] = useState(false)");
-        expect(src).toContain("if (terminalOpen) setTerminalOpen(false)");
-        expect(src).toContain("clearTerminal");
+        expect(src).not.toContain("terminalOpen");
+        expect(src).not.toContain("clearTerminal");
+        expect(src).not.toContain("<RunTerminal");
+        expect(src).toContain("exitFocus");
+        expect(src).toContain("<IdeStatusBar");
     });
 });

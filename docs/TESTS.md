@@ -1017,3 +1017,42 @@ Phase tests integrate with prior phase tests (all 1564 pre-existing tests still 
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - P1 IDE Shell: Test Report (ruthless verification, status bar plus tabs plus sidebar plus RunTerminal plus tab keys)
+
+### Test Results
+npm test: 118 files, 1612 tests, all passed. Baseline before this file was 117 files, 1571 tests plus 8 tests added on adjacent branches. Delta from this report is src/ui/p1IdeShell.ruthless.test.tsx (33 tests).
+npm run build: tsc noEmit plus vite build succeeded. dist index-DCqQ2ZOn.js 556.68 kB plus three 465.13 kB plus ort 537.92 kB (chunk size warning only, pre-existing pattern).
+
+New coverage in src/ui/p1IdeShell.ruthless.test.tsx (33 tests):
+happy path status bar renders branch plus changed plus error counts with honest aria labels, clean tabs carry zero dots, explorer view opens the curated tree plus case list, RunTerminal modules absent with zero terminal JSX in App, tab memory update retitles and marks dirty with sibling references intact,
+edge large counts render verbatim, all dirty tabs each carry a dot with exactly one aria selected tab, empty tab list renders the tablist with zero tabs, aria expanded tracks one hot plus three cold with custom analysis node mount, non-finite alpha plus Re plus grid keys never throw and never collide with the valid key,
+error solver and provenance tokens absent from status markup (ANALYTIC, LIVE, NEURAL, LBM, FIXTURE, HELD, provenance, engine, grid, field, Cl, CpMin, telemetry, runTerm), close affordances absent in every dirty combination (no ideTabClose, no close label, no times glyph), unknown activation plus unknown update ids keep the store stable, same NACA code with different m plus p plus t fractions yields distinct keys even after grid stripping.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| p1IdeShell.ruthless.test.tsx (33) | PASS | Status git plus errors only, tabs dot only with no close, four disclosures wired to activity view, RunTerminal gone with zero runTerm nodes, isolated memories with fraction sensitive keys |
+| ideShell.test.tsx (pre-existing) | PASS | CaseTabs store plus static shell contract still green |
+| all other Node suites (1579) | PASS | No regressions, 1612 total |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+
+### Coverage Summary
+Happy path covered (status bar three items with labels, explorer tree plus case list, update retitles with dirty flag, activation switches memory).
+Edge cases covered (large counts, all dirty dot count, empty tab list, aria expanded tracking, custom analysis node, non-finite key guards, grid stripped comparison).
+Error conditions covered (solver token absence in markup and App wiring, close affordance absence in all combinations, unknown ids stable, fraction edits separate while equal inputs match).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all pre-existing suites still pass, 1612 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| ruthless close handler source pin (initial run) | Assertion rejected the word close anywhere in EditorTabs.tsx, but the file documents No close buttons in its header comment | Pin handler tokens (ideTabClose, onClose, closeTab, Close label, times glyph) instead of the substring; fixed, now passes |
+
+### Verification Checklist
+- [x] All tests pass (118 files, 1612 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

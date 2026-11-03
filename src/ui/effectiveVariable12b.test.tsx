@@ -86,14 +86,15 @@ describe("App effective variable wiring", () => {
         expect(src).toContain("overlayPatchForFieldChange(next)");
     });
 
-    it("passes the effective variable to the FIELD bar, canvas, and colorbar", async () => {
+    it("passes the effective variable to the FIELD bar, canvas, colorbar, and status", async () => {
         const src = await readFile(appPath, "utf8");
         // FIELD bar chips plus the vertical colorbar share the derived
-        // variable, the canvas takes it as the field mode. The terminal
-        // strip carries engine/grid/Re/step.
+        // variable, the canvas takes it as the field mode. The IDE status
+        // bar carries the field token, no terminal strip remains.
         expect(src).toContain("fieldMode={effectiveVariable}");
         expect(src.match(/variable=\{effectiveVariable\}/g)?.length).toBeGreaterThanOrEqual(2);
-        expect(src).toContain("<RunTerminal");
+        expect(src).toContain("<IdeStatusBar");
+        expect(src).not.toContain("<RunTerminal");
     });
 
     it("requires the statistics sample as well as the channel for the chips", async () => {

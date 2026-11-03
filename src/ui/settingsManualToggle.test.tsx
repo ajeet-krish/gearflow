@@ -323,13 +323,14 @@ describe("debug sections mount only behind the flag", () => {
         }
     });
 
-    it("keeps the telemetry strip and the terminal outside the gate", async () => {
+    it("keeps the status bar and no terminal outside the gate", async () => {
         const src = await readFile(appPath, "utf8");
         const lines = src.split("\n");
+        const status = lines.find((entry) => entry.includes("<IdeStatusBar"));
+        expect(status).toBeDefined();
+        expect(status as string).not.toContain("debugPanels");
         for (const marker of ["<TelemetryBar", "<RunTerminal"] as const) {
-            const line = lines.find((entry) => entry.includes(marker));
-            expect(line).toBeDefined();
-            expect(line as string).not.toContain("debugPanels");
+            expect(src).not.toContain(marker);
         }
     });
 });

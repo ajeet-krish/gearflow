@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import FieldBar, { couplingNoteFor } from "./FieldBar";
 import SettingsModal from "./SettingsModal";
-import TopNav from "./TopNav";
+import IdeTitleBar from "./IdeTitleBar";
 import { readDebugPanels } from "../App";
 import {
     manualPatchForToggle,
@@ -254,63 +254,32 @@ describe("canvas particle size effect", () => {
     });
 });
 
-describe("trimmed TopNav", () => {
-    it("keeps STUDIO, FOCUS, settings, and the WASM badge with no legacy items", () => {
+describe("IDE title bar", () => {
+    it("keeps the case search, offline dot, and settings entry", () => {
         const html = renderToStaticMarkup(
-            <TopNav
-                active="studio"
-                onNav={noop}
-                settingsOpen={false}
+            <IdeTitleBar
+                title="GearFlow, naca2412"
+                subtitle="analytic"
+                offline={false}
                 onOpenSettings={noop}
-                wasmActive={true}
-                focusMode={false}
-                onToggleFocus={noop}
             />,
         );
-        expect(html).toContain("STUDIO");
-        expect(html).toContain("FOCUS");
-        expect(html).toContain("Open settings");
-        expect(html).toContain("WASM");
+        expect(html).toContain("GearFlow");
+        expect(html).toContain("Open display settings");
+        expect(html).toContain('aria-label="IDE title bar"');
         expect(html).not.toContain("VALIDATE");
         expect(html).not.toContain("EXPORT");
-        expect(html).not.toContain("ONLINE");
-        expect(html).not.toContain("OFFLINE");
     });
 
-    it("fires the studio nav and toggles focus through props", () => {
-        const onNav = vi.fn();
-        const onToggleFocus = vi.fn();
-        const tree = TopNav({
-            active: "studio",
-            onNav,
-            settingsOpen: false,
-            onOpenSettings: noop,
-            wasmActive: false,
-            focusMode: false,
-            onToggleFocus,
-        }) as unknown;
-        const btns = findButtons(tree);
-        const studio = btns.find((el) => buttonText(el) === "STUDIO");
-        expect(studio).toBeDefined();
-        (studio!.props.onClick as () => void)();
-        expect(onNav).toHaveBeenCalledWith("studio");
-        const focus = btns.find((el) => buttonText(el) === "FOCUS");
-        expect(focus).toBeDefined();
-        (focus!.props.onClick as () => void)();
-        expect(onToggleFocus).toHaveBeenCalledTimes(1);
-    });
-
-    it("marks the settings expanded state while open", () => {
-        const html = renderToStaticMarkup(
-            <TopNav
-                active="studio"
-                onNav={noop}
-                settingsOpen={true}
-                onOpenSettings={noop}
-                wasmActive={false}
-            />,
+    it("names offline versus live through the search dot", () => {
+        const live = renderToStaticMarkup(
+            <IdeTitleBar title="GearFlow" offline={false} onOpenSettings={noop} />,
         );
-        expect(html).toContain('aria-expanded="true"');
+        const off = renderToStaticMarkup(
+            <IdeTitleBar title="GearFlow" offline={true} onOpenSettings={noop} />,
+        );
+        expect(live).toContain("Live");
+        expect(off).toContain("Offline");
     });
 });
 
@@ -331,10 +300,12 @@ describe("debug flag gates rail sections", () => {
         expect(src).toContain('id: "export"');
     });
 
-    it("keeps telemetry counts and the terminal outside the gate", async () => {
+    it("keeps status counts outside the gate with no telemetry or terminal mounts", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).toContain("<TelemetryBar");
+        expect(src).toContain("<IdeStatusBar");
         expect(src).toContain("valSummary");
-        expect(src).toContain("<RunTerminal");
+        expect(src).toContain("selectErrorCount");
+        expect(src).not.toContain("<TelemetryBar");
+        expect(src).not.toContain("<RunTerminal");
     });
 });

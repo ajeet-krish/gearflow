@@ -95,14 +95,13 @@ describe("LBM App wiring", () => {
         expect(src).toContain("Recover at Re 200");
     });
 
-    it("gates Run on the pre-flight and logs blocks to the run log", async () => {
+    it("gates Run on the pre-flight and surfaces blocks in the notice stack", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).toContain("preflightLbm(");
         expect(src).toContain("Run blocked");
-        // Append only terminal hook: step plus message plus level.
         expect(src).toContain("RunLogEntry");
         expect(src).toContain("appendRunLog");
-        expect(src).toContain("runLog");
+        expect(src).not.toContain("<RunTerminal");
     });
 
     it("threads the death step into the failover notice", async () => {
