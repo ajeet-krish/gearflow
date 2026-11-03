@@ -2,6 +2,8 @@
 // centered case search, window dots on the right. Visual emulation only,
 // no vendored code.
 
+import { BrandMark } from "./TopNav";
+
 export interface IdeTitleBarProps {
     title: string;
     subtitle?: string;
@@ -14,6 +16,9 @@ const MENU = ["File", "Edit", "Selection", "View", "Go", "Run"] as const;
 export default function IdeTitleBar({ title, subtitle, offline, onOpenSettings }: IdeTitleBarProps) {
     return (
         <header className="ideTitleBar" aria-label="IDE title bar">
+            <span className="ideBrandMark" aria-hidden="true">
+                <BrandMark size={18} />
+            </span>
             <nav className="ideMenu" aria-label="Title bar menu">
                 {MENU.map((m) => (
                     <span key={m} className="ideMenuItem" aria-hidden="true">

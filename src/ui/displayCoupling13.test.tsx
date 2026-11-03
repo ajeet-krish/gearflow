@@ -1,6 +1,6 @@
 // Phase 13 display coupling: FIELD bar chip mapping plus the coupling
 // note, override then recouple, Settings effective rows and the particle
-// size slider, the canvas size effect, the trimmed TopNav, and the debug
+// size slider, the canvas size effect, the STUDIO plus THEORY TopNav, and the debug
 // flag gating the rail sections. Static markup plus direct element calls,
 // App and FlowCanvas source reads for wiring. No live solves.
 

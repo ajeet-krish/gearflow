@@ -6,6 +6,8 @@ import AgentConsole from "@/ui/AgentConsole";
 import EvalLogPanel from "@/ui/EvalLogPanel";
 import SettingsModal from "@/ui/SettingsModal";
 import IdeTitleBar from "@/ui/IdeTitleBar";
+import TopNav, { type NavId } from "@/ui/TopNav";
+import TheoryPage from "@/ui/TheoryPage";
 import ActivityBar from "@/ui/ActivityBar";
 import EditorTabs from "@/ui/EditorTabs";
 import IdeSidebar from "@/ui/IdeSidebar";
@@ -377,6 +379,11 @@ export default function App() {
     const shell = shellVisibility(layoutPrefs);
     const { state: gridState, recordSolveMs, setMode: setGridMode, clearNotice } = useResolution();
     const [settingsOpen, setSettingsOpen] = useState(false);
+    // P2 top navbar route: studio is the tunnel workbench, theory is the
+    // airfoil companion page. Theory replaces the tunnel column content
+    // while the rails stay mounted; the canvas unmounts while theory is
+    // active so no solve frames render behind the page.
+    const [activeNav, setActiveNav] = useState<NavId>("studio");
     // P1 IDE shell: no bottom terminal. Escape only exits focus mode.
     const [activityView, setActivityView] = useState<IdeActivityView>("explorer");
     // P1 IDE shell: case tab memories own the case list. The single solver
@@ -516,8 +523,9 @@ export default function App() {
         layoutPatch({ focusMode: !layoutPrefs.focusMode });
     }, [layoutPrefs.focusMode, layoutPatch]);
 
-    // Shell shortcuts: backtick focus, brackets rails, Escape exits focus.
-    // Ignored in fields, with modifiers, and while Settings owns the dialog.
+    // Shell shortcuts: backtick full screen, brackets rails, Escape exits
+    // full screen. Ignored in fields, with modifiers, and while Settings
+    // owns the dialog.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const action = resolveShellShortcut(e.key, {
@@ -601,7 +609,19 @@ export default function App() {
     const openSection = useCallback((id: string) => {
         setOpenSections((prev) => new Set(prev).add(id));
     }, []);
-    void openSection;
+
+    // P2 top navbar route. STUDIO returns to the tunnel and opens geometry
+    // with the analysis rail expanded. THEORY shows the companion page in
+    // the center column while the rails stay mounted. Any nav exits full
+    // screen mode so the destination renders with its panels.
+    const handleNav = useCallback((id: NavId) => {
+        setActiveNav(id);
+        if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
+        if (id === "studio") {
+            openSection("geometry");
+            layoutPatch({ rightCollapsed: false });
+        }
+    }, [layoutPrefs.focusMode, layoutPatch, openSection]);
 
     const cacheRef = useRef<HashCache | null>(null);
     if (cacheRef.current === null) cacheRef.current = new HashCache(true);
@@ -2035,12 +2055,21 @@ export default function App() {
 
     return (
         <div className="page idePage">
-            <a className="skip" href="#tunnel">Skip to flow canvas</a>
+            <a className="skip" href={activeNav === "theory" ? "#theory" : "#tunnel"}>{activeNav === "theory" ? "Skip to theory content" : "Skip to flow canvas"}</a>
             <IdeTitleBar
                 title={caseTabs.active !== null ? `GearFlow, ${caseTabs.active.title}` : "GearFlow"}
                 subtitle={provenanceLabel}
                 offline={offline}
                 onOpenSettings={() => setSettingsOpen(true)}
+            />
+
+            <TopNav
+                active={activeNav}
+                onNav={handleNav}
+                settingsOpen={settingsOpen}
+                onOpenSettings={() => setSettingsOpen(true)}
+                focusMode={layoutPrefs.focusMode}
+                onToggleFocus={toggleFocus}
             />
 
             <main id="flow" className="layout workbench ideWorkbench">
@@ -2106,6 +2135,10 @@ export default function App() {
                 )}
 
                 <section className="tunnelCol ideEditor" aria-label="Editor and tunnel window">
+                    {activeNav === "theory" ? (
+                        <TheoryPage />
+                    ) : (
+                    <>
                     <EditorTabs tabs={caseTabs.tabs} activeId={caseTabs.activeId} onActivate={caseTabs.activate} />
                     <SceneBars
                         bodyId="sceneBars"
@@ -2128,9 +2161,9 @@ export default function App() {
                                 type="button"
                                 className="focusExit"
                                 onClick={toggleFocus}
-                                aria-label="Exit focus mode and restore panels"
+                                aria-label="Exit full screen mode and restore panels"
                             >
-                                EXIT FOCUS
+                                EXIT FULL SCREEN
                             </button>
                         )}
                         <ErrorBoundary resetKey={boundaryKey} label="flow canvas">
@@ -2218,6 +2251,8 @@ export default function App() {
                             Full 9 row ledger lives in the app side panel. PDF export carries the same counts plus report rows.
                         </p>
                     </div>
+                    </>
+                    )}
                 </section>
 
                 <IdeSidebar

@@ -82,11 +82,14 @@ html, body, #root {
 }
 .skip:focus { left: 0.5em; top: 0.5em; }
 
-/* Top navbar: 56px, deep, hairline bottom border. */
+/* Top navbar: 56px, hairline bottom border. 3-zone grid keeps the
+   STUDIO/THEORY links at true geometric center regardless of brand
+   and right cluster widths. */
 .topNav {
   height: 56px;
   flex: none;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 16px;
   padding: 0 16px;
@@ -94,9 +97,10 @@ html, body, #root {
   border-bottom: 1px solid var(--dust);
   z-index: 20;
 }
-.brand { display: flex; align-items: center; gap: 12px; flex: none; }
+.brand { display: flex; align-items: center; gap: 12px; justify-self: start; min-width: 0; }
+.brand svg { display: block; border-radius: 6px; }
 .wordmark { font-weight: 700; font-size: 18px; font-family: var(--mono); color: var(--text); letter-spacing: 0.01em; }
-.navLinks { display: flex; align-items: center; gap: 4px; margin-left: 12px; }
+.navLinks { display: flex; align-items: center; justify-content: center; justify-self: center; gap: 4px; margin: 0; min-width: 0; }
 .navLink {
   min-height: 44px;
   padding: 6px 12px;
@@ -111,7 +115,7 @@ html, body, #root {
 }
 .navLink:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
 .navLink.active { color: var(--purple); background: rgba(189, 147, 249, 0.1); }
-.navRight { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.navRight { margin-left: 0; display: flex; align-items: center; justify-content: flex-end; justify-self: end; gap: 12px; min-width: 0; }
 .offlineChip {
   display: inline-flex;
   align-items: center;
@@ -147,13 +151,93 @@ html, body, #root {
   cursor: pointer;
 }
 .navIcon:hover { color: var(--text); background: rgba(255, 255, 255, 0.1); }
-.wasmBadge {
+
+.ideBrandMark { display: inline-flex; flex: none; align-items: center; }
+.ideBrandMark svg { display: block; border-radius: 4px; }
+
+.navLink:focus-visible, .navIcon:focus-visible, .theoryTocLink:focus-visible, .theoryTocSubLink:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 2px;
+}
+
+/* Theory companion page: Zenith style two column reference. TOC sidebar
+   pins left, prose scrolls right. Quiet instrument skin, cyan math. */
+.theoryWrap { flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--void); color: var(--text); }
+.theoryToc {
+  width: 224px;
+  flex: none;
+  overflow-y: auto;
+  padding: 24px 16px;
+  background: var(--deep);
+  border-right: 1px solid var(--dust);
+}
+.theoryTocTitle {
   font-size: 10px;
-  color: var(--cyan);
-  border: 1px solid var(--cyan);
-  border-radius: 2px;
-  padding: 2px 6px;
-  white-space: nowrap;
+  font-family: var(--mono);
+  color: var(--comment);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 16px;
+}
+.theoryTocList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.theoryTocSub { list-style: none; margin: 2px 0 0 12px; padding: 0 0 0 12px; border-left: 1px solid var(--dust); display: flex; flex-direction: column; gap: 2px; }
+.theoryTocLink {
+  display: block;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--label);
+  text-decoration: none;
+  padding: 2px 0;
+}
+.theoryTocLink:hover { color: var(--purple); }
+.theoryTocSubLink {
+  display: block;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--comment);
+  text-decoration: none;
+  padding: 2px 0;
+}
+.theoryTocSubLink:hover { color: var(--purple); }
+.theoryBody { flex: 1; min-width: 0; overflow-y: auto; }
+.theoryInner { max-width: 48rem; margin: 0 auto; padding: 40px 24px 80px; }
+.theoryH1 { font-size: 24px; font-family: var(--mono); font-weight: 700; color: var(--text); margin: 0 0 8px; }
+.theorySub { font-size: 13px; font-family: var(--mono); color: var(--comment); margin: 0 0 32px; }
+.theoryH2 {
+  font-size: 18px;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--text);
+  margin: 40px 0 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--dust);
+}
+.theoryH3 { font-size: 14px; font-family: var(--mono); font-weight: 600; color: var(--purple); margin: 24px 0 8px; }
+.theoryP { font-size: 13px; font-family: var(--mono); color: var(--label); line-height: 1.7; margin: 0 0 12px; }
+.theoryInlineMath { color: var(--cyan); }
+.theoryBlockMath { margin: 16px 0; text-align: center; overflow-x: auto; color: var(--cyan); font-size: 15px; }
+.theoryNote {
+  background: rgba(189, 147, 249, 0.05);
+  border: 1px solid rgba(189, 147, 249, 0.2);
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--label);
+  line-height: 1.6;
+}
+.theoryNoteLabel { color: var(--purple); font-weight: 600; }
+.theoryCard { background: var(--card); border: 1px solid var(--dust); border-radius: 4px; padding: 16px; margin: 16px 0; font-size: 12px; font-family: var(--mono); }
+.theoryCardRow { display: grid; grid-template-columns: 72px 1fr 72px 88px; gap: 8px; padding: 6px 0; color: var(--label); }
+.theoryCardRow + .theoryCardRow { border-top: 1px solid var(--dust); }
+.theoryCardHead { color: var(--cyan); }
+.theoryList { font-size: 13px; font-family: var(--mono); color: var(--label); line-height: 1.7; margin: 0 0 12px; padding-left: 20px; }
+.theoryList li { margin-bottom: 4px; }
+.scroll-mt { scroll-margin-top: 16px; }
+@media (max-width: 760px) {
+  .theoryToc { display: none; }
+  .theoryCardRow { grid-template-columns: 64px 1fr 56px 72px; }
 }
 
 /* Workbench: three columns, full height, only rails scroll. */
@@ -1401,8 +1485,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .railLeft.isCollapsed .latchWord, .railRight.isCollapsed .latchWord { writing-mode: horizontal-tb; }
   .resizeHandle { display: none; }
   .tunnelCol { min-height: 60vh; order: -1; }
-  .topNav { flex-wrap: wrap; height: auto; min-height: 56px; padding: 8px 12px; }
-  .navLinks { margin-left: 0; }
+  .topNav { grid-template-columns: 1fr; justify-items: center; height: auto; min-height: 56px; padding: 8px 12px; }
+  .brand { justify-self: center; }
+  .navRight { justify-self: center; }
+  .navLinks { margin-left: 0; justify-self: center; }
 }
 
 @media (prefers-reduced-motion: reduce) {

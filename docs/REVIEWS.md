@@ -2287,3 +2287,43 @@ Checks detail: IdeStatusBar PASS (props and render limited to branch, changed co
 - [x] Phase code integrates cleanly with prior phases
 
 Note recurring pattern: spec pins now cover the rendered chrome (status items, no close markup, four disclosures, deleted module), closing the prior shell drift gap; the remaining gap is a direct serialization key test, the same test the contract rather than the implementation pattern flagged since Phase 1.
+
+## 2026-11-03 - P2 TopNav plus Theory Review
+
+Date: 2026-11-03
+Reviewer: code-reviewer
+Scope: P2 TopNav wave icon plus centered STUDIO/THEORY plus FULL SCREEN rename, TheoryPage KaTeX port with physics-only copy, App routing, IdeTitleBar mark, favicon, katex dep (src/ui/TopNav.tsx, src/ui/TheoryPage.tsx, src/ui/IdeTitleBar.tsx, src/App.tsx routing, src/styles.css nav/theory, index.html, icon.svg, public/icon.svg, package.json)
+Verdict: PASS
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Minor | src/styles.css:100, src/ui/TopNav.tsx:61-79 | STUDIO/THEORY are centered only within the flex remainder between asymmetric brand and right clusters, not geometrically at header center, so centering shifts with FULL SCREEN, gear, and badge width | frontend-dev: use a 3-zone grid with a truly centered middle zone, or absolutely center navLinks, and pin with a layout test. Delegate via orchestrator. |
+| Minor | src/App.tsx:2058,2139-2140 | Skip link still targets #tunnel while Theory replaces the tunnel and unmounts that id, so the skip link is dead on the Theory route | frontend-dev: point the skip link at the active main content on Theory, or render it only on Studio. Delegate via orchestrator. |
+| Minor | src/ui/TheoryPage.tsx:340 | Suction peak copy says minimum Cp often 2 to 4, omitting the negative sign for suction Cp | frontend-dev: change to negative 2 to negative 4, or say magnitude 2 to 4. Delegate via orchestrator. |
+| Minor | src/ui/TheoryPage.tsx:391-402 | Re regime copy calls the 50,000 default laminar while the same section bands tens of thousands as transitional, matching neither itself nor the App regime label | frontend-dev: align the default and regime bands in one wording. Delegate via orchestrator. |
+| Minor | src/ui/TheoryPage.tsx:13-32,141-152 | KaTeX spans carry no tex fallback or label if rendering fails, and TOC clicks scroll without moving focus or updating the hash | frontend-dev: add an accessible tex label or fallback, and move focus to the target heading on TOC activation. Delegate via orchestrator. |
+| Minor | src/ui/TopNav.tsx:18-43, src/ui/IdeTitleBar.tsx:19-21, src/App.tsx:2071 | BrandMark announces alongside the GearFlow wordmark in TopNav, is aria-hidden only in IdeTitleBar, and wasmActive is hardcoded false so the WASM badge and prop are dead in the shell | frontend-dev: make BrandMark decorative where the wordmark is present, keep one labelled instance, and remove or wire the wasmActive prop honestly. Delegate via orchestrator. |
+| Minor | public/icon.svg:15, icon.svg:15 | Favicon background path has no explicit fill (defaults black) unlike the BrandMark #0d0d12 rounded rect with stroke, and both files retain SVG Repo metadata bloat | frontend-dev: set the explicit dark fill and rounded geometry matching BrandMark, strip generator metadata. Delegate via orchestrator. |
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| TopNav wave icon | PASS | BrandMark at src/ui/TopNav.tsx:18-44 reuses the Tsunami/Storm surges wave path with a dark rounded rect, role img, aria-label, and title; same path as icon.svg:16 and public/icon.svg:16 |
+| Centered STUDIO/THEORY | PASS with Minor | NAV_ITEMS studio/theory at TopNav.tsx:46-49, buttons with aria-current at 67-77, centered flex at styles.css:100; true geometric centering Minor above |
+| FULL SCREEN rename | PASS | Label FULL SCREEN at TopNav.tsx:89, aria-pressed at 84, dynamic enter/exit aria-label at 86, no FOCUS label remains (shell.test.tsx:36-43,60-61); focusMode is panel collapse, copy says collapse panels |
+| TheoryPage KaTeX port | PASS | InlineMath/BlockMath at TheoryPage.tsx:13-32 mirror the Zenith hooks, katex render with throwOnError false, displayMode for blocks, CSS import at line 10, katex ^0.19.1 in package.json:27 and locked in package-lock.json:2307; all tex is static, no user input, no trust option, no eval or dangerouslySetInnerHTML |
+| Physics-only copy, no solver leak | PASS | Full text search of TheoryPage.tsx finds no LBM, WASM, Rust, worker, surrogate, neural, ONNX, analytic solver, Hess, or panel method copy in rendered prose; sections cover NACA geometry, potential flow, Cl, Cp, alpha, Re, stall, before/after at TheoryPage.tsx:217-481; physics formulas verified (thickness closed TE variant, camber branches, Laplace, Cl slope, Cp Bernoulli form, Re), worked example 0012 Cl 0.44 at 4 deg matches thin airfoil; sign and regime Minors above |
+| App routing | PASS | activeNav state at App.tsx:386, handleNav at 617-624 exits full screen, STUDIO opens geometry and expands the right rail, Theory swaps only the tunnel column at 2139-2140 while rails stay mounted and the canvas unmounts; pinned at canvasTop.test.ts:35-44 |
+| IdeTitleBar mark | PASS | IdeTitleBar.tsx:5,19-20 imports and reuses BrandMark at 18px, wrapped aria-hidden so the duplicate mark is decorative there |
+| Favicon | PASS with Minor | index.html:8 links ./icon.svg served from public/icon.svg with the same wave path; explicit fill Minor above |
+| A11y | PASS with Minors | Nav buttons are real buttons with aria-current, FULL SCREEN has aria-pressed and a descriptive label, settings has aria-haspopup and aria-expanded, TOC nav is labelled at TheoryPage.tsx:155, reduced motion is honored at 143-152, focus-visible styles at styles.css:163-166, before/after uses table roles at TheoryPage.tsx:450-468; skip link, math fallback, TOC focus, and brand duplication Minors above |
+| Conventions | PASS | 4-space indent, PascalCase types (NavId, TopNavProps, TOCEntry), camelCase handlers, no em dashes or double hyphens in scoped prose, no secrets |
+
+### Verification Checklist
+- [x] All checks passed (Minors only, none blocking)
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests inspected, not executed, in this review session (no shell tool available to the reviewer): shell.test.tsx:20-77, theoryPage.test.tsx:10-53, canvasTop.test.ts:35-44. Note recurring pattern: static markup tests pin labels, anchors, and math mount points well, while layout centering, Theory route skip link, and TOC focus behavior remain unpinned at runtime, the familiar wiring seam gap. Delegate Minor fixes to frontend-dev via orchestrator.

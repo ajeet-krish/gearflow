@@ -1,48 +1,42 @@
 // GearFlow top navbar, Zenith instrument-room style. 56px tall, deep
-// background, purple active states. Single STUDIO link plus FOCUS, the
-// settings gear, and the WASM badge. No network state here: the offline
-// chip lives in the agent rail behind the debug flag.
+// background, purple active states. STUDIO plus THEORY links centered
+// via a 3-zone grid, FULL SCREEN toggle, the settings gear. The brand
+// mark is the Tsunami/Storm surges wave: a white wave on a dark square,
+// decorative where the GearFlow wordmark is present.
 
-export type NavId = "studio";
+export type NavId = "studio" | "theory";
 
 export interface TopNavProps {
     active: NavId;
     onNav: (id: NavId) => void;
     settingsOpen: boolean;
     onOpenSettings: () => void;
-    wasmActive: boolean;
     focusMode?: boolean;
     onToggleFocus?: () => void;
 }
 
-function BrandMark() {
+export function BrandMark({ size = 32 }: { size?: number }) {
     return (
         <svg
-            width="32"
-            height="32"
-            viewBox="0 0 32 32"
-            fill="none"
+            width={size}
+            height={size}
+            viewBox="0 0 60.601 60.601"
             aria-hidden="true"
+            focusable="false"
         >
-            <path
-                d="M3 21 C 9 21, 12 8, 20 8 L 29 8"
-                stroke="#bd93f9"
-                strokeWidth="2"
-                strokeLinecap="round"
-            />
-            <path
-                d="M3 25 C 10 25, 13 15, 21 15 L 27 15"
-                stroke="#8be9fd"
+            <rect
+                x="4.601"
+                y="4.603"
+                width="51.396"
+                height="51.396"
+                rx="7"
+                fill="#0d0d12"
+                stroke="#44475a"
                 strokeWidth="1.5"
-                strokeLinecap="round"
-                opacity="0.8"
             />
             <path
-                d="M6 12 C 12 12, 15 18, 24 18"
-                stroke="#8be9fd"
-                strokeWidth="1"
-                strokeLinecap="round"
-                opacity="0.45"
+                d="m51.741 38.818c-5.6441 1.305-14.982 2.3517-22.272-2.0335-3.7074-2.2226-5.1507-6.6078-3.2417-9.7941 1.9229-3.1817 6.4649-3.961 10.163-1.743 0.54873 0.3274 1.0375 0.69629 1.4756 1.1067l0.5395-0.31355c-2.7805-6.9398-11.763-13.608-29.479-4.2653v-12.888h42.815z"
+                fill="#f8f8f2"
             />
         </svg>
     );
@@ -50,6 +44,7 @@ function BrandMark() {
 
 const NAV_ITEMS: Array<{ id: NavId; label: string }> = [
     { id: "studio", label: "STUDIO" },
+    { id: "theory", label: "THEORY" },
 ];
 
 export default function TopNav({
@@ -57,7 +52,6 @@ export default function TopNav({
     onNav,
     settingsOpen,
     onOpenSettings,
-    wasmActive,
     focusMode = false,
     onToggleFocus,
 }: TopNavProps) {
@@ -87,10 +81,10 @@ export default function TopNav({
                         className={focusMode ? "navLink active" : "navLink"}
                         aria-pressed={focusMode}
                         onClick={onToggleFocus}
-                        aria-label={focusMode ? "Exit focus mode and restore panels" : "Enter focus mode and collapse panels"}
+                        aria-label={focusMode ? "Exit full screen mode and restore panels" : "Enter full screen mode and collapse panels"}
                         title="Full tunnel view (backtick)"
                     >
-                        FOCUS
+                        FULL SCREEN
                     </button>
                 )}
                 <button
@@ -112,14 +106,9 @@ export default function TopNav({
                         aria-hidden="true"
                     >
                         <circle cx="12" cy="12" r="3" />
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1 -2.83 2.83l-.06-.06a1.65 1.65 0 0 0 -1.82-.33 1.65 1.65 0 0 0 -1 1.51V21a2 2 0 1 1 -4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0 -1.82.33l-.06.06a2 2 0 1 1 -2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0 -1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0 -.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0 -.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0 -1.51 1z" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1 -2.83 2.83l-.06-.06a1.65 1.65 0 0 0 -1.82-.33 1.65 1.65 0 0 0 -1 1.51V21a2 2 0 1 1 -4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0 -1.82.33l-.06.06a2 2 0 1 1 -2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0 -1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0 -.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l.06.06a1.65 1.65 0 0 0 -.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0 -1.51 1z" />
                     </svg>
                 </button>
-                {wasmActive && (
-                    <span className="wasmBadge mono" role="status">
-                        WASM
-                    </span>
-                )}
             </div>
         </header>
     );

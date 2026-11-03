@@ -1,11 +1,12 @@
-// P1 IDE shell canvas top contract: the tunnel column keeps the IDE
-// title bar, activity bar, sidebar, editor tabs, and status bar with the
-// FIELD bar inside the collapsible SceneBars plus the run card. SolverBar
-// and LbmSetupRow stay gone from the canvas path and the right rail carries
-// no DISPLAY section. TelemetryBar and RunTerminal stay unmounted, single
-// solver and single canvas only. VALIDATION and EXPORT mount only behind
-// ?debug=1. Reads App.tsx source so the contract cannot drift without a
-// test failure. No DOM needed.
+// P2 IDE shell canvas top contract: the tunnel column keeps the IDE
+// title bar, the top navbar with STUDIO and THEORY, activity bar, sidebar,
+// editor tabs, and status bar with the FIELD bar inside the collapsible
+// SceneBars plus the run card. SolverBar and LbmSetupRow stay gone from the
+// canvas path and the right rail carries no DISPLAY section. TelemetryBar
+// and RunTerminal stay unmounted, single solver and single canvas only.
+// THEORY replaces the tunnel column while studio keeps the canvas.
+// VALIDATION and EXPORT mount only behind ?debug=1. Reads App.tsx source
+// so the contract cannot drift without a test failure. No DOM needed.
 
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
@@ -16,9 +17,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const appPath = resolve(here, "../App.tsx");
 
 describe("Phase 13 canvas top", () => {
-    it("keeps the IDE shell, the FIELD bar, the run card, and the status bar", async () => {
+    it("keeps the IDE shell, the top navbar, the FIELD bar, the run card, and the status bar", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).toContain("<IdeTitleBar");
+        expect(src).toContain("<TopNav");
         expect(src).toContain("<ActivityBar");
         expect(src).toContain("<IdeSidebar");
         expect(src).toContain("<EditorTabs");
@@ -26,9 +28,19 @@ describe("Phase 13 canvas top", () => {
         expect(src).toContain("<FieldBar");
         expect(src).not.toContain("<TelemetryBar");
         expect(src).not.toContain("<RunTerminal");
-        expect(src).not.toContain("<TopNav");
         expect(src).toContain('className="runCard"');
         expect(src).toContain("<IdeStatusBar");
+    });
+
+    it("routes studio versus theory through the top navbar with the canvas hidden on theory", async () => {
+        const src = await readFile(appPath, "utf8");
+        expect(src).toContain("<TheoryPage");
+        expect(src).toContain("activeNav");
+        expect(src).toContain("handleNav");
+        expect(src).toContain('activeNav === "theory"');
+        expect(src).toContain("FULL SCREEN");
+        expect(src).toContain("Exit full screen mode and restore panels");
+        expect(src).not.toContain("EXIT FOCUS");
     });
 
     it("mounts no solver or LBM setup bars above the canvas", async () => {

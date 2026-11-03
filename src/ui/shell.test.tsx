@@ -17,23 +17,47 @@ import { DEFAULT_DOMAIN } from "@/contracts/types";
 const noop = () => {};
 
 describe("GearFlow shell", () => {
-    it("renders a top navbar with the GearFlow wordmark and a single STUDIO link", () => {
+    it("renders a top navbar with the GearFlow wordmark plus centered STUDIO and THEORY links", () => {
         const html = renderToStaticMarkup(
             <TopNav
                 active="studio"
                 onNav={noop}
                 settingsOpen={false}
                 onOpenSettings={noop}
-                wasmActive={false}
+                focusMode={false}
+                onToggleFocus={noop}
             />
         );
         expect(html).toContain("GearFlow");
         expect(html).toContain("STUDIO");
+        expect(html).toContain("THEORY");
+        expect(html).not.toContain("Tsunami/Storm surges");
+        expect(html).not.toContain("WASM");
+        expect(html).toContain("FULL SCREEN");
+        expect(html).toContain("Enter full screen mode and collapse panels");
         expect(html).not.toContain("VALIDATE");
         expect(html).not.toContain("EXPORT");
         expect(html).not.toContain("ONLINE");
         expect(html).not.toContain("OFFLINE");
         expect(html).not.toContain("navExport");
+        expect(html).not.toContain(">FOCUS<");
+    });
+
+    it("marks the active nav link with aria-current and names the full screen exit", () => {
+        const html = renderToStaticMarkup(
+            <TopNav
+                active="theory"
+                onNav={noop}
+                settingsOpen={false}
+                onOpenSettings={noop}
+                focusMode={true}
+                onToggleFocus={noop}
+            />
+        );
+        expect(html).toContain("THEORY");
+        expect(html).toContain('aria-current="page"');
+        expect(html).toContain("FULL SCREEN");
+        expect(html).toContain("Exit full screen mode and restore panels");
     });
 
     it("top navbar renders a Settings button bound to the dialog", () => {
@@ -43,7 +67,6 @@ describe("GearFlow shell", () => {
                 onNav={noop}
                 settingsOpen={true}
                 onOpenSettings={noop}
-                wasmActive={false}
             />
         );
         expect(html).toContain("Open settings");
