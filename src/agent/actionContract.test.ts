@@ -84,12 +84,22 @@ describe("prompt snapshot", () => {
         expect(system).not.toContain("Re 1000");
     });
 
-    it("carries the arbitrary code set_spec instruction plus the tutor thickness line", () => {
+    it("carries the any-code set_spec instruction with rationale plus analytic-only guidance", () => {
         const system = promptSystem();
         expect(system).toContain("set_spec");
-        expect(system).toContain("0012, 2412, and 4412");
-        expect(system).toContain("6 to 18%");
-        expect(system).toContain("physics explainer");
+        expect(system).toContain("Any 4-digit NACA rides one set_spec");
+        expect(system).toContain("rationale");
+        expect(system).toContain("Agent setup NACA 2415 alpha 6.");
+        expect(system).toContain("e.g. NACA 0012, 2412, 4412 presets");
+        expect(system).toContain("Analytic only: set_engine analytic only");
+        expect(system).toContain("speed, cp, omega, u, v");
+        expect(system).toContain("never propose run_lbm");
+        expect(system).toContain("the alpha sweep stays analytic");
+        expect(system).toContain("one sentence describing the new case");
+        expect(system).toContain("before versus after table plus Why plus Try next");
+        expect(system).not.toContain("6 to 18%");
+        expect(system).not.toContain("physics explainer");
+        expect(system).not.toContain("envelope");
     });
 
     it("preset lines match live expandCasePreset output", () => {

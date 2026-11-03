@@ -145,9 +145,9 @@ describe("modal console chrome", () => {
         expect(html).toContain("Confirm Run LBM");
     });
 
-    it("keeps SAM as a separate cached entry point outside Modal", () => {
+    it("keeps the chat input free of a separate SAM entry point", () => {
         const html = renderToStaticMarkup(<AgentConsole offline={false} onOfflineChange={() => {}} />);
-        expect(html).toContain("SAM sketch (cached, offline)");
+        expect(html).not.toContain("SAM sketch (cached, offline)");
     });
 });
 

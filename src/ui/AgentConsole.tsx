@@ -314,7 +314,7 @@ export function presetPromptLines(): { live: string; retired: string } {
         }
         if (preset.id === "airfoil") {
             parts.push(
-                `airfoil (${preset.actionKind}) is ${body} at alpha ${alpha} Re ${re} ${field} field, honoring a named NACA body (0012, 2412, 4412) plus alpha`
+                `airfoil (${preset.actionKind}) is ${body} at alpha ${alpha} Re ${re} ${field} field, e.g. NACA 0012, 2412, 4412 presets`
             );
         } else {
             parts.push(`${preset.id} (${preset.actionKind}) is ${body} alpha ${alpha} Re ${re} ${field} field`);
@@ -345,14 +345,17 @@ export function buildModalMessages(
         "```action-json",
         '{"kind":"set_alpha","alphaDeg":6}',
         "```",
+        "```action-json",
+        '{"kind":"set_spec","spec":{"geometry":{"kind":"naca4","naca":{"code":"2415","m":0.02,"p":0.4,"t":0.15},"chord":1,"alphaDeg":6,"nPoints":120},"reynolds":200000,"rationale":"Agent setup NACA 2415 alpha 6."}}',
+        "```",
         `Valid kinds: ${contract.kinds.join(", ")}.`,
         `Setup presets expand atomically: ${presetLines.live}.`,
         presetLines.retired,
-        "For NACA codes outside 0012, 2412, and 4412, set_body cannot carry them: send one set_spec with the full parametric geometry plus reynolds plus rationale instead.",
-        "Tutor voice: when a NACA section is valid but unrealistically thick or cambered (outside 6 to 18% thickness or 0 to 9% camber), add one physics explainer sentence naming the draggy unvalidated coefficients and pointing at 12 to 15% thickness with 2 to 4% camber, then keep the applied case.",
+        'Any 4-digit NACA rides one set_spec with the full parametric geometry plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup NACA 2415 alpha 6.").',
         "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [1000, 1000000].",
         "Alpha sweep: when the user asks for an alpha sweep, staircase, or what if across alpha, answer with no action fence and name the live analytic staircase (-4 to 12 step 2, 9 points), the console runs it locally with Stop plus per-point Apply chips.",
-        "set_engine accepts analytic or lbm only. set_field k needs TKE ready, recirc needs the mask ready. run_lbm needs LBM live and renders as a confirm chip, never auto runs.",
+        "Analytic only: set_engine analytic only, set_field one of speed, cp, omega, u, v, never propose run_lbm, cancel_lbm, or set_engine lbm, the alpha sweep stays analytic.",
+        "Reply with one sentence describing the new case (body plus alpha plus Re plus what changed on canvas), then the validated apply follows and the tutor turn teaches the result with a before versus after table plus Why plus Try next.",
     ];
     if (agentFirst) {
         systemLines.push(
@@ -360,7 +363,7 @@ export function buildModalMessages(
         );
     }
     systemLines.push(
-        "Never invent bodies, Re, or alpha: quote the envelope bounds and name the nearest in-domain case on rejection. Out of domain cases stay on the analytic path.",
+        "Never invent bodies, Re, or alpha: name the nearest valid case on rejection. Out of domain cases stay on the analytic path.",
         `Live context: ${contextJson}`
     );
     const system: ModalMessage = {
@@ -566,7 +569,6 @@ export default function AgentConsole({
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState<boolean>(() => initialBusy ?? false);
     const [stopping, setStopping] = useState(false);
-    const [samNote, setSamNote] = useState(false);
     const [spend, setSpend] = useState<SpendTotals>({ model: MODAL_MODEL_ID, inputTokens: 0, outputTokens: 0, costUsd: 0 });
     const busyRef = useRef<boolean>(initialBusy ?? false);
     const abortRef = useRef<AbortController | null>(null);
@@ -1875,20 +1877,6 @@ export default function AgentConsole({
                 )}
                 {forcedLocal && !softStopped && (
                     <p className="mSub mono">Demo mode, cached table only, zero network, canvas unchanged.</p>
-                )}
-            </div>
-            <div className="chatSam">
-                <button
-                    type="button"
-                    className="chip"
-                    onClick={() => setSamNote((v) => !v)}
-                    aria-label="SAM sketch entry point, cached and offline"
-                    aria-expanded={samNote}
-                >
-                    SAM sketch (cached, offline)
-                </button>
-                {samNote && (
-                    <p className="mSub">Sketch segmentation stays cached and offline. SAM runs outside this chat and never routes through Modal from here.</p>
                 )}
             </div>
         </div>
