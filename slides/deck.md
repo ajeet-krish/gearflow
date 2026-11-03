@@ -4,56 +4,70 @@ theme: gearflow
 paginate: false
 ---
 
-<div class="eyebrow">SOLO INDIE BUILDER</div>
+<!-- _class: invert -->
 
-<div class="lead">Ajeet</div>
+###### SOLO INDIE BUILDER
 
-<div class="accent-cyan">GearFlow: chat sets up aerodynamics</div>
+# Ajeet
 
----
-
-<div class="lead">CFD setup takes hours.</div>
-
-<div class="lead accent-purple">What if it took seconds?</div>
-
-<div class="muted">No meshes. No menus. Just describe it.</div>
+*GearFlow: chat sets up aerodynamics*
 
 ---
 
-<div class="lead">Students see physics instantly.</div>
+<!-- _class: invert -->
 
-<div class="lead">Engineers test ideas without burning cluster time.</div>
+# CFD setup takes hours.
 
----
+## What if it **took seconds?**
 
-<div class="eyebrow">ONE HARNESS, EVERY TURN</div>
-
-<div class="mono">You → Meta text model (Modal) → fenced actions → validator → app + tutor</div>
-
-<div class="mono small">n=1, capped length, temp 0, 5 action cap, $5 spend cap</div>
+###### No meshes. No menus. Just describe it.
 
 ---
 
-<div class="lead">Labeled, always.</div>
+<!-- _class: invert -->
 
-<div class="accent-amber">analytic preview, potential flow estimate, not validated</div>
+# Students see physics instantly.
 
-<div class="mono small">cache 24h, spend capped $5, failures land honest with Retry</div>
-
----
-
-<div class="lead">2D inviscid today.</div>
-
-<div class="lead accent-cyan">Full solver next.</div>
-
-<div class="muted">agent drives a built-in solver end to end, image + audio inputs later</div>
+## Engineers test ideas without burning cluster time.
 
 ---
 
-<div class="lead">GearFlow</div>
+<!-- _class: invert -->
 
-<div>Ajeet</div>
+###### ONE HARNESS, EVERY TURN
 
-<div class="muted">Meta Global Hackathon</div>
+`You → Meta text model (Modal) → fenced actions → validator → app + tutor`
 
-<div class="mono small">[repo URL] + [demo URL]</div>
+`n=1, capped length, temp 0, 5 action cap, $5 spend cap`
+
+---
+
+<!-- _class: invert -->
+
+# Labeled, always.
+
+## <span class="amber">analytic preview, potential flow estimate, not validated</span>
+
+`cache 24h, spend capped $5, failures land honest with Retry`
+
+---
+
+<!-- _class: invert -->
+
+# 2D inviscid today.
+
+## *Full solver next.*
+
+###### agent drives a built-in solver end to end, image + audio inputs later
+
+---
+
+<!-- _class: invert -->
+
+# GearFlow
+
+## Ajeet
+
+###### Meta Global Hackathon
+
+`[repo URL] + [demo URL]`
