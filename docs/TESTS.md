@@ -1100,3 +1100,44 @@ Phase tests integrate with prior phase tests (all 1629 pre-existing tests still 
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - P4 Auto Grid 512: Test Report (auto 512 default, two slow solve fallback to 256, pinned modes unchanged, 512 cap, custom 32 to 512, Vercel stay docs)
+
+### Test Results
+npm test: 122 files, 1667 tests, all passed. Baseline before this file was 121 files, 1654 tests, all passed. Delta is src/p4.grid512.test.ts (13 tests).
+npm run build: tsc noEmit plus vite build succeeded. dist index 833.48 kB plus three 465.13 kB plus ort 537.92 kB (chunk size warning only, pre-existing pattern).
+
+New coverage in src/p4.grid512.test.ts (13 tests):
+happy path GRID_512 pins 512 with auto resolving to it and two consecutive slow solves falling back to 256 with autoDropped plus notice, pinned GRID_OPTIONS stays [64, 128, 256], custom 32 to 512 accepted with SettingsModal plus App copy naming the 512 contract, README plus DECISIONS Vercel stay notes present,
+edge single slow plus on-budget timing with no fallback, fast solve resets streak with non-finite timings ignored, pinned 256 plus 128 plus 64 plus custom 96 never fall back across repeated slow solves, pinning 256 clears prior auto drop with pinning auto returning to 512, custom 32 and 512 boundaries accepted,
+error custom 31 plus 513 plus 7 plus zero plus negative plus fractional plus abc plus empty plus NaN rejected with 32 to 512 reasons, bad custom commits keep prior size with notice, SettingsModal rejects the old 256 label, schema MAX_NX plus MAX_NY stay 512.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| p4.grid512.test.ts (13) | PASS | Auto 512 default, two slow fallback to 256, pinned unchanged, 512 cap, custom 32 to 512, docs notes |
+| resolution.test.ts (6) | PASS | Updated P4 pins still green (512 default, 256 fallback) |
+| phase6.hardening grid fallback (3) | PASS | Updated P4 pins still green (auto 512, 256 fallback) |
+| phaseB grid presets plus custom (1) | PASS | Custom 32 to 512 plus 64 preset still green |
+| all other Node suites (1654) | PASS | No regressions, 1667 total |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+
+### Coverage Summary
+Happy path covered (auto defaults 512, two slow solves fall back to 256 with notice, pinned options unchanged, custom range intact, docs notes present).
+Edge cases covered (single slow no fallback, on-budget no fallback, streak reset, non-finite ignored, pin transitions, custom boundaries).
+Error conditions covered (custom outside 32 to 512 rejected, bad custom keeps prior with notice, old copy rejected).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1654 pre-existing tests still pass, 1667 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | All 13 new tests passed on the first run, full suite green | No fix needed |
+
+### Verification Checklist
+- [x] All tests pass (122 files, 1667 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

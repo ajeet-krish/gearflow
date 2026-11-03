@@ -442,7 +442,7 @@ describe("Settings grid extension", () => {
 
     it("offers 64 and Custom beyond auto, 256, and 128", () => {
         const html = renderSettings();
-        for (const label of ["Auto (256, fallback to 128)", "256 x 256 pinned", "128 x 128 pinned", "64 x 64 pinned", "Custom square"]) {
+        for (const label of ["Auto (512, fallback to 256)", "256 x 256 pinned", "128 x 128 pinned", "64 x 64 pinned", "Custom square"]) {
             expect(html).toContain(label);
         }
     });

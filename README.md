@@ -172,7 +172,9 @@ npm run wasm:build
 npm run wasm:test
 ```
 
-Then open with `?wasm=1` or `?engine=wasm`. For Vercel, set the same server only env (`MODAL_CHAT_URL`, `MODAL_PROXY_TOKEN`, optional `MODAL_MODEL_ID`) in the project env, keep `VITE_MODAL_URL=/api/modal`. For the judged booth copy with no network:
+Then open with `?wasm=1` or `?engine=wasm`. For Vercel, set the same server only env (`MODAL_CHAT_URL`, `MODAL_PROXY_TOKEN`, optional `MODAL_MODEL_ID`) in the project env, keep `VITE_MODAL_URL=/api/modal`.
+
+Deployment: stay on Vercel, GitHub Pages rejected. `/api/modal` is a serverless proxy that holds `MODAL_PROXY_TOKEN` in server env, so live chat and Tutor keep working. A Pages static export has no server proxy, so live Tutor would fail or would need an unsafe client side token. An optional Pages build is cached demo only with no live Tutor. For the judged booth copy with no network:
 
 ```sh
 VITE_DEMO_OFFLINE=true npm run build

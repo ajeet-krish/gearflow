@@ -1,4 +1,4 @@
-// Resolution controller tests: 256 default, auto fallback after two
+// Resolution controller tests: 512 default, auto fallback after two
 // consecutive slow solves, pinned modes never fall back.
 
 import { describe, expect, it, beforeEach } from "vitest";
@@ -9,7 +9,7 @@ import {
     setGridMode,
     SLOW_SOLVE_MS,
 } from "./gridController";
-import { GRID_128, GRID_256 } from "@/contracts/types";
+import { GRID_128, GRID_256, GRID_512 } from "@/contracts/types";
 
 describe("gridController", () => {
     beforeEach(() => {
@@ -20,24 +20,24 @@ describe("gridController", () => {
         }
     });
 
-    it("defaults to auto with a 256 active grid", () => {
+    it("defaults to auto with a 512 active grid", () => {
         const state = initialResolution();
         expect(state.mode).toBe("auto");
-        expect(resolveGridSize(state)).toBe(GRID_256);
+        expect(resolveGridSize(state)).toBe(GRID_512);
         expect(state.autoDropped).toBe(false);
     });
 
-    it("falls back to 128 after two consecutive solves over budget", () => {
+    it("falls back to 256 after two consecutive solves over budget", () => {
         let state = initialResolution("auto");
         const first = recordSolve(state, SLOW_SOLVE_MS + 50);
         expect(first.fellBack).toBe(false);
-        expect(resolveGridSize(first.state)).toBe(GRID_256);
+        expect(resolveGridSize(first.state)).toBe(GRID_512);
         state = first.state;
         const second = recordSolve(state, SLOW_SOLVE_MS + 50);
         expect(second.fellBack).toBe(true);
-        expect(resolveGridSize(second.state)).toBe(GRID_128);
+        expect(resolveGridSize(second.state)).toBe(GRID_256);
         expect(second.state.autoDropped).toBe(true);
-        expect(second.state.notice).toContain("128");
+        expect(second.state.notice).toContain("256");
     });
 
     it("resets the slow streak on a fast solve", () => {
@@ -47,7 +47,7 @@ describe("gridController", () => {
         expect(state.slowStreak).toBe(0);
         const next = recordSolve(state, SLOW_SOLVE_MS + 1);
         expect(next.fellBack).toBe(false);
-        expect(resolveGridSize(next.state)).toBe(GRID_256);
+        expect(resolveGridSize(next.state)).toBe(GRID_512);
     });
 
     it("never falls back when pinned to 256", () => {

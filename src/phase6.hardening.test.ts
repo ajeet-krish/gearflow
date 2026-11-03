@@ -45,7 +45,7 @@ import {
 } from "@/render/fieldShader";
 import { loadDisplayPrefs, storeDisplayPrefs } from "@/ui/displayStore";
 import { loadTheme, storeTheme, applyTheme } from "@/ui/theme";
-import { GRID_128, GRID_256, DEFAULT_DISPLAY_PREFS } from "@/contracts/types";
+import { GRID_128, GRID_256, GRID_512, DEFAULT_DISPLAY_PREFS } from "@/contracts/types";
 import type { ChatTurn, FlowField } from "@/contracts/types";
 
 function installMemoryStorage(): Map<string, string> {
@@ -225,10 +225,10 @@ describe("phase6 hardening grid controller fallback", () => {
     installMemoryStorage();
   });
 
-  it("defaults to auto 256 and resolves the active size", () => {
+  it("defaults to auto 512 and resolves the active size", () => {
     const state = initialResolution("auto");
     expect(state.mode).toBe("auto");
-    expect(resolveGridSize(state)).toBe(GRID_256);
+    expect(resolveGridSize(state)).toBe(GRID_512);
     expect(resolveGridSize(initialResolution("128"))).toBe(GRID_128);
   });
 
@@ -236,12 +236,12 @@ describe("phase6 hardening grid controller fallback", () => {
     let state = initialResolution("auto");
     const first = recordSolve(state, SLOW_SOLVE_MS + 50);
     expect(first.fellBack).toBe(false);
-    expect(resolveGridSize(first.state)).toBe(GRID_256);
+    expect(resolveGridSize(first.state)).toBe(GRID_512);
     const second = recordSolve(first.state, SLOW_SOLVE_MS + 50);
     expect(second.fellBack).toBe(true);
-    expect(resolveGridSize(second.state)).toBe(GRID_128);
+    expect(resolveGridSize(second.state)).toBe(GRID_256);
     expect(second.state.autoDropped).toBe(true);
-    expect(second.state.notice).toContain("128");
+    expect(second.state.notice).toContain("256");
   });
 
   it("resets the streak on a fast solve and ignores non finite timings", () => {

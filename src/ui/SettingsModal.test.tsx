@@ -15,7 +15,7 @@ function render(prefs = DEFAULT_DISPLAY_PREFS) {
             prefs={prefs}
             onPatch={noop}
             gridMode="auto"
-            activeGrid={256}
+            activeGrid={512}
             onGridMode={noop}
             variable="speed"
         />,
@@ -39,7 +39,7 @@ describe("SettingsModal", () => {
     it("renders the resolution control with the active grid hint", () => {
         const html = render();
         expect(html).toContain("RESOLUTION");
-        expect(html).toContain("256 x 256");
+        expect(html).toContain("512 x 512");
         expect(html).not.toContain("Surrogate and fixture stay at 128.");
     });
 
@@ -108,7 +108,7 @@ describe("SettingsModal", () => {
                 prefs={DEFAULT_DISPLAY_PREFS}
                 onPatch={noop}
                 gridMode="auto"
-                activeGrid={256}
+                activeGrid={512}
                 onGridMode={noop}
                 variable="speed"
             />,

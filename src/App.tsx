@@ -280,8 +280,8 @@ export function shouldRetryNeuralPredict(retriedKey: string | null, failedKey: s
  * GearFlow Phase 6 shell. Agent console on the left, tunnel canvas center,
  * instrument rack on the right. Analytic path computes locally with zero
  * fetch on the critical path. Neural v2 overlays the analytic frame when
- * the router selects it, analytic may run 256
- * with automatic fallback to 128 after repeated slow solves.
+ * the router selects it, analytic may run 512
+ * with automatic fallback to 256 after repeated slow solves.
  */
 export interface RunLogEntry {
     step: number;
@@ -679,7 +679,7 @@ export default function App() {
     }, [fixtureDebug, pack, packLoading]);
 
     // Effective solve grid. Analytic follows the resolution controller
-    // (256 default, auto fallback to 128). Neural v2 stays at its canonical
+    // (512 default, auto fallback to 256). Neural v2 stays at its canonical
     // 128 inside the adapter, fixture debug renders its baked field as is.
     const activeGrid = gridState.active;
     const solveGrid = useMemo(
@@ -1271,7 +1271,7 @@ export default function App() {
     }, [debouncedSpec, debouncedRe, solveGrid, fastDecision.reason]);
 
     // Resolution bookkeeping: record each fresh solve once. Two consecutive
-    // analytic solves over budget at 256 drop to 128 automatically.
+    // analytic solves over budget at 512 drop to 256 automatically.
     const recordedSolveRef = useRef("");
     useEffect(() => {
         if (solved.error !== null) return;

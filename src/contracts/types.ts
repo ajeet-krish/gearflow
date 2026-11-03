@@ -308,7 +308,7 @@ export type AgentAction =
 /** Selectable field quantity rendered on the tunnel canvas. */
 export type FieldMode = "speed" | "cp" | "omega" | "u" | "v" | "k" | "recirc";
 
-/** Supported solve grid sizes. Surrogate stays at 128, analytic may use 64, 128, or 256. */
+/** Supported solve grid sizes. Surrogate stays at 128, analytic may use 64, 128, 256, or 512. Auto defaults to 512 with fallback to 256. */
 export type GridPreset = 64 | 128 | 256;
 /** Effective solve grid size: a preset or a custom square side. */
 export type GridSize = GridPreset | (number & {});
@@ -316,6 +316,8 @@ export type GridSize = GridPreset | (number & {});
 export const GRID_64: GridPreset = 64;
 export const GRID_128: GridPreset = 128;
 export const GRID_256: GridPreset = 256;
+/** Auto mode default grid. A GridSize (not a pinned preset) capped by CUSTOM_GRID_MAX. */
+export const GRID_512: GridSize = 512;
 export const GRID_OPTIONS: GridPreset[] = [GRID_64, GRID_128, GRID_256];
 
 /** Custom square grid bounds. Squares from 32 to 512 inclusive. */

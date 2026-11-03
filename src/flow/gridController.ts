@@ -1,11 +1,11 @@
-// Resolution controller. Analytic solves default to 256x256; two consecutive
-// solves slower than 800 ms at 256 drop to 128 with a notice. The mode is
+// Resolution controller. Analytic solves default to 512x512; two consecutive
+// solves slower than 800 ms at 512 drop to 256 with a notice. The mode is
 // persisted to localStorage. Surrogate always stays at 128 and never goes
 // through this controller. Phase B adds the 64 preset plus a custom square
 // (32 to 512) parsed by parseCustomGrid.
 
 import { useCallback, useRef, useState } from "react";
-import { CUSTOM_GRID_MAX, CUSTOM_GRID_MIN, GRID_128, GRID_256, GRID_64, type GridSize } from "@/contracts/types";
+import { CUSTOM_GRID_MAX, CUSTOM_GRID_MIN, GRID_128, GRID_256, GRID_512, GRID_64, type GridSize } from "@/contracts/types";
 
 export type GridMode = "auto" | "256" | "128" | "64" | "custom";
 
@@ -99,7 +99,8 @@ function activeFor(mode: GridMode, customSize: number): GridSize {
     if (mode === "128") return GRID_128;
     if (mode === "64") return GRID_64;
     if (mode === "custom") return customSize;
-    return GRID_256;
+    if (mode === "256") return GRID_256;
+    return GRID_512;
 }
 
 export function initialResolution(mode?: GridMode): ResolutionState {
@@ -107,7 +108,7 @@ export function initialResolution(mode?: GridMode): ResolutionState {
     const customSize = readCustomSize();
     return {
         mode: m,
-        active: m === "128" ? GRID_128 : m === "64" ? GRID_64 : m === "custom" ? customSize : GRID_256,
+        active: m === "128" ? GRID_128 : m === "64" ? GRID_64 : m === "custom" ? customSize : m === "256" ? GRID_256 : GRID_512,
         customSize,
         slowStreak: 0,
         autoDropped: false,
@@ -122,7 +123,7 @@ export function resolveGridSize(state: ResolutionState): GridSize {
 
 /**
  * Record one solve duration. Returns the next state plus fellBack, which is
- * true only on the transition from 256 to 128. Only auto mode can fall back;
+ * true only on the transition from 512 to 256. Only auto mode can fall back;
  * pinned modes keep their size and only track the streak.
  */
 export function recordSolve(
@@ -130,7 +131,7 @@ export function recordSolve(
     fieldMs: number
 ): { state: ResolutionState; fellBack: boolean } {
     const ms = Number.isFinite(fieldMs) ? fieldMs : 0;
-    if (state.active !== GRID_256) {
+    if (state.active !== GRID_512) {
         return { state: { ...state, slowStreak: 0 }, fellBack: false };
     }
     if (ms <= SLOW_SOLVE_MS) {
@@ -142,10 +143,10 @@ export function recordSolve(
         return {
             state: {
                 ...state,
-                active: GRID_128,
+                active: GRID_256,
                 slowStreak: streak,
                 autoDropped: true,
-                notice: `Two consecutive solves over ${SLOW_SOLVE_MS} ms at 256, dropped to 128 automatically.`,
+                notice: `Two consecutive solves over ${SLOW_SOLVE_MS} ms at 512, dropped to 256 automatically.`,
             },
             fellBack: true,
         };
@@ -156,6 +157,9 @@ export function recordSolve(
 /** Pin a grid mode. Pinning 256 clears a prior auto drop. Custom pins the parsed size. */
 export function setGridMode(state: ResolutionState, mode: GridMode, customRaw?: unknown): ResolutionState {
     storeMode(mode);
+    if (mode === "256") {
+        return { ...state, mode, active: GRID_256, slowStreak: 0, autoDropped: false, notice: null };
+    }
     if (mode === "128") {
         return { ...state, mode, active: GRID_128, notice: null };
     }
@@ -170,7 +174,7 @@ export function setGridMode(state: ResolutionState, mode: GridMode, customRaw?: 
         storeCustomSize(parsed.size);
         return { ...state, mode, active: parsed.size, customSize: parsed.size, notice: null };
     }
-    return { ...state, mode, active: GRID_256, slowStreak: 0, autoDropped: false, notice: null };
+    return { ...state, mode, active: GRID_512, slowStreak: 0, autoDropped: false, notice: null };
 }
 
 /** React binding for the resolution controller. */

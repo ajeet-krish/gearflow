@@ -247,3 +247,10 @@ Append only. Add new entries at bottom with date. Never rewrite history.
 * Options considered: Keep Baseten as a documented fallback with a dual upstream switch versus keep the local prose fallback for tutor failures versus cut both and document Modal only with honest error turns.
 * Decision: Scrap Baseten everywhere in the live path. Single Modal upstream at POST /api/modal/chat/completions, model gearflow-chat, server only MODAL_CHAT_URL plus MODAL_PROXY_TOKEN, optional server only MODAL_MODEL_ID, client base VITE_MODAL_URL. Missing or hostile config fails closed to 503 before any upstream call. Every live turn forces Modal, the parser fast path is removed, deterministic parser plus sweep plus misconception helpers stay local and credit free. Chat and tutor are prose only with no local fallback, tutor prompt tutor-v2 keeps reasoning in reasoning_content only with a collapsed trace plus the before versus after table, failures render rows plus the error plus a Retry chip that reuses the turn id with zero canvas writes. Security Mediums from the Modal hardening pass are closed and pinned by handler plus proxy tests.
 * Impact (judging link): Demo (one truthful live path with honest Retry, no silent fallback prose) and Technical Depth (fail closed auth, forced model pin, collapsed reasoning trace, review gate clean).
+
+### 2026-11-03 Stay on Vercel, GitHub Pages rejected
+* Date: 2026-11-03
+* Context: Need a hosted demo URL before Nov 4 with live Tutor working and no secret leakage.
+* Options considered: Stay on Vercel with server env versus move to GitHub Pages static export.
+* Decision: Stay on Vercel, reject GitHub Pages for the live build. `/api/modal` serverless proxy hides `MODAL_PROXY_TOKEN` in server env, so live Tutor keeps working. A Pages static export would kill live Tutor or force an unsafe client token. Optional Pages static build shows cached demo only with no live Tutor.
+* Impact (judging link): Demo (live Tutor works on the judged URL) and Technical Depth (token stays server side, no client secret).

@@ -358,7 +358,7 @@ export default function SettingsModal({
                                 aria-label="Solve resolution"
                                 aria-describedby="settingsGridHint"
                             >
-                                <option value="auto">Auto (256, fallback to 128)</option>
+                                <option value="auto">Auto (512, fallback to 256)</option>
                                 <option value="256">256 x 256 pinned</option>
                                 <option value="128">128 x 128 pinned</option>
                                 <option value="64">64 x 64 pinned</option>
