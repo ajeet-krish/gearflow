@@ -466,31 +466,29 @@ describe("Settings grid extension", () => {
 });
 
 describe("panel rework leftovers", () => {
-    it("App SIMULATION panel is a readout with no grid or solver path fields", async () => {
+    it("App unmounts the SIMULATION and GEOMETRY rails but keeps the funnel", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).not.toMatch(/LBM_MAX_RE,/);
         expect(src).not.toContain("LBM_MAX_RE");
         expect(src).not.toContain("solveGrid.nx === 256 ? 256 : 128");
         expect(src).not.toContain("activeGrid={flow.nx}");
-        expect(src).toContain("agentFirst={agentFirst.agentFirst}");
-        expect(src).toContain("bodyLabel={bodyRowLabel}");
-        expect(src).toContain("regime={regime}");
+        expect(src).not.toContain("<SimulationSection");
+        expect(src).not.toContain("<GeometrySection");
+        expect(src).not.toContain('id: "simulation"');
+        expect(src).not.toContain('id: "geometry"');
     });
 
-    it("App mounts SIMULATION plus GEOMETRY sections with the new components", async () => {
+    it("App keeps the Re and LBM funnels with no rail mounts", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).toContain('id: "simulation"');
-        expect(src).toContain('id: "geometry"');
-        expect(src).toContain("<SimulationSection");
-        expect(src).toContain("<GeometrySection");
-        expect(src).toContain("onCommitReynolds={onReynoldsBar}");
-        expect(src).toContain("onLbmRun={onLbmRun}");
-        expect(src).toContain("onLbmRecover={onLbmRecoverRe}");
+        expect(src).not.toContain("<SimulationSection");
+        expect(src).not.toContain("<GeometrySection");
+        expect(src).not.toContain("onCommitReynolds={onReynoldsBar}");
+        expect(src).not.toContain("onLbmRun={onLbmRun}");
+        expect(src).not.toContain("onLbmRecover={onLbmRecoverRe}");
         expect(src).not.toContain("<FlowControls");
         expect(src).toContain("commitReynoldsValue(raw, lbmActive, reynolds)");
         expect(src).toContain("preflightLbm(");
         expect(src).toContain("Run blocked");
-        expect(src).toContain("orificeResolutionWarning");
     });
 
     it("App passes the extended grid state into SettingsModal", async () => {

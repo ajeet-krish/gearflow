@@ -280,12 +280,14 @@ describe("debug flag gates rail sections", () => {
         expect(readDebugPanels("?debug=1&engine=lbm")).toBe(true);
     });
 
-    it("mounts VALIDATION and EXPORT only behind the flag", async () => {
+    it("unmounts VALIDATION and EXPORT with the right rail removed", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).toContain("readDebugPanels(window.location.search)");
         expect(src).toContain("debugPanels");
-        expect(src).toContain('id: "validation"');
-        expect(src).toContain('id: "export"');
+        expect(src).not.toContain('id: "validation"');
+        expect(src).not.toContain('id: "export"');
+        expect(src).not.toContain("<ValidationPanel");
+        expect(src).not.toContain("<ExportBar");
     });
 
     it("keeps validation counts outside the gate with no status bar, telemetry, or terminal mounts", async () => {

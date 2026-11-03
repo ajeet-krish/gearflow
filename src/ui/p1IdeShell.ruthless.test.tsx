@@ -1,5 +1,5 @@
-// Phase 25 shell excision ruthless verification: excised bars, tabs,
-// sidebar with internal disclosure state, RunTerminal eradication, tab
+// Body selector ruthless verification: excised bars and sidebar, Body
+// tabs with fixed labels and dirty dots, RunTerminal eradication, tab
 // memory isolation with full key coverage. Static markup only (vitest
 // node env), plus App source pins.
 
@@ -8,19 +8,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+    BODY_TABS,
+    bodyTabLabelFor,
     caseKeyFor,
     createCaseTabsStore,
     defaultCaseTabs,
     storeActivate,
     storeActive,
     storeUpdate,
-    tabTitleFor,
 } from "./caseTabs";
 import type { GeometrySpec } from "@/contracts/types";
 import EditorTabs from "./EditorTabs";
-import IdeSidebar from "./IdeSidebar";
 import TopNav from "./TopNav";
-import { IDE_ACTIVITY_VIEWS } from "./ideData";
 
 const noop = () => {};
 
@@ -38,18 +37,18 @@ function count(hay: string, needle: string): number {
     return hay.split(needle).length - 1;
 }
 
-describe("Phase 25 excised bars: modules gone, zero tokens", () => {
-    it("deletes the title, activity, and status bar modules", () => {
-        for (const name of ["IdeTitleBar.tsx", "ActivityBar.tsx", "IdeStatusBar.tsx"]) {
+describe("Excised bars plus sidebar: modules gone, zero tokens", () => {
+    it("deletes the title, activity, status bar, and sidebar modules", () => {
+        for (const name of ["IdeTitleBar.tsx", "ActivityBar.tsx", "IdeStatusBar.tsx", "IdeSidebar.tsx", "ideData.ts"]) {
             expect(existsSync(resolve(__dirname, name))).toBe(false);
         }
         const names = readdirSync(__dirname);
-        expect(names.some((n) => n === "IdeTitleBar.tsx" || n === "ActivityBar.tsx" || n === "IdeStatusBar.tsx")).toBe(false);
+        expect(names.some((n) => n === "IdeTitleBar.tsx" || n === "ActivityBar.tsx" || n === "IdeStatusBar.tsx" || n === "IdeSidebar.tsx" || n === "ideData.ts")).toBe(false);
     });
 
-    it("carries zero excised bar tokens in App source or markup", () => {
+    it("carries zero excised tokens in App source or markup", () => {
         const src = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
-        for (const token of ["IdeTitleBar", "ActivityBar", "IdeStatusBar", "activityView", "ideTitleBar", "ideActivity", "ideStatus"]) {
+        for (const token of ["IdeTitleBar", "ActivityBar", "IdeStatusBar", "IdeSidebar", "ideData", "activityView", "ideTitleBar", "ideActivity", "ideStatus", "ideSide", "gripRight", "railRightBody"]) {
             expect(src).not.toContain(token);
         }
         const tabs = defaultCaseTabs();
@@ -57,12 +56,13 @@ describe("Phase 25 excised bars: modules gone, zero tokens", () => {
             <div className="page idePage">
                 <TopNav active="studio" onNav={noop} settingsOpen={false} onOpenSettings={noop} />
                 <EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />
-                <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />
             </div>,
         );
         expect(html.toLowerCase()).not.toContain("idetitlebar");
         expect(html).not.toContain("ideActivity");
         expect(html).not.toContain("ideStatus");
+        expect(html).not.toContain("ideSide");
+        expect(html).not.toContain("Right sidebar");
         expect(html).toContain("topNav");
     });
 
@@ -71,9 +71,24 @@ describe("Phase 25 excised bars: modules gone, zero tokens", () => {
         expect(src).toContain("<TopNav");
         expect(src.indexOf("<TopNav")).toBeLessThan(src.indexOf("<main"));
     });
+
+    it("AnalysisPanel stays in code but unmounted", () => {
+        expect(existsSync(resolve(__dirname, "./AnalysisPanel.tsx"))).toBe(true);
+        const src = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
+        expect(src).not.toContain("<AnalysisPanel");
+    });
 });
 
-describe("P1 tabs: no close buttons, dirty dot only", () => {
+describe("Body tabs: fixed labels, no close buttons, dirty dot only", () => {
+    it("ships four body tabs with fixed ids and labels", () => {
+        const tabs = defaultCaseTabs();
+        expect(tabs).toHaveLength(4);
+        expect(tabs.map((t) => t.id)).toEqual(["airfoil", "cylinder", "block", "orifice"]);
+        expect(tabs.map((t) => t.title)).toEqual(["NACA Airfoil", "Cylinder", "Rectangle", "Orifice"]);
+        expect(BODY_TABS.map((t) => t.id)).toEqual(["airfoil", "cylinder", "block", "orifice"]);
+        for (const t of tabs) expect(bodyTabLabelFor(t.spec)).toBe(t.title);
+    });
+
     it("clean tabs carry zero dots and zero close affordances", () => {
         const tabs = defaultCaseTabs();
         const html = renderToStaticMarkup(<EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />);
@@ -106,11 +121,14 @@ describe("P1 tabs: no close buttons, dirty dot only", () => {
         expect(html).toContain("unsaved changes");
     });
 
-    it("empty tab list renders the tablist with zero tabs and no crash", () => {
-        const html = renderToStaticMarkup(<EditorTabs tabs={[]} activeId="" onActivate={noop} />);
-        expect(html).toContain('aria-label="Open cases"');
-        expect(html).toContain('role="tablist"');
-        expect(html).not.toContain('role="tab"');
+    it("renders the BODY label with the Body tablist", () => {
+        const tabs = defaultCaseTabs();
+        const html = renderToStaticMarkup(<EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />);
+        expect(html).toContain("BODY");
+        expect(html).toContain('aria-label="Body"');
+        expect(html).toContain('aria-label="Body selector"');
+        expect(html).toContain("NACA Airfoil");
+        expect(html).toContain("Rectangle");
     });
 
     it("exactly one tab is aria selected", () => {
@@ -128,100 +146,19 @@ describe("P1 tabs: no close buttons, dirty dot only", () => {
             expect(src).not.toContain(token);
         }
     });
-});
 
-describe("Phase 25 right sidebar: four disclosures with internal view state", () => {
-    it("declares exactly the four activity views", () => {
-        expect(IDE_ACTIVITY_VIEWS.map((v) => v.id)).toEqual(["explorer", "source-control", "extensions", "analysis"]);
-    });
-
-    it("renders exactly four disclosure sections with the VS Code labels", () => {
-        const tabs = defaultCaseTabs();
-        const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />,
-        );
-        expect(count(html, 'class="ideSec"')).toBe(4);
-        for (const label of ["Explorer", "Source Control", "Extensions", "Analysis"]) {
-            expect(html).toContain(label);
-        }
-        expect(html).toContain('aria-label="Right sidebar"');
-    });
-
-    it("explorer view opens the curated tree and case list by default only", () => {
-        const tabs = defaultCaseTabs();
-        const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />,
-        );
-        for (const name of ["docs", "src-agent", "src-ui", "src-render"]) expect(html).toContain(name);
-        for (const t of tabs) expect(html).toContain(t.title);
-        expect(html).not.toContain("GearFlow Solver");
-        expect(html).not.toContain("snapshot, not live git");
-        expect(html).not.toContain("Analysis mounts here");
-    });
-
-    it("source control view is a labelled snapshot, never live git", () => {
-        const tabs = defaultCaseTabs();
-        const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} initialView="source-control" />,
-        );
-        expect(html).toContain("snapshot, not live git");
-        expect(html).not.toContain("GearFlow Solver");
-        expect(html).not.toContain("src-agent");
-    });
-
-    it("extensions view lists the static solver entries only", () => {
-        const tabs = defaultCaseTabs();
-        const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} initialView="extensions" />,
-        );
-        expect(html).toContain("GearFlow Solver");
-        expect(html).toContain("Validation Ledger");
-        expect(html).toContain("Export");
-        expect(html).not.toContain("src-agent");
-        expect(html).not.toContain("snapshot, not live git");
-    });
-
-    it("analysis view mounts the default placeholder and a custom node when supplied", () => {
-        const tabs = defaultCaseTabs();
-        const fallback = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} initialView="analysis" />,
-        );
-        expect(fallback).toContain("Analysis mounts here");
-        expect(fallback).not.toContain("GearFlow Solver");
-        const custom = renderToStaticMarkup(
-            <IdeSidebar
-                tabs={tabs}
-                activeId={tabs[0].id}
-                onActivate={noop}
-                initialView="analysis"
-                analysis={<p>custom-analysis-node</p>}
-            />,
-        );
-        expect(custom).toContain("custom-analysis-node");
-        expect(custom).not.toContain("Analysis mounts here");
-    });
-
-    it("aria expanded tracks the active view one hot, three cold", () => {
-        const tabs = defaultCaseTabs();
-        const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} initialView="analysis" />,
-        );
-        expect(count(html, 'aria-expanded="true"')).toBe(1);
-        expect(count(html, 'aria-expanded="false"')).toBe(3);
-    });
-
-    it("App passes no view props: the sidebar internalizes disclosure state", () => {
+    it("tabs sit above the Field selector inside the scene bars", () => {
         const src = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
-        expect(src).not.toContain("view={activityView}");
-        expect(src).not.toContain("onSelectView={setActivityView}");
-        expect(src).not.toContain("<ActivityBar active={activityView} onSelect={setActivityView} />");
-        const side = readFileSync(resolve(__dirname, "./IdeSidebar.tsx"), "utf8");
-        expect(side).toContain("useState");
-        expect(side).toContain("initialView");
+        const bars = src.indexOf("<SceneBars");
+        const tabs = src.indexOf("<EditorTabs");
+        const field = src.indexOf("<FieldBar");
+        expect(bars).toBeGreaterThan(-1);
+        expect(tabs).toBeGreaterThan(bars);
+        expect(field).toBeGreaterThan(tabs);
     });
 });
 
-describe("P1 RunTerminal eradication: module gone, zero nodes", () => {
+describe("RunTerminal eradication: module gone, zero nodes", () => {
     it("RunTerminal module files are deleted", () => {
         expect(existsSync(resolve(__dirname, "./RunTerminal.tsx"))).toBe(false);
         expect(existsSync(resolve(__dirname, "./RunTerminal.ts"))).toBe(false);
@@ -242,7 +179,6 @@ describe("P1 RunTerminal eradication: module gone, zero nodes", () => {
             <div className="page idePage">
                 <TopNav active="studio" onNav={noop} settingsOpen={false} onOpenSettings={noop} />
                 <EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />
-                <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />
             </div>,
         );
         expect(html.toLowerCase()).not.toContain("runterm");
@@ -253,16 +189,15 @@ describe("P1 RunTerminal eradication: module gone, zero nodes", () => {
     });
 });
 
-describe("P1 tab memories: isolated data with full serialization keys", () => {
-    it("ships three isolated default tabs with file style titles", () => {
+describe("Body tab memories: isolated data with full serialization keys", () => {
+    it("ships four isolated default tabs with fixed labels", () => {
         const tabs = defaultCaseTabs();
-        expect(tabs).toHaveLength(3);
-        expect(new Set(tabs.map((t) => t.id)).size).toBe(3);
-        expect(new Set(tabs.map((t) => t.title)).size).toBe(3);
-        expect(tabs[0].title).toContain("naca2412");
-        for (const t of tabs) expect(tabTitleFor(t.spec, t.reynolds)).toBe(t.title);
+        expect(tabs).toHaveLength(4);
+        expect(new Set(tabs.map((t) => t.id)).size).toBe(4);
+        expect(new Set(tabs.map((t) => t.title)).size).toBe(4);
+        expect(tabs[0].title).toBe("NACA Airfoil");
+        expect(tabs[2].title).toBe("Rectangle");
         expect(tabs[0].spec).not.toBe(tabs[1].spec);
-        expect(tabs[0].spec.naca).not.toBe(tabs[2].spec.naca);
     });
 
     it("updating one memory leaves siblings untouched by reference and by value", () => {
@@ -271,21 +206,22 @@ describe("P1 tab memories: isolated data with full serialization keys", () => {
         const next = storeUpdate(store, store.tabs[1].id, { reynolds: 700 });
         expect(next.tabs[1].reynolds).toBe(700);
         expect(next.tabs[1].dirty).toBe(true);
+        expect(next.tabs[1].title).toBe("Cylinder");
         expect(next.tabs[0]).toBe(store.tabs[0]);
         expect(next.tabs[2]).toBe(store.tabs[2]);
         expect(JSON.stringify(store.tabs.map((t) => t.spec))).toBe(before);
         expect(next.tabs[0].dirty).toBe(false);
     });
 
-    it("spec patch clones input and retitles the tab", () => {
+    it("spec patch clones input and keeps the fixed label", () => {
         const store = createCaseTabsStore();
         const id = store.tabs[0].id;
         const patch: GeometrySpec = { ...baseSpec(), alphaDeg: 9 };
         const next = storeUpdate(store, id, { spec: patch });
         patch.alphaDeg = 99;
         expect(next.tabs[0].spec.alphaDeg).toBe(9);
-        expect(next.tabs[0].title).toBe(tabTitleFor(next.tabs[0].spec, next.tabs[0].reynolds));
-        expect(next.tabs[0].title).toContain("a9");
+        expect(next.tabs[0].title).toBe("NACA Airfoil");
+        expect(next.tabs[0].dirty).toBe(true);
     });
 
     it("same NACA code with different m, p, or t fractions yields distinct keys", () => {

@@ -175,29 +175,99 @@ function baseSpec2412(alphaDeg: number): GeometrySpec {
     };
 }
 
-function baseSpec0012(alphaDeg: number): GeometrySpec {
-    return {
-        kind: "naca4",
-        naca: { code: "0012", m: 0, p: 0.4, t: 0.12 },
-        chord: 1,
-        alphaDeg,
-        nPoints: 120,
-    };
-}
-
 function baseSpecCylinder(): GeometrySpec {
-    return { kind: "cylinder", chord: 1, alphaDeg: 0, nPoints: 120, radius: 0.25 };
+    return { kind: "cylinder", chord: 1, alphaDeg: 0, nPoints: 120, radius: 0.25, center: { x: 0.5, y: 0 } };
 }
 
-/** Default three tab memories for first paint. Isolated objects, no sharing. */
+function baseSpecBlock(): GeometrySpec {
+    return { kind: "block", chord: 1, alphaDeg: 0, nPoints: 120, width: 0.5, height: 0.5, center: { x: 0.5, y: 0 } };
+}
+
+function baseSpecOrifice(): GeometrySpec {
+    return { kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 120, width: 0.08, height: 0.4, center: { x: 0.5, y: 0 } };
+}
+
+/** Fixed Body selector tabs. Ids are stable, block means rectangle. */
+export const BODY_TABS = [
+    { id: "airfoil", label: "NACA Airfoil" },
+    { id: "cylinder", label: "Cylinder" },
+    { id: "block", label: "Rectangle" },
+    { id: "orifice", label: "Orifice" },
+] as const;
+
+export type BodyTabId = (typeof BODY_TABS)[number]["id"];
+
+/** Display label for a body tab id. Block reads as Rectangle. Never throws. */
+export function bodyTabLabelForId(id: string): string {
+    try {
+        const found = (BODY_TABS as ReadonlyArray<{ id: string; label: string }>).find((t) => t.id === id);
+        return found !== undefined ? found.label : id;
+    } catch {
+        return id;
+    }
+}
+
+/** Display label for a spec kind. Naca4 family reads as NACA Airfoil, block reads as Rectangle. Never throws. */
+export function bodyTabLabelFor(spec: GeometrySpec): string {
+    try {
+        if (spec.kind === "naca4") return "NACA Airfoil";
+        if (spec.kind === "cylinder") return "Cylinder";
+        if (spec.kind === "block") return "Rectangle";
+        if (spec.kind === "orifice") return "Orifice";
+        return spec.kind;
+    } catch {
+        return "Body";
+    }
+}
+
+/** Body tab id for a spec kind. Naca4 family maps to airfoil. Never throws. */
+export function bodyTabIdForSpec(spec: GeometrySpec): BodyTabId {
+    try {
+        if (spec.kind === "naca4") return "airfoil";
+        if (spec.kind === "cylinder") return "cylinder";
+        if (spec.kind === "block") return "block";
+        return "orifice";
+    } catch {
+        return "airfoil";
+    }
+}
+
+/** Default spec for a body tab id. Naca4 family uses 2412. Never throws. */
+export function defaultSpecForBodyTab(id: string): GeometrySpec {
+    try {
+        if (id === "cylinder") return baseSpecCylinder();
+        if (id === "block") return baseSpecBlock();
+        if (id === "orifice") return baseSpecOrifice();
+        return baseSpec2412(6);
+    } catch {
+        return baseSpec2412(6);
+    }
+}
+
+/** Default Reynolds for a body tab id. Never throws. */
+export function defaultReForBodyTab(id: string): number {
+    try {
+        if (id === "airfoil") return 50000;
+        if (id === "cylinder") return 100;
+        if (id === "block") return 1000;
+        if (id === "orifice") return 1000;
+        return 50000;
+    } catch {
+        return 50000;
+    }
+}
+
+/** Default four body tab memories for first paint. Isolated objects, no sharing. */
 export function defaultCaseTabs(): CaseTabMemory[] {
     const a = baseSpec2412(6);
     const b = baseSpecCylinder();
-    const c = baseSpec0012(4);
+    const c = baseSpecBlock();
+    const d = baseSpecOrifice();
     return [
-        { id: "case-naca2412", title: tabTitleFor(a, 50000), spec: a, reynolds: 50000, dirty: false },
-        { id: "case-shedding", title: tabTitleFor(b, 100), spec: b, reynolds: 100, dirty: false },
-        { id: "case-naca0012", title: tabTitleFor(c, 1200), spec: c, reynolds: 1200, dirty: false },
+        { id: "airfoil", title: "NACA Airfoil", spec: a, reynolds: 50000, dirty: false },
+        { id: "cylinder", title: "Cylinder", spec: b, reynolds: 100, dirty: false },
+        { id: "block", title: "Rectangle", spec: c, reynolds: 1000, dirty: false },
+        { id: "orifice", title: "Orifice", spec: d, reynolds: 1000, dirty: false },
     ];
 }
 
@@ -238,7 +308,8 @@ export function storeActivate(store: CaseTabStore, id: string): CaseTabStore {
 
 /** Update one tab memory by id, returning a new store. Other tabs are
  *  untouched by reference, so memories stay isolated. Any spec or Re
- *  change marks the memory dirty. Pure. */
+ *  change marks the memory dirty. Body tab titles stay fixed (NACA Airfoil,
+ *  Cylinder, Rectangle, Orifice), never regenerated from the spec. Pure. */
 export function storeUpdate(
     store: CaseTabStore,
     id: string,
@@ -254,7 +325,7 @@ export function storeUpdate(
             changed = true;
             return {
                 id: t.id,
-                title: tabTitleFor(nextSpec, nextRe),
+                title: t.title,
                 spec: nextSpec,
                 reynolds: nextRe,
                 dirty: true,
@@ -268,7 +339,7 @@ export function storeUpdate(
 }
 
 /** React binding. Single active tab drives the single solver. Memories
- *  are data only, updates retitle the tab from the new case. */
+ *  are data only, body tab titles stay fixed. */
 export function useCaseTabs(seed?: CaseTabMemory[]) {
     const [store, setStore] = useState<CaseTabStore>(() => createCaseTabsStore(seed));
     const activate = useCallback((id: string) => {

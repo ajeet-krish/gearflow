@@ -7,16 +7,11 @@ import SettingsModal from "@/ui/SettingsModal";
 import TopNav, { type NavId } from "@/ui/TopNav";
 import TheoryPage from "@/ui/TheoryPage";
 import EditorTabs from "@/ui/EditorTabs";
-import IdeSidebar from "@/ui/IdeSidebar";
-import { useCaseTabs, CaseFrameCache, caseKeyFor, tabTitleFor } from "@/ui/caseTabs";
+import { useCaseTabs, CaseFrameCache, caseKeyFor, bodyTabIdForSpec } from "@/ui/caseTabs";
 import { LbmEntryNotice, LbmFailoverNotice } from "@/ui/LbmSetupRow";
 import { fallbackVariableFor } from "@/ui/FieldBar";
 import FieldBar from "@/ui/FieldBar";
 import { overlayPatchForFieldChange, resolveOverlays } from "@/ui/fieldOverlay";
-import AnalysisPanel from "@/ui/AnalysisPanel";
-import SimulationSection from "@/ui/SimulationSection";
-import GeometrySection from "@/ui/GeometrySection";
-import { turbulenceSectionDef } from "@/ui/TurbulenceSection";
 import VerticalColorbar from "@/ui/VerticalColorbar";
 import { buildPolygons, migrateDuctToOrifice } from "@/geometry/parametric";
 import { applyBodyPreset, bodySelectValue as bodySelectValueFor } from "@/geometry/bodyPresets";
@@ -48,8 +43,7 @@ import { useDisplayPrefs } from "@/ui/displayStore";
 import { useLayoutPrefs, shellVisibility } from "@/ui/layoutStore";
 import { RailShell, SceneBars, resolveShellShortcut } from "@/ui/shellRegions";
 import { applyTheme, storeTheme } from "@/ui/theme";
-import ValidationPanel, { type ValidationSummary } from "@/ui/ValidationPanel";
-import ExportBar from "@/ui/ExportBar";
+import type { ValidationSummary } from "@/ui/ValidationPanel";
 import { asFixtureExport, capTutorCaption, type ExportData } from "@/export/exportReport";
 import { localTutorReply } from "@/agent/tutorPolicy";
 import { loadOfflinePack } from "@/meta/offlinePack";
@@ -491,8 +485,6 @@ export default function App() {
     // keeps its tunnel framing. Clamped to usable instrument widths.
     const LEFT_MIN = 280;
     const LEFT_MAX = 420;
-    const RIGHT_MIN = 280;
-    const RIGHT_MAX = 480;
     const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
     function loadRail(key: string, fallback: number, lo: number, hi: number): number {
         try {
@@ -507,7 +499,6 @@ export default function App() {
         return fallback;
     }
     const [leftW, setLeftW] = useState<number>(() => loadRail("gearflow:leftW", 320, LEFT_MIN, LEFT_MAX));
-    const [rightW, setRightW] = useState<number>(() => loadRail("gearflow:rightW", 320, RIGHT_MIN, RIGHT_MAX));
 
     useEffect(() => {
         try {
@@ -516,13 +507,6 @@ export default function App() {
             // Private mode: width still applies to this session.
         }
     }, [leftW]);
-    useEffect(() => {
-        try {
-            window.localStorage.setItem("gearflow:rightW", String(rightW));
-        } catch {
-            // Private mode: width still applies to this session.
-        }
-    }, [rightW]);
 
     // Collapsible shell toggles. Toggling any region while focus mode is on
     // releases focus mode first, so every visible handle always works.
@@ -530,10 +514,6 @@ export default function App() {
         if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
         else layoutPatch({ leftCollapsed: !layoutPrefs.leftCollapsed });
     }, [layoutPrefs.focusMode, layoutPrefs.leftCollapsed, layoutPatch]);
-    const toggleRight = useCallback(() => {
-        if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
-        else layoutPatch({ rightCollapsed: !layoutPrefs.rightCollapsed });
-    }, [layoutPrefs.focusMode, layoutPrefs.rightCollapsed, layoutPatch]);
     const toggleBars = useCallback(() => {
         if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
         else layoutPatch({ barsCollapsed: !layoutPrefs.barsCollapsed });
@@ -562,9 +542,6 @@ export default function App() {
             } else if (action === "left") {
                 e.preventDefault();
                 toggleLeft();
-            } else if (action === "right") {
-                e.preventDefault();
-                toggleRight();
             } else if (action === "exitFocus") {
                 e.preventDefault();
                 if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
@@ -572,7 +549,7 @@ export default function App() {
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [settingsOpen, layoutPrefs.focusMode, toggleFocus, toggleLeft, toggleRight, layoutPatch]);
+    }, [settingsOpen, layoutPrefs.focusMode, toggleFocus, toggleLeft, layoutPatch]);
 
     useEffect(() => {
         if (!offline) {
@@ -607,38 +584,13 @@ export default function App() {
         }
     }, [offline]);
 
-    // Zenith style stacked analysis rail. Multiple sections open at once,
-    // default open GEOMETRY. The STUDIO navbar link opens geometry and
-    // expands the rail. VALIDATION and EXPORT mount only behind ?debug=1,
-    // the default rail stays on simulation, geometry, turbulence, and eval.
-    // Content stays mounted when collapsed.
-    const [openSections, setOpenSections] = useState<Set<string>>(
-        () => new Set(["geometry"])
-    );
-    const toggleSection = useCallback((id: string) => {
-        setOpenSections((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    }, []);
-    const openSection = useCallback((id: string) => {
-        setOpenSections((prev) => new Set(prev).add(id));
-    }, []);
-
-    // P2 top navbar route. STUDIO returns to the tunnel and opens geometry
-    // with the analysis rail expanded. THEORY shows the companion page in
-    // the center column while the rails stay mounted. Any nav exits full
-    // screen mode so the destination renders with its panels.
+    // P2 top navbar route. STUDIO returns to the tunnel, THEORY shows the
+    // companion page in the center column while the left rail stays mounted.
+    // Any nav exits full screen mode so the destination renders cleanly.
     const handleNav = useCallback((id: NavId) => {
         setActiveNav(id);
         if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
-        if (id === "studio") {
-            openSection("geometry");
-            layoutPatch({ rightCollapsed: false });
-        }
-    }, [layoutPrefs.focusMode, layoutPatch, openSection]);
+    }, [layoutPrefs.focusMode, layoutPatch]);
 
     const cacheRef = useRef<HashCache | null>(null);
     if (cacheRef.current === null) cacheRef.current = new HashCache(true);
@@ -769,12 +721,26 @@ export default function App() {
     // P1 IDE shell: tab activation drives the single solver. Switching tabs
     // writes that tab memory into spec and Re. Editing controls mirrors
     // back into the active tab memory by key comparison, so memories stay
-    // isolated and no loop forms.
+    // isolated and no loop forms. Agent commits are atomic: ensureBodyTab
+    // stamps the target tab id here before activating, so the one-shot
+    // load below skips the stale stored memory and mirrors the agent spec
+    // forward into the new active memory instead.
     const tabSyncRef = useRef<string>("");
+    const agentTabCommitRef = useRef<string | null>(null);
     useEffect(() => {
         const a = caseTabs.active;
         if (a === null) return;
         if (tabSyncRef.current === a.id) return;
+        if (agentTabCommitRef.current === a.id) {
+            agentTabCommitRef.current = null;
+            tabSyncRef.current = a.id;
+            try {
+                caseTabs.updateActive({ spec, reynolds });
+            } catch {
+                // Mirror faults never break the solver state.
+            }
+            return;
+        }
         tabSyncRef.current = a.id;
         try {
             setSpec(a.spec);
@@ -1584,7 +1550,6 @@ export default function App() {
     const hasTke = lbmEffective && lbmHasSnapshot && lbmStatsReady && flow.k !== undefined;
     const hasRecirc = lbmEffective && lbmHasSnapshot && lbmStatsReady && flow.recirc !== undefined;
     const lbmStats = lbmStatsReady ? (lbmProviderLive?.stats() ?? null) : null;
-    const turbulenceDef = turbulenceSectionDef(lbmEffective, lbmStatsReady, lbmStats);
 
     // Effective field variable plus effective overlays, derived during
     // render: a selected channel the current frame does not carry paints
@@ -1787,31 +1752,21 @@ export default function App() {
             gated,
             summary: describeApplyReceipt(applied, gated),
         });
-        // P1 IDE shell: every agent write routes through tab activation so
-        // the active tab owns the new case. Setup presets open or activate
-        // their tab first, primitives write onto the active tab memory.
-        const ensurePresetTab = (id: string, body: string, alphaDeg: number, reynolds: number): void => {
+        // Body selector tabs: every agent write routes through tab activation
+        // so the active body tab owns the new case. Setup presets activate
+        // their body tab first, primitives write onto the active tab memory.
+        // The activation plus the spec commit below are atomic: the target
+        // id is stamped into agentTabCommitRef so the one-shot tab load
+        // effect mirrors the agent spec forward instead of loading the
+        // stale stored memory over it.
+        const ensureBodyTab = (body: string): void => {
             try {
-                const existing = caseTabs.tabs.find((t) => t.id === id);
-                if (existing !== undefined) {
-                    if (existing.id !== caseTabs.activeId) caseTabs.activate(existing.id);
-                    return;
+                const provisional = applyBodyPreset(spec, body);
+                const id = bodyTabIdForSpec(provisional);
+                if (id !== caseTabs.activeId) {
+                    agentTabCommitRef.current = id;
+                    caseTabs.activate(id);
                 }
-                let tabSpec: GeometrySpec = spec;
-                try {
-                    if (body === "cylinder") {
-                        tabSpec = { kind: "cylinder", chord: 1, alphaDeg, nPoints: 120, radius: 0.25 };
-                    } else if (body === "naca0012" || body === "naca2412" || body === "naca4412") {
-                        const code = body.slice(4);
-                        const m = body === "naca2412" ? 0.02 : body === "naca4412" ? 0.02 : 0;
-                        const p = body === "naca0012" ? 0.4 : 0.4;
-                        const t = 0.12;
-                        tabSpec = { kind: "naca4", naca: { code, m, p, t }, chord: 1, alphaDeg, nPoints: 120 };
-                    }
-                } catch {
-                    // Fallback keeps the current spec shape.
-                }
-                caseTabs.upsertTab({ id, title: tabTitleFor(tabSpec, reynolds), spec: tabSpec, reynolds, dirty: false }, true);
             } catch {
                 // Activation faults never break the executor.
             }
@@ -1833,12 +1788,11 @@ export default function App() {
             return finish([action], []);
         }
         if (action.kind === "setup_shedding" || action.kind === "setup_high_pressure" || action.kind === "setup_high_re_wake" || action.kind === "setup_airfoil") {
-            if (action.kind === "setup_shedding") ensurePresetTab("case-shedding", "cylinder", 0, 100);
-            else if (action.kind === "setup_high_re_wake") ensurePresetTab("case-wake", "cylinder", 0, 700);
+            if (action.kind === "setup_shedding") ensureBodyTab("cylinder");
+            else if (action.kind === "setup_high_re_wake") ensureBodyTab("cylinder");
             else if (action.kind === "setup_airfoil") {
                 const b = typeof action.body === "string" ? action.body : "naca2412";
-                const a = typeof action.alphaDeg === "number" ? action.alphaDeg : 6;
-                ensurePresetTab(`case-airfoil-${b}`, b, a, 1200);
+                ensureBodyTab(b);
             }
             const request = action.kind === "setup_shedding"
                 ? { preset: "shedding" as const }
@@ -1889,6 +1843,7 @@ export default function App() {
             return finish(applied, gated);
         }
         if (action.kind === "set_body") {
+            ensureBodyTab(action.body);
             const next = applyBodyPreset(spec, action.body);
             if (next !== spec) setSpec(next);
             return finish([action], []);
@@ -2159,13 +2114,13 @@ export default function App() {
                         <TheoryPage topic={theoryTopic} topicNonce={theoryNonce} />
                     ) : (
                     <>
-                    <EditorTabs tabs={caseTabs.tabs} activeId={caseTabs.activeId} onActivate={caseTabs.activate} />
                     <SceneBars
                         bodyId="sceneBars"
                         collapsed={shell.bars}
                         summary={`${effectiveVariable.toUpperCase()} . ${engineLabel} . Re ${Math.round(debouncedRe).toLocaleString("en-US")}`}
                         onToggle={toggleBars}
                     >
+                        <EditorTabs tabs={caseTabs.tabs} activeId={caseTabs.activeId} onActivate={caseTabs.activate} />
                         <FieldBar
                             variable={effectiveVariable}
                             onVariable={onVariable}
@@ -2275,119 +2230,9 @@ export default function App() {
                     )}
                 </section>
 
-                {/* Phase 25C theoryMode: no right rail. The companion page
-                    takes 2/3 beside the 1/3 chat, so IdeSidebar plus the
-                    right resize handle plus the analysis rail unmount. */}
-                {!theoryMode && (
-                <IdeSidebar
-                    tabs={caseTabs.tabs}
-                    activeId={caseTabs.activeId}
-                    onActivate={caseTabs.activate}
-                />
-                )}
-
-                {!shell.right && !theoryMode && (
-                    <ResizeHandle
-                        id="gripRight"
-                        label="Resize instrument rack, left and right arrows adjust width"
-                        onNudge={(d) => setRightW((w) => clamp(d > 9000 ? RIGHT_MAX : d < -9000 ? RIGHT_MIN : w - d, RIGHT_MIN, RIGHT_MAX))}
-                        onDrag={(d) => setRightW((w) => clamp(w - d, RIGHT_MIN, RIGHT_MAX))}
-                    />
-                )}
-
-                {!theoryMode && (
-                <RailShell
-                    side="right"
-                    label="Analysis rail: geometry, validation, eval ledger, export"
-                    region="analysis rail"
-                    bladeLabel="ANALYSIS"
-                    bodyId="railRightBody"
-                    collapsed={shell.right}
-                    onToggle={toggleRight}
-                    width={rightW}
-                >
-                    <ErrorBoundary resetKey="rack" label="analysis rail">
-                        <AnalysisPanel
-                            open={openSections}
-                            onToggle={toggleSection}
-                            sections={[
-                                {
-                                    id: "simulation",
-                                    label: "SIMULATION",
-                                    content: (
-                                        <SimulationSection
-                                            agentFirst={agentFirst.agentFirst}
-                                            bodyLabel={bodyRowLabel}
-                                            alphaDeg={spec.alphaDeg}
-                                            reynolds={reynolds}
-                                            cl={frame.cl}
-                                            regime={regime}
-                                            lbmActive={lbmActive}
-                                            onCommitReynolds={onReynoldsBar}
-                                            lbmULattice={lbmULattice}
-                                            onLbmULattice={setLbmULattice}
-                                            lbmTargetSteps={lbmTargetSteps}
-                                            onLbmTargetSteps={setLbmTargetSteps}
-                                            lbmLesAuto={lbmLesAuto}
-                                            onLbmLesAuto={setLbmLesAuto}
-                                            lbmLesManual={lbmLesManual}
-                                            onLbmLesManual={setLbmLesManual}
-                                            lbmStatus={lbmStatus}
-                                            lbmProgressText={lbmProgressText}
-                                            onLbmRun={onLbmRun}
-                                            onLbmCancel={onLbmCancel}
-                                            preflightWarnings={simPreflightWarnings}
-                                            lbmNotice={lbmNotice}
-                                            onDismissLbmNotice={onLbmDismissNotice}
-                                            lbmFailed={lbmFailedActive ? lbmFailed : null}
-                                            onLbmRecover={onLbmRecoverRe}
-                                        />
-                                    ),
-                                },
-                                {
-                                    id: "geometry",
-                                    label: "GEOMETRY",
-                                    content: (
-                                        <GeometrySection
-                                            spec={spec}
-                                            onSpec={setSpec}
-                                            orificeResolutionWarning={orificeResolutionWarning}
-                                        />
-                                    ),
-                                },
-                                ...(turbulenceDef === null ? [] : [turbulenceDef]),
-                                ...(debugPanels
-                                    ? [
-                                        {
-                                            id: "validation",
-                                            label: "VALIDATION",
-                                            content: (
-                                                <div>
-                                                    <ErrorBoundary resetKey="validation" label="validation panel">
-                                                        <ValidationPanel onSummary={setValSummary} />
-                                                    </ErrorBoundary>
-                                                    <p className="visuallyHidden" role="status">
-                                                        {valSummary.blocking === 0 ? "No blocking validation failures." : `${valSummary.blocking} blocking validation failures.`}
-                                                    </p>
-                                                </div>
-                                            ),
-                                        },
-                                    ]
-                                    : []),
-                                ...(debugPanels
-                                    ? [
-                                        {
-                                            id: "export",
-                                            label: "EXPORT",
-                                            content: <ExportBar getSnapshot={getSnapshot} data={exportData} />,
-                                        },
-                                    ]
-                                    : []),
-                            ]}
-                        />
-                    </ErrorBoundary>
-                </RailShell>
-                )}
+                {/* Right IDE sidebar plus analysis rail removed. AnalysisPanel
+                    stays in code but unmounted, chat plus Body tabs plus
+                    FIELD bar plus settings remain. */}
             </main>
             <SettingsModal
                 open={settingsOpen}

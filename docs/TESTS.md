@@ -1183,3 +1183,46 @@ Phase tests integrate with prior phase tests (all 1683 tests pass, 124 files).
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - Sidebar removal plus Body tabs plus cross-tab fix: Test Report (verification only, no new code)
+
+### Test Results
+npm test: 125 files, 1681 tests, all passed.
+Targeted: src/ui/canvasTop.test.ts (11) plus src/ui/ideShell.test.tsx (17) plus src/ui/p1IdeShell.ruthless.test.tsx (25) plus src/App.sequence.test.ts (3) plus src/geometry/bodyPresets.test.ts (11), 67 passed.
+npx tsc --noEmit: clean, exit 0.
+
+Verification performed (existing tests, no new test files written):
+happy path Body tabs render NACA Airfoil, Cylinder, Rectangle, Orifice in order with BODY label and Body tablist above FieldBar inside SceneBars, TopNav sole topmost bar,
+edge cross-tab set_body naca4412 from cylinder lands naca4 code 4412 on the airfoil memory with live Re 100 preserved, setup shedding lands cylinder Re 100, setup airfoil naca4412 lands Re 1200,
+error conditions unknown tab activation leaves store unchanged, unknown body token returns same spec object, stale stored memory never clobbers the agent commit via agentTabCommitRef.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| canvasTop.test.ts (11) | PASS | TopNav sole top bar, Body tabs above FIELD in SceneBars, no IdeSidebar or right rail or AnalysisPanel mount, run card BODY ALPHA RE CL CPMIN |
+| ideShell.test.tsx (17) | PASS | Four body tabs with fixed labels, isolated memories, dirty dot with no close, IdeSidebar plus ideData plus title plus activity plus status modules deleted, App owns useCaseTabs with zero sidebar imports |
+| p1IdeShell.ruthless.test.tsx (25) | PASS | Zero excised tokens in App source and markup, Body tablist keyboard plus aria, RunTerminal eradicated, full caseKeyFor separation across kind code radius width height center polygon alpha chord nPoints Re grid plus m p t fractions |
+| App.sequence.test.ts (3) | PASS | Cross-tab set_body naca4412 keeps agent spec and Re, setup shedding lands cylinder Re 100, setup airfoil naca4412 lands Re 1200 |
+| bodyPresets.test.ts (11) | PASS | NACA triples exact, cylinder plus block plus orifice envelope clamps, unknown token passthrough |
+| all other Node suites (1614) | PASS | No regressions, 1681 total across 125 files |
+| tsc --noEmit | PASS | Clean, exit 0 |
+
+### Coverage Summary
+Happy path covered (Body tabs order and labels, TopNav sole bar, tabs above FieldBar, per-body Re defaults 50000 plus 100 plus 1000 plus 1000).
+Edge cases covered (cross-tab activation with agent-commit suppression, dirty dot single plus all, aria-selected exactly one, key separation on every solved field dimension).
+Error conditions covered (unknown activation id, unknown body token, non-finite keys never collide, mirror faults never break solver).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1614 non-targeted tests still pass, 1681 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full suite green on this run, 1681 passed across 125 files, tsc clean | No fix needed |
+
+### Verification Checklist
+- [x] All tests pass (125 files, 1681 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

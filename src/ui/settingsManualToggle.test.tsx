@@ -312,15 +312,13 @@ describe("debug sections mount only behind the flag", () => {
         expect(readDebugPanels("debug=1")).toBe(true);
     });
 
-    it("mounts VALIDATION and EXPORT inside the debug gate", async () => {
+    it("unmounts VALIDATION and EXPORT with the right rail removed", async () => {
         const src = await readFile(appPath, "utf8");
         for (const id of ['id: "validation"', 'id: "export"'] as const) {
-            const at = src.indexOf(id);
-            expect(at).toBeGreaterThan(-1);
-            const gate = src.lastIndexOf("...(debugPanels", at);
-            expect(gate).toBeGreaterThan(-1);
-            expect(at - gate).toBeLessThan(600);
+            expect(src).not.toContain(id);
         }
+        expect(src).not.toContain("<ValidationPanel");
+        expect(src).not.toContain("<ExportBar");
     });
 
     it("mounts no status bar and no terminal outside the gate", async () => {

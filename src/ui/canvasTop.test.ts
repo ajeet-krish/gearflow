@@ -1,12 +1,9 @@
-// Phase 25 shell excision canvas top contract: TopNav is the sole topmost
-// bar, the tunnel column keeps the sidebar plus editor tabs with the FIELD
-// bar inside the collapsible SceneBars plus the run card. The title,
-// activity, and status bars are deleted. SolverBar and LbmSetupRow stay
-// gone from the canvas path and the right rail carries no DISPLAY section.
-// TelemetryBar and RunTerminal stay unmounted, single solver and single
-// canvas only. THEORY replaces the tunnel column while studio keeps the
-// canvas. VALIDATION and EXPORT mount only behind ?debug=1. Reads App.tsx
-// source so the contract cannot drift without a test failure. No DOM needed.
+// Body selector canvas top contract: TopNav is the sole topmost bar, the
+// tunnel column keeps the Body tabs above the FIELD bar inside the
+// collapsible SceneBars plus the run card. IdeSidebar plus the right
+// RailShell plus the right ResizeHandle are deleted, AnalysisPanel stays in
+// code but unmounted. Reads App.tsx source so the contract cannot drift
+// without a test failure. No DOM needed.
 
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
@@ -16,11 +13,12 @@ import { dirname, resolve } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const appPath = resolve(here, "../App.tsx");
 
-describe("Phase 25 canvas top", () => {
-    it("keeps TopNav as the sole topmost bar with the sidebar, tabs, FIELD bar, and run card", async () => {
+describe("Body selector canvas top", () => {
+    it("keeps TopNav as the sole topmost bar with Body tabs, FIELD bar, and run card, no sidebar", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).toContain("<TopNav");
-        expect(src).toContain("<IdeSidebar");
+        expect(src).not.toContain("<IdeSidebar");
+        expect(src).not.toContain("from \"@/ui/IdeSidebar\"");
         expect(src).toContain("<EditorTabs");
         expect(src).toContain("<SceneBars");
         expect(src).toContain("<FieldBar");
@@ -33,6 +31,33 @@ describe("Phase 25 canvas top", () => {
         expect(src).not.toContain("<TelemetryBar");
         expect(src).not.toContain("<RunTerminal");
         expect(src).toContain('className="runCard"');
+    });
+
+    it("mounts Body tabs above the Field selector inside the scene bars", async () => {
+        const src = await readFile(appPath, "utf8");
+        const editorPath = resolve(here, "./EditorTabs.tsx");
+        const editorSrc = await readFile(editorPath, "utf8");
+        const barsOpen = src.indexOf("<SceneBars");
+        const tabs = src.indexOf("<EditorTabs");
+        const field = src.indexOf("<FieldBar");
+        expect(barsOpen).toBeGreaterThan(-1);
+        expect(tabs).toBeGreaterThan(-1);
+        expect(field).toBeGreaterThan(-1);
+        expect(tabs).toBeGreaterThan(barsOpen);
+        expect(field).toBeGreaterThan(tabs);
+        expect(editorSrc).toContain("BODY");
+        expect(editorSrc).toContain('aria-label="Body"');
+        expect(editorSrc).toContain('aria-label="Body selector"');
+    });
+
+    it("unmounts the right sidebar, right rail, and analysis panel", async () => {
+        const src = await readFile(appPath, "utf8");
+        expect(src).not.toContain("<IdeSidebar");
+        expect(src).not.toContain("gripRight");
+        expect(src).not.toContain("<AnalysisPanel");
+        expect(src).not.toContain("from \"@/ui/AnalysisPanel\"");
+        expect(src).not.toContain('side="right"');
+        expect(src).not.toContain("railRightBody");
     });
 
     it("routes studio versus theory through the top navbar with the canvas hidden on theory", async () => {
@@ -69,17 +94,10 @@ describe("Phase 25 canvas top", () => {
         expect(src).toContain("particleSize={prefs.particleSize}");
     });
 
-    it("carries no DISPLAY section in the right rail", async () => {
+    it("carries no DISPLAY section", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).not.toMatch(/id:\s*"display"/);
         expect(src).not.toContain("displaySummary");
-    });
-
-    it("gates VALIDATION and EXPORT behind the debug flag", async () => {
-        const src = await readFile(appPath, "utf8");
-        expect(src).toContain("readDebugPanels");
-        expect(src).toContain("debugPanels");
-        expect(src).toMatch(/debugPanels\s*\?\s*\[/);
     });
 
     it("run card shows BODY, ALPHA, RE, CL, CPMIN with no GRID or REGIME rows", async () => {
