@@ -5,6 +5,7 @@ import type { Point } from "@/geometry/parametric";
 import { createParticles, advectParticles, mulberry32, type ParticleSet } from "./particles";
 import { fitDomainView } from "./fitView";
 import type { Domain } from "@/contracts/types";
+import { PARTICLE_SIZE_DEFAULT, PARTICLE_SIZE_MAX, PARTICLE_SIZE_MIN } from "@/contracts/types";
 import { particleRgb } from "./particleColor";
 import type { ParticleColorMode } from "@/contracts/types";
 import { buildStreamlines } from "./streamlines";
@@ -42,6 +43,32 @@ interface Props {
      * fields, or provenance.
      */
     advectionScale?: number;
+}
+
+// Particle point size goes through a render scale on its way to the
+// PointsMaterial. Diagnosis: with sizeAttenuation the shader computes
+// gl_PointSize as size times (drawingBufferHeight / 2 / viewDepth), and
+// the orthographic tunnel camera sits at depth 5 over a roughly 2 unit
+// tall domain. At typical canvas sizes that lands near 45 to 90 device
+// pixels per world unit, so the stored 0.008 to 0.12 band paints roughly
+// 1px at the default 0.018: every slider stop below ~0.03 rounds to the
+// same pixel and size moves read as noise while count moves (draw range)
+// stay obvious. Scaling the stored size by 4 lifts the default to a
+// clearly visible mark, the minimum to a few pixels, and the maximum to
+// a bold splat; the existing adaptive density tiers still bound the fill
+// cost, so perf stays sane. The stored band is untouched, so persisted
+// prefs and the Settings slider contract do not migrate.
+export const PARTICLE_SIZE_RENDER_SCALE = 4;
+
+/** Map a stored particle size into the PointsMaterial world size. Finite
+ *  input clamps into the stored band, anything else falls back to the
+ *  scaled default. Never throws. */
+export function effectiveParticleSize(raw: unknown): number {
+    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+        return PARTICLE_SIZE_DEFAULT * PARTICLE_SIZE_RENDER_SCALE;
+    }
+    const clamped = Math.min(PARTICLE_SIZE_MAX, Math.max(PARTICLE_SIZE_MIN, raw));
+    return clamped * PARTICLE_SIZE_RENDER_SCALE;
 }
 
 // Combined display advection band: the product of the Re scale band
@@ -543,7 +570,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         pGeo.setAttribute("color", new THREE.BufferAttribute(pCol, 3));
         pGeo.setDrawRange(0, COUNT);
         pGeoRef.current = pGeo;
-        const pMat = new THREE.PointsMaterial({ size: particleSizeRef.current, vertexColors: true, transparent: true, opacity: 0.9, sizeAttenuation: true });
+        const pMat = new THREE.PointsMaterial({ size: effectiveParticleSize(particleSizeRef.current), vertexColors: true, transparent: true, opacity: 0.9, sizeAttenuation: true });
         const points = new THREE.Points(pGeo, pMat);
         pointsRef.current = points;
         points.position.z = 0.2;
@@ -804,12 +831,13 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         if (points) points.visible = next > 0;
     }, [particleCount]);
 
-    // Effect 4: particle size follows the display control. Material only,
-    // no geometry rebuild, so the field never repaints on a size change.
+    // Effect 4: particle size follows the display control through the
+    // render scale. Material only, no geometry rebuild, so the field never
+    // repaints on a size change.
     useEffect(() => {
         const mat = pointsRef.current?.material as THREE.PointsMaterial | null | undefined;
         if (mat) {
-            mat.size = particleSize;
+            mat.size = effectiveParticleSize(particleSize);
             mat.needsUpdate = true;
         }
     }, [particleSize]);

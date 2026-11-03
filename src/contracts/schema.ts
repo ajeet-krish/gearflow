@@ -66,19 +66,19 @@ export const ALPHA_MAX = 12;
 export const ALPHA_HARD_MIN = -180;
 export const ALPHA_HARD_MAX = 180;
 export const NACA_M_MIN = 0;
-export const NACA_M_MAX_ENV = 0.09;
-export const NACA_T_MIN = 0.06;
-/** Validation envelope for NACA thickness: widened to 40% chord per the
- *  trainer decision so thick sections mesh. The realistic trainer band stays
+export const NACA_M_MAX_ENV = 0.15;
+export const NACA_T_MIN = 0.02;
+/** Validation envelope for NACA thickness: widened to 100% chord so
+ *  extreme sections mesh. The realistic trainer band stays
  *  6 to 18% (see NACA_T_REALISTIC_MAX), thicker sections validate but the
- *  tutor explains they fly poorly. */
-export const NACA_T_MAX_ENV = 0.4;
+ *  tutor explains they fly poorly with a real-world equivalent. */
+export const NACA_T_MAX_ENV = 1.0;
 /** Realistic trainer thickness cap for tutor notes. Valid but unrealistic
  *  sections (above this, up to NACA_T_MAX_ENV) keep the draggy coefficient
  *  explainer instead of failing validation. */
 export const NACA_T_REALISTIC_MAX = 0.18;
-export const NACA_P_MIN = 0.2;
-export const NACA_P_MAX = 0.8;
+export const NACA_P_MIN = 0;
+export const NACA_P_MAX = 1;
 
 /** Orifice plate bounds. Width is plate thickness, height is the gap opening. Mirrors types.ts. */
 export const ORIFICE_GAP_MIN = 0.05;
@@ -147,8 +147,8 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
         const p = naca.p as number;
         const t = naca.t as number;
         if (!(m >= NACA_M_MIN && m <= NACA_M_MAX_ENV)) throw new Error(`GeometrySpec.naca.m must be in [${NACA_M_MIN}, ${NACA_M_MAX_ENV}], got ${m}`);
-        if (m > 1e-10 && !(p >= NACA_P_MIN && p <= NACA_P_MAX)) {
-            throw new Error(`GeometrySpec.naca.p must be in [${NACA_P_MIN}, ${NACA_P_MAX}] when m > 0, got ${p}`);
+        if (m > 1e-10 && !(p > 0 && p < 1)) {
+            throw new Error(`GeometrySpec.naca.p must be in (0, 1) when m > 0, got ${p}`);
         }
         if (!(t >= NACA_T_MIN && t <= NACA_T_MAX_ENV)) throw new Error(`GeometrySpec.naca.t must be in [${NACA_T_MIN}, ${NACA_T_MAX_ENV}], got ${t}`);
         // Code must equal the digits derived from m, p, t so the rail label

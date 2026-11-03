@@ -58,15 +58,16 @@ export interface CasePresetOptions {
 /** Backend honesty note: names which backend serves the case. Under the
  *  agent-first flag the case is an analytic preview (potential flow
  *  estimate), otherwise it names the LBM backend and whether the case is
- *  solved or modeled. */
+ *  solved or modeled. Block kind displays as Rectangle. */
 function backendNote(body: string, reynolds: number, agentFirst: boolean): string {
+    const displayBody = body === "block" ? "Rectangle" : body;
     if (agentFirst) {
-        return `${body} Re ${reynolds} served by analytic preview (potential flow estimate, agent-first mode)`;
+        return `${displayBody} Re ${reynolds} served by analytic preview (potential flow estimate, agent-first mode)`;
     }
     if (reynolds > 500) {
-        return `${body} Re ${reynolds} served by LBM backend, modeled coarse LES above Re 500 (provisional neural planned coverage, no weights landed)`;
+        return `${displayBody} Re ${reynolds} served by LBM backend, modeled coarse LES above Re 500 (provisional neural planned coverage, no weights landed)`;
     }
-    return `${body} Re ${reynolds} served by LBM backend, solved (provisional neural planned coverage, no weights landed)`;
+    return `${displayBody} Re ${reynolds} served by LBM backend, solved (provisional neural planned coverage, no weights landed)`;
 }
 
 function succeed(actions: AgentAction[], body: string, alphaDeg: number, reynolds: number, agentFirst: boolean): CasePresetResult {
@@ -134,7 +135,7 @@ export function expandCasePreset(request: CasePresetRequest, opts?: CasePresetOp
     if (preset === "airfoil") {
         const resolved = body === undefined ? "naca2412" : body;
         if (!AIRFOIL_BODIES.includes(resolved)) {
-            return fail(`airfoil preset needs body in [${AIRFOIL_BODIES.join(", ")}], got ${String(body)}`);
+            return fail(`airfoil preset needs a NACA body like naca2412, got ${String(body)}`);
         }
         const alpha = alphaDeg === undefined ? 6 : alphaDeg;
         const alphaProblem = checkAlpha(alpha, "airfoil");

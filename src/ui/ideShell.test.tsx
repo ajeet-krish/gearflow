@@ -152,14 +152,18 @@ describe("body selector shell", () => {
         expect(names.some((n) => n === "IdeTitleBar.tsx" || n === "ActivityBar.tsx" || n === "IdeStatusBar.tsx")).toBe(false);
     });
 
-    it("body tabs show a dot only when dirty and expose no close buttons", () => {
+    it("body tabs render as Field chips with no dots and no close buttons", () => {
         const tabs = defaultCaseTabs();
         const clean = renderToStaticMarkup(<EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />);
+        expect(clean).toContain("chip active");
         expect(clean).not.toContain("ideTabDot");
         expect(clean).not.toContain("ideTabClose");
+        // Unsaved state rides the accessible label only, never a dot.
         const dirty = tabs.map((t, i) => (i === 0 ? { ...t, dirty: true } : t));
         const dirtyHtml = renderToStaticMarkup(<EditorTabs tabs={dirty} activeId={dirty[0].id} onActivate={noop} />);
-        expect(dirtyHtml).toContain("ideTabDot");
+        expect(dirtyHtml).toContain("chip active");
+        expect(dirtyHtml).toContain("unsaved changes");
+        expect(dirtyHtml).not.toContain("ideTabDot");
         expect(dirtyHtml).not.toContain("ideTabClose");
     });
 

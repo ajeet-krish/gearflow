@@ -164,9 +164,9 @@ function applyModsToFractions(
     if (mods.thinner) t -= 0.02;
     if (mods.moreCamber) m += 0.01;
     if (mods.lessCamber) m -= 0.01;
-    if (!(t > 0) || t > 0.4) return null;
+    if (!(t >= 0.02) || t > 1.0) return null;
     if (m < 0) m = 0;
-    if (m > 0.09) m = 0.09;
+    if (m > 0.15) m = 0.15;
     // Symmetric sections carry p 0, so a camber increase from 0012 would
     // digitize to 1012 and fail validation with a thickness blame note.
     // Default the peak to mid chord when camber rises from zero.
@@ -177,15 +177,14 @@ function applyModsToFractions(
 function digitsFromFractions(m: number, p: number, t: number): string {
     const mD = Math.max(0, Math.min(9, Math.round(m * 100)));
     const pD = Math.max(0, Math.min(9, Math.round(p * 10)));
-    const tD = Math.max(1, Math.min(40, Math.round(t * 100)));
+    const tD = Math.max(2, Math.min(99, Math.round(t * 100)));
     return `${mD}${pD}${String(tD).padStart(2, "0")}`;
 }
 
 function reshapeFailedNote(code: string): string {
     return (
-        `That reshape of NACA ${code} falls outside the 4-digit family ` +
-        `(thickness must stay within 1 to 40% chord). ` +
-        `Which 4-digit code should I use instead (try 0012, 2412, or 4412)?`
+        `That reshape of NACA ${code} falls outside the 4-digit family. ` +
+        `A thicker section narrows the passage like a venturi and deepens suction, so tell me which 4-digit section to use instead.`
     );
 }
 
@@ -235,7 +234,7 @@ export function parseAirfoilIntent(
             const hint = candidates.length > 0 ? ` Did you mean NACA ${candidates[0]}?` : "";
             return {
                 kind: "clarify",
-                question: `${base} is not a valid 4-digit section (${parsed.reason}).${hint} Reply with a valid 4-digit code (try 0012, 2412, or 4412).`,
+                question: `${base} is not a valid 4-digit section (${parsed.reason}).${hint} Reply with a valid 4-digit code.`,
                 candidates,
                 corrections,
                 notes: [],
@@ -274,7 +273,7 @@ export function parseAirfoilIntent(
             if (baseCode === null) {
                 return {
                     kind: "clarify",
-                    question: "Which airfoil should I reshape? Reply with a NACA 4-digit code (try 0012, 2412, or 4412).",
+                    question: "Which airfoil should I reshape? Reply with a NACA 4-digit code.",
                     candidates: [],
                     corrections,
                     notes: [],

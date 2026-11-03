@@ -29,9 +29,11 @@ export interface Point {
 }
 
 /** Max camber fraction accepted by naca4Airfoil. */
-export const NACA_M_MAX = 0.095;
+export const NACA_M_MAX = 0.15;
 /** Max thickness fraction accepted by naca4Airfoil. */
-export const NACA_T_MAX = 0.4;
+export const NACA_T_MAX = 1.0;
+/** Min thickness fraction accepted by naca4Airfoil. */
+export const NACA_T_MIN = 0.02;
 
 function assertFiniteNumber(name: string, value: unknown): asserts value is number {
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -53,8 +55,8 @@ export function naca4Airfoil(m: number, p: number, t: number, nPoints = 100): Po
     if (m > 1e-10 && !(p > 0 && p < 1)) {
         throw new Error(`naca4Airfoil: p (camber position) must be in (0, 1) when m > 0, got ${p}`);
     }
-    if (!(t > 0 && t <= NACA_T_MAX)) {
-        throw new Error(`naca4Airfoil: t (thickness) must be in (0, ${NACA_T_MAX}], got ${t}`);
+    if (!(t >= NACA_T_MIN && t <= NACA_T_MAX)) {
+        throw new Error(`naca4Airfoil: t (thickness) must be in [${NACA_T_MIN}, ${NACA_T_MAX}], got ${t}`);
     }
     const n = nPoints;
     const x: number[] = [];
@@ -151,8 +153,8 @@ export function parseNaca4(code: string): { m: number; p: number; t: number } {
     if (m > 1e-10 && !(p > 0 && p < 1)) {
         throw new Error(`parseNaca4: camber position digit out of range in code ${code} (p=${p} not in (0, 1))`);
     }
-    if (!(t > 0 && t <= NACA_T_MAX)) {
-        throw new Error(`parseNaca4: thickness digits out of range in code ${code} (t=${t} not in (0, ${NACA_T_MAX}])`);
+    if (!(t >= NACA_T_MIN && t <= NACA_T_MAX)) {
+        throw new Error(`parseNaca4: thickness digits out of range in code ${code} (t=${t} not in [${NACA_T_MIN}, ${NACA_T_MAX}])`);
     }
     return { m, p, t };
 }

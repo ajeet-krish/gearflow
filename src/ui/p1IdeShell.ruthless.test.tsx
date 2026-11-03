@@ -79,7 +79,7 @@ describe("Excised bars plus sidebar: modules gone, zero tokens", () => {
     });
 });
 
-describe("Body tabs: fixed labels, no close buttons, dirty dot only", () => {
+describe("Body tabs: fixed labels, chip style, no dots, no close buttons", () => {
     it("ships four body tabs with fixed ids and labels", () => {
         const tabs = defaultCaseTabs();
         expect(tabs).toHaveLength(4);
@@ -98,27 +98,36 @@ describe("Body tabs: fixed labels, no close buttons, dirty dot only", () => {
         expect(html).not.toContain("&times;");
     });
 
-    it("exactly one dot appears when exactly one memory is dirty", () => {
+    it("dirty memories carry no dot either, unsaved state stays in the label", () => {
         const tabs = defaultCaseTabs();
         const dirty = tabs.map((t, i) => (i === 1 ? { ...t, dirty: true } : t));
         const html = renderToStaticMarkup(<EditorTabs tabs={dirty} activeId={dirty[1].id} onActivate={noop} />);
-        expect(count(html, "ideTabDot")).toBe(1);
+        expect(html).not.toContain("ideTabDot");
+        expect(html).toContain("unsaved changes");
         expect(html).not.toContain("ideTabClose");
         expect(html.toLowerCase()).not.toContain("close");
     });
 
-    it("all dirty tabs each carry a dot and still no close button", () => {
+    it("all dirty tabs still carry zero dots and zero close buttons", () => {
         const tabs = defaultCaseTabs().map((t) => ({ ...t, dirty: true }));
         const html = renderToStaticMarkup(<EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />);
-        expect(count(html, "ideTabDot")).toBe(tabs.length);
+        expect(html).not.toContain("ideTabDot");
         expect(html).not.toContain("ideTabClose");
     });
 
-    it("dot is aria hidden decoration, tab label names unsaved state for AT", () => {
+    it("tab label names unsaved state for AT with no dot decoration", () => {
         const tabs = defaultCaseTabs().map((t, i) => (i === 0 ? { ...t, dirty: true } : t));
         const html = renderToStaticMarkup(<EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />);
-        expect(html).toContain('aria-hidden="true"');
+        expect(html).not.toContain("ideTabDot");
         expect(html).toContain("unsaved changes");
+    });
+
+    it("tabs render as Field chip buttons with the shared active class", () => {
+        const tabs = defaultCaseTabs();
+        const html = renderToStaticMarkup(<EditorTabs tabs={tabs} activeId={tabs[1].id} onActivate={noop} />);
+        expect(html).toContain("<button");
+        expect(html).toContain("chip active");
+        expect(html).not.toContain("ideTab");
     });
 
     it("renders the BODY label with the Body tablist", () => {
@@ -138,10 +147,13 @@ describe("Body tabs: fixed labels, no close buttons, dirty dot only", () => {
         expect(count(html, 'aria-selected="false"')).toBe(tabs.length - 1);
     });
 
-    it("EditorTabs source offers keyboard activation with no close handler", () => {
+    it("EditorTabs source offers native button activation with no close handler", () => {
         const src = readFileSync(resolve(__dirname, "./EditorTabs.tsx"), "utf8");
-        expect(src).toContain("onKeyDown");
-        expect(src).toContain("Enter");
+        // Native buttons fire onClick on Enter and Space, so no manual key
+        // handler is needed; keyboard support rides the button element.
+        expect(src).toContain("<button");
+        expect(src).toContain("onClick");
+        expect(src).toContain('role="tab"');
         for (const token of ["ideTabClose", "onClose", "closeTab", "aria-label=\"Close", "&times;"]) {
             expect(src).not.toContain(token);
         }

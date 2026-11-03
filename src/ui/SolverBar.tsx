@@ -28,7 +28,7 @@ const BODIES: Array<{ value: string; label: string }> = [
     { value: "naca4412", label: "NACA 4412" },
     { value: "cylinder", label: "CYLINDER" },
     { value: "orifice", label: "ORIFICE" },
-    { value: "block", label: "BLOCK" },
+    { value: "block", label: "RECTANGLE" },
 ];
 
 export default function SolverBar({

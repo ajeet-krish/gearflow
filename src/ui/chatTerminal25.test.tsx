@@ -1,7 +1,7 @@
 // Phase 25 chat terminal contract: square corners scoped to the terminal
-// descendants with the live dot round, no hint bar, no Applied pill, and a
-// caret-following 2px line cursor. Static markup plus source and stylesheet
-// pins, zero live calls.
+// descendants with the live dot round, no hint bar, no rendered Applied
+// lines, and a caret-following 2px line cursor. Static markup plus source
+// and stylesheet pins, zero live calls.
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -50,9 +50,11 @@ describe("Phase 25 chat terminal chrome", () => {
         expect(css).not.toContain("tuiBlink");
     });
 
-    it("keeps applied lines and the receipt while the Applied pill is gone", async () => {
+    it("keeps the apply receipt in extras while Applied lines never render", async () => {
         const src = await readFile(consolePath, "utf8");
         expect(src).not.toContain("status-pass\">applied");
+        // The receipt strings are still built for the tutor capture, but
+        // the turn render never prints them.
         expect(src).toContain("Applied: ");
         const html = renderToStaticMarkup(
             <AgentConsole
@@ -74,7 +76,8 @@ describe("Phase 25 chat terminal chrome", () => {
                 }}
             />
         );
-        expect(html).toContain("Applied: angle of attack (alpha) 6 deg.");
+        expect(html).not.toContain("Applied: angle of attack (alpha) 6 deg.");
+        expect(html).not.toContain("Applied:");
         expect(html).not.toContain(">applied</span>");
     });
 

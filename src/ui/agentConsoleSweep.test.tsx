@@ -318,7 +318,7 @@ describe("agent console sweep stop", () => {
 });
 
 describe("agent console sweep chips", () => {
-    it("routes Apply chips through the validated settle path with an applied note", async () => {
+    it("routes Apply chips through the validated settle path with no applied line", async () => {
         const ctx = buildAgentContext(pendingSnapshot() as never);
         const executor = vi.fn();
         const m = mountConsole({
@@ -341,7 +341,8 @@ describe("agent console sweep chips", () => {
             await new Promise<void>((resolve) => setTimeout(resolve, 0));
             expect(executor).toHaveBeenCalledWith({ kind: "set_alpha", alphaDeg: 4 });
             expect(m.text()).toContain("Applying angle of attack (alpha) 4 deg from the sweep");
-            expect(m.text()).toContain("Applied: angle of attack (alpha) 4 deg.");
+            // The apply receipt stays in extras; the turn never renders it.
+            expect(m.text()).not.toContain("Applied: angle of attack (alpha) 4 deg.");
         } finally {
             m.unmount();
         }

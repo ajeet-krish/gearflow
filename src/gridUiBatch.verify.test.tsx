@@ -157,12 +157,14 @@ describe("fixed grid 512 plus fixture envelope", () => {
 describe("shared outlined selected style on Body and Field", () => {
   it("Body tabs and Field chips share the outlined box rule", () => {
     const chip = ruleOf(".sceneBar.fieldBar .chip.active");
-    const tab = ruleOf(".ideTab.selected");
-    for (const rule of [chip, tab]) {
+    const base = ruleOf(".chip.active");
+    for (const rule of [chip, base]) {
       expect(rule).toContain("1px solid var(--purple)");
       expect(rule).toContain("background: transparent");
       expect(rule).toContain("box-shadow: none");
     }
+    const seat = ruleOf(".bodyBar .chip");
+    expect(seat).toContain("#000");
   });
 
   it("active Body tab and active Field chip render the shared classes", () => {
@@ -170,7 +172,7 @@ describe("shared outlined selected style on Body and Field", () => {
     const tabHtml = renderToStaticMarkup(
       <EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />,
     );
-    expect(tabHtml).toContain("ideTab selected");
+    expect(tabHtml).toContain("chip active");
     const chipHtml = renderToStaticMarkup(<FieldBar variable="speed" onVariable={noop} />);
     expect(chipHtml).toContain("chip active");
   });

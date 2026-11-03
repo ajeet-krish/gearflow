@@ -78,7 +78,7 @@ export function detectConcept(input: DetectConceptInput | null | undefined): Tut
         if (recirc !== null && recirc > 0.15) return "turbulent-wake";
         if (tke !== null && tke > 0) return "turbulent-wake";
         if (regime.includes("stagnat") || regime.includes("high pressure")) return "stagnation";
-        if (body.includes("block") || body.includes("orifice")) return "stagnation";
+        if (body.includes("block") || body.includes("rectangle") || body.includes("rectangular") || body.includes("orifice")) return "stagnation";
         if (regime.includes("suction")) return "suction-peak";
         if (cpMin !== null && cpMin <= -2) return "suction-peak";
         if (regime.includes("attach") || regime.includes("lift")) return "attached-lift";

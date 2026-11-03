@@ -44,7 +44,8 @@ export function defaultSweepYield(): Promise<void> {
 
 /** Sweep intent patterns: sweep, what if alpha, alpha staircase, plus
  *  influence and effect phrasings (how AoA influences, influence of
- *  alpha/AoA, effect of alpha, across alpha, sweep through alpha).
+ *  alpha/AoA, effect of alpha, across alpha, sweep through alpha) plus
+ *  impact phrasings (impact of alpha, how AoA impacts, how changes affect).
  *  Question guards (what is, why, explain, compare, vs) and negation
  *  guards (do not, never, no sweep) return false, mirroring blockIntent,
  *  so definitional or declined sweeps fall through to teaching. */
@@ -57,6 +58,9 @@ const INFLUENCE_RE = /influence\s+of\s+(alpha|aoa)|how\s+(alpha|aoa)\s+influence
 const EFFECT_RE = /effect\s+of\s+(alpha|aoa)/;
 const ACROSS_ALPHA_RE = /across\s+(alpha|aoa)/;
 const SWEEP_THROUGH_RE = /sweep\s+through/;
+const IMPACT_ALPHA_RE = /impact\s+of\s+(alpha|aoa)|(alpha|aoa).*impact|impact.*flow/;
+const HOW_DOES_RE = /how\s+does\s+(alpha|aoa)\b/;
+const HOW_DO_AFFECT_RE = /how\s+do\b.*\baffect\b|how\s+does\b.*\baffect\b|how\s+do\b.*\beffect\b|how\s+does\b.*\bimpact\b/;
 
 /** True when the text asks for the live alpha staircase. Never throws. */
 export function isAlphaSweepIntent(text: unknown): boolean {
@@ -65,7 +69,7 @@ export function isAlphaSweepIntent(text: unknown): boolean {
         const lower = text.toLowerCase();
         if (SWEEP_QUESTION_RE.test(lower)) return false;
         if (SWEEP_NEGATION_RE.test(lower)) return false;
-        return SWEEP_RE.test(lower) || WHAT_IF_ALPHA_RE.test(lower) || STAIRCASE_RE.test(lower) || INFLUENCE_RE.test(lower) || EFFECT_RE.test(lower) || ACROSS_ALPHA_RE.test(lower) || SWEEP_THROUGH_RE.test(lower);
+        return SWEEP_RE.test(lower) || WHAT_IF_ALPHA_RE.test(lower) || STAIRCASE_RE.test(lower) || INFLUENCE_RE.test(lower) || EFFECT_RE.test(lower) || ACROSS_ALPHA_RE.test(lower) || SWEEP_THROUGH_RE.test(lower) || IMPACT_ALPHA_RE.test(lower) || HOW_DOES_RE.test(lower) || HOW_DO_AFFECT_RE.test(lower);
     } catch {
         return false;
     }

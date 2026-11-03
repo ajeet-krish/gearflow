@@ -68,6 +68,13 @@ describe("isAlphaSweepIntent", () => {
         expect(isAlphaSweepIntent("demonstrate the alpha sweep")).toBe(true);
     });
 
+    it("matches impact and how-does and how-do affect phrasings", () => {
+        expect(isAlphaSweepIntent("how does AoA impact flow")).toBe(true);
+        expect(isAlphaSweepIntent("how do changes in alpha affect lift")).toBe(true);
+        expect(isAlphaSweepIntent("how does alpha affect suction")).toBe(true);
+        expect(isAlphaSweepIntent("impact of alpha on lift")).toBe(true);
+    });
+
     it("rejects question guards even when sweep terms appear", () => {
         expect(isAlphaSweepIntent("explain the effect of alpha")).toBe(false);
         expect(isAlphaSweepIntent("explain how alpha influences lift")).toBe(false);

@@ -1,9 +1,10 @@
-// EditorTabs: Body selector tab strip above the FIELD bar. One tab per
-// body (NACA Airfoil, Cylinder, Rectangle, Orifice), the active tab carries
-// the shared outlined-box selected style (Dracula purple border, no fill
-// change), exactly matching the Field chips. No close buttons: tabs are
-// body memories, never closable documents. The dot renders only when the
-// memory is dirty. Full keyboard support, no vendored code.
+// EditorTabs: Body selector chip strip above the FIELD bar. One chip per
+// body (NACA Airfoil, Cylinder, Rectangle, Orifice). The tabs share the
+// exact Field selector chip rules (same chip classes, same 11px mono type,
+// same outlined Dracula selected box), seated on black. No dots, no close
+// buttons: tabs are body memories, never closable documents, and the
+// unsaved state rides the accessible label only. Native buttons carry full
+// keyboard support, no vendored code.
 
 import type { CaseTabMemory } from "./caseTabs";
 
@@ -17,28 +18,22 @@ export default function EditorTabs({ tabs, activeId, onActivate }: EditorTabsPro
     return (
         <div className="sceneBar bodyBar" role="toolbar" aria-label="Body selector">
             <span className="barLabel">BODY</span>
-            <div className="ideTabs bodyTabs" role="tablist" aria-label="Body">
+            <div className="chipGroup" role="tablist" aria-label="Body">
                 {tabs.map((t) => {
                     const selected = t.id === activeId;
                     return (
-                        <div
+                        <button
                             key={t.id}
+                            type="button"
                             role="tab"
                             aria-selected={selected}
                             aria-label={`${t.title}, body tab${t.dirty ? ", unsaved changes" : ""}`}
                             tabIndex={selected ? 0 : -1}
-                            className={selected ? "ideTab selected" : "ideTab"}
+                            className={selected ? "chip active" : "chip"}
                             onClick={() => onActivate(t.id)}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault();
-                                    onActivate(t.id);
-                                }
-                            }}
                         >
-                            {t.dirty ? <span className="ideTabDot" aria-hidden="true" /> : null}
-                            <span className="ideTabName">{t.title}</span>
-                        </div>
+                            {t.title}
+                        </button>
                     );
                 })}
             </div>

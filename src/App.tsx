@@ -1941,7 +1941,9 @@ export default function App() {
                 ? "NACA 2412"
                 : bodySelectValue === "naca4412"
                     ? "NACA 4412"
-                    : bodySelectValue.toUpperCase();
+                    : bodySelectValue === "block"
+                        ? "Rectangle"
+                        : bodySelectValue.toUpperCase();
 
     // P3 live what-if sweep stepper. Analytic only, zero network: solves
     // one alpha on a throwaway AnalyticFlowProvider with the live geometry

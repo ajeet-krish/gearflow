@@ -93,7 +93,7 @@ export function GeometrySectionView(props: GeometrySectionProps): JSX.Element {
                         </option>
                     )}
                     <option value="cylinder">Cylinder</option>
-                    <option value="block">Block</option>
+                    <option value="block">Rectangle</option>
                     <option value="orifice">Orifice plate</option>
                 </select>
                 {legacyDuct && (
@@ -211,7 +211,7 @@ export function GeometrySectionView(props: GeometrySectionProps): JSX.Element {
                         step={0.05}
                         value={spec.width ?? 0.5}
                         onChange={(e) => onSpec({ ...spec, width: clampBodyDim(Number(e.target.value), 0.1, 3, spec.width ?? 0.5) })}
-                        aria-label="Block length, 0.1 to 3"
+                        aria-label="Rectangle length, 0.1 to 3"
                     />
                     <label htmlFor="geoHeight">
                         Height <output htmlFor="geoHeight" className="mono">{(spec.height ?? 0.5).toFixed(2)}</output>
@@ -224,7 +224,7 @@ export function GeometrySectionView(props: GeometrySectionProps): JSX.Element {
                         step={0.05}
                         value={spec.height ?? 0.5}
                         onChange={(e) => onSpec({ ...spec, height: clampBodyDim(Number(e.target.value), 0.1, 3, spec.height ?? 0.5) })}
-                        aria-label="Block height, 0.1 to 3"
+                        aria-label="Rectangle height, 0.1 to 3"
                     />
                 </div>
             )}

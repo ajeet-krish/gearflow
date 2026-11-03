@@ -143,7 +143,10 @@ function validationFor(ctx: AgentContext | null): AgentValidationContext {
 }
 
 function describeAction(a: AgentAction): string {
-    if (a.kind === "set_body") return `body ${a.body}`;
+    if (a.kind === "set_body") {
+        const label = a.body === "block" ? "Rectangle" : a.body;
+        return `body ${label}`;
+    }
     if (a.kind === "set_alpha") return `alpha ${a.alphaDeg}`;
     if (a.kind === "set_reynolds") return `Re ${a.reynolds}`;
     if (a.kind === "set_engine") return `engine ${a.engine}`;
@@ -245,13 +248,12 @@ function buildHelp(agentFirst: boolean): string {
 function buildGeneric(agentFirst: boolean): string {
     if (agentFirst) {
         return (
-            "Local note, no network. Ask to explain the run, set up a body (NACA 0012, 2412, 4412, cylinder, block, orifice), " +
-            "or switch field within the analytic path, and the console answers from local state. " +
+            "Local note, no network. Ask to explain the run, set up a body, or switch field within the analytic path, and the console answers from local state. " +
             "Agent-first analytic mode serves the analytic frame only. Canvas unchanged."
         );
     }
     return (
-        "Local note, no network. Ask to explain the run, set up a body (NACA 0012, 2412, 4412, cylinder, block, orifice), " +
+        "Local note, no network. Ask to explain the run, set up a body, " +
         "switch engine or field, or run LBM, and the console answers from local state. Canvas unchanged."
     );
 }
@@ -404,7 +406,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         }
         if (CANNOT_3D_RE.test(lower)) {
             return {
-                reply: "Cannot do 3D: the tunnel is 2D only (chord normalized, y-up). Set up a 2D body (NACA 0012, 2412, 4412, cylinder, block, orifice) instead. Canvas unchanged.",
+                reply: "Cannot do 3D: the tunnel is 2D only (chord normalized, y-up). Set up a 2D section instead, a rectangular section narrows the passage like a venturi and speeds the flow. Canvas unchanged.",
                 actions: [],
                 rejections: [],
             };
@@ -527,7 +529,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 const hint = parsed.nearest !== null ? ` Did you mean NACA ${parsed.nearest}?` : "";
                 sections.push(
                     `Local setup note, no network. ${label} is not a valid 4-digit section (${parsed.reason}).${hint} ` +
-                    `Reply with a valid 4-digit code (try 0012, 2412, or 4412). Canvas unchanged.`
+                    `Reply with a valid 4-digit code. Canvas unchanged.`
                 );
             } else if (parsed.status === "none") {
                 // Relative reshapes without explicit digits (thicker,
@@ -587,7 +589,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     const hint = nearest !== null ? ` Did you mean NACA ${nearest}?` : "";
                     sections.push(
                         `Local setup note, no network. NACA ${parsed.code} is not a valid 4-digit section (${check.reason ?? "outside the schema envelope"}).${hint} ` +
-                        `Reply with a valid 4-digit code (try 0012, 2412, or 4412). Canvas unchanged.`
+                        `Reply with a valid 4-digit code. Canvas unchanged.`
                     );
                 } else if (CANONICAL_NACA.has(`naca${check.code}`)) {
                     const candidate: AgentAction = { kind: "setup_airfoil" };
@@ -678,7 +680,8 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             let carriedBySpec = false;
             if (bodyTok !== null) {
                 if (accept({ kind: "set_body", body: bodyTok as BodyToken })) {
-                    applied.push(`body ${bodyTok}`);
+                    const displayTok = bodyTok === "block" ? "Rectangle" : bodyTok;
+                    applied.push(`body ${displayTok}`);
                 }
             } else if (unknownNaca !== null) {
                 // Valid non-canonical code: ride one set_spec like the online
@@ -706,7 +709,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     }
                 } else {
                     rejections.push(
-                        `naca ${unknownNaca} is not a console body, staying on ${bodyLabel}; bodies are [${BODY_TOKENS.join(", ")}]`
+                        `naca ${unknownNaca} is not a console body, staying on ${bodyLabel}; a rectangular section narrows the passage like a venturi and an airfoil adds lift with camber`
                     );
                 }
             }
@@ -734,8 +737,8 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 sections.push(`Local setup note, no network. Applying ${applied.join(", ")}${speedStaged ? " with the speed field" : ""}.`);
             } else {
                 sections.push(
-                    `Local setup note, no network. Staying on ${bodyLabel}; tell me which body ` +
-                    `(NACA 0012, 2412, 4412, cylinder, block, orifice), alpha, and Re to use.`
+                    `Local setup note, no network. Staying on ${bodyLabel}; tell me which body shape, angle, and Re to use, ` +
+                    `a rectangular section narrows the passage like a venturi and a thicker airfoil deepens suction.`
                 );
             }
             if (notices.length > 0) sections.push(notices.join(" "));
@@ -756,8 +759,8 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         } else if (SETUP_WORD_RE.test(lower)) {
             if (!presetHandled && !clarified) {
                 sections.push(
-                    `Local setup note, no network. Staying on ${bodyLabel}; tell me which body ` +
-                    `(NACA 0012, 2412, 4412, cylinder, block, orifice), alpha, and Re to use.`
+                    `Local setup note, no network. Staying on ${bodyLabel}; tell me which body shape, angle, and Re to use, ` +
+                    `a rectangular section narrows the passage like a venturi and a thicker airfoil deepens suction.`
                 );
             }
         }

@@ -1,8 +1,8 @@
 // Phase T2 frontend: Claude layout plus react-markdown rendering. Static
-// markup over initialTurns, zero live calls. Covers the user right and
-// agent left alignment classes, GFM pipe tables rendering as real tables
-// (never raw pipes), script text staying inert, and the distinct tutor
-// badge plus numbers table plus field chip.
+// markup over initialTurns, zero live calls. Covers the full-width TUI
+// turn blocks, GFM pipe tables rendering as real tables (never raw
+// pipes), script text staying inert, and the tutor numbers table with no
+// concept badge and no field chip.
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -111,7 +111,7 @@ describe("agent console T2 markdown layout", () => {
         expect(html).toContain("wake sketch");
     });
 
-    it("renders combined teaching turns distinct: Tutor label, live dot free, numbers table, no field chip", () => {
+    it("renders combined teaching turns distinct: Tutor role, no concept badge, numbers table, no field chip", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline
@@ -132,7 +132,8 @@ describe("agent console T2 markdown layout", () => {
         expect(html).toContain("Quantity");
         expect(html).toContain("Change");
         expect(html).toContain("0.700");
-        expect(html).toContain("Tutor: attached-lift");
+        expect(html).not.toContain("Tutor: attached-lift");
+        expect(html).not.toContain("Tutor:");
         expect(html).not.toContain("Show cp");
         expect(html).not.toContain("tutorChip");
     });

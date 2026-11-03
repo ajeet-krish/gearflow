@@ -113,7 +113,7 @@ describe("verify NACA p rule plus rejection turns plus block chord in prompt", (
   it("teaches the NACA p bound with the allowed range", () => {
     const system = promptSystem();
     expect(system).toContain("when camber (m) is above 0");
-    expect(system).toContain("within 0.2 to 0.8");
+    expect(system).toContain("(0, 1)");
   });
 
   it("teaches rejection turns with the nearest valid alternative", () => {
@@ -134,7 +134,7 @@ describe("verify NACA p rule plus rejection turns plus block chord in prompt", (
     expect(system).toContain("angle of attack (alpha) influence");
     expect(system).toContain("before versus after table plus Why plus Try next");
     expect(system).toContain("no action fence");
-    expect(system).toContain("never promise a run the console did not take");
+    expect(system).toContain("agent runs now");
     expect(tutorSystem()).toContain("Never promise a future run or sweep");
   });
 });
@@ -153,7 +153,7 @@ describe("verify sweep fires on show plus run plus influence", () => {
     }
   });
 
-  it("fires on influence and effect and across phrasings", () => {
+  it("fires on influence and effect and across and impact phrasings", () => {
     for (const text of [
       "how does AoA influence lift",
       "show the influence of alpha",
@@ -161,6 +161,10 @@ describe("verify sweep fires on show plus run plus influence", () => {
       "effect of AoA across the band",
       "Cl across alpha",
       "what if alpha were higher",
+      "how does AoA impact flow",
+      "how do changes in alpha affect lift",
+      "how does alpha affect suction",
+      "impact of alpha on lift",
     ]) {
       expect(isAlphaSweepIntent(text)).toBe(true);
     }

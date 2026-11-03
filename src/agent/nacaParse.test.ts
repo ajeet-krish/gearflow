@@ -106,7 +106,7 @@ describe("parseNacaLoose safety", () => {
 });
 
 describe("isSchemaValidCode", () => {
-    it("accepts the widened envelope up to 40% thickness", () => {
+    it("accepts the widened envelope up to 100% thickness", () => {
         const check = isSchemaValidCode("2440");
         expect(check.ok).toBe(true);
         expect(check.t).toBeCloseTo(0.4, 10);
@@ -114,8 +114,18 @@ describe("isSchemaValidCode", () => {
         expect(check.note).not.toBeNull();
     });
 
-    it("rejects schema out-of-envelope codes 2912 and 2405 with a nearest valid code", () => {
-        for (const bad of ["2912", "2405"]) {
+    it("accepts extreme thick and aft peak codes in the widened envelope", () => {
+        for (const code of ["2385", "2912", "2985", "2405"]) {
+            const check = isSchemaValidCode(code);
+            expect(check.ok).toBe(true);
+        }
+        const extreme = isSchemaValidCode("2385");
+        expect(extreme.realistic).toBe(false);
+        expect(extreme.note).toContain("Real-world read");
+    });
+
+    it("rejects schema out-of-envelope thin and zero-peak codes with a nearest valid code", () => {
+        for (const bad of ["2400", "2040"]) {
             const check = isSchemaValidCode(bad);
             expect(check.ok).toBe(false);
             expect(typeof check.reason).toBe("string");

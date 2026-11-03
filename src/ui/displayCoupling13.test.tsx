@@ -252,11 +252,16 @@ describe("Settings effective rows and slider", () => {
 });
 
 describe("canvas particle size effect", () => {
-    it("accepts a particle size prop and applies it to the material without a rebuild", async () => {
+    it("scales the stored particle size through the render factor without a rebuild", async () => {
         const src = await readFile(canvasPath, "utf8");
         expect(src).toContain("particleSize?: number");
         expect(src).toContain("particleSize = 0.018");
-        expect(src).toContain("mat.size = particleSize");
+        // sizeAttenuation over the ortho tunnel camera lands near a pixel
+        // per world hundredth, so the stored band paints through a render
+        // factor that makes slider moves clearly visible.
+        expect(src).toContain("PARTICLE_SIZE_RENDER_SCALE");
+        expect(src).toContain("effectiveParticleSize(particleSizeRef.current)");
+        expect(src).toContain("mat.size = effectiveParticleSize(particleSize)");
         expect(src).toContain("pointsRef.current?.material");
         expect(src).toContain("[particleSize]");
     });

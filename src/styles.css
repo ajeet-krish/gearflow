@@ -503,8 +503,7 @@ html, body, #root {
 .tuiConsole .mBtn,
 .tuiConsole .chatTableWrap,
 .tuiConsole .chatProse .chatPre,
-.tuiConsole .chatProse code,
-.tuiConsole .reasoningTrace {
+.tuiConsole .chatProse code {
   border-radius: 0;
 }
 .tuiConsole .liveDot { border-radius: 50%; }
@@ -522,11 +521,10 @@ html, body, #root {
 .chatInput:focus { border-color: rgba(189, 147, 249, 0.5); outline: none; }
 .card .mBtn.chatSend { width: auto; padding: 0 1.2em; }
 
-/* TUI turn skin: full width rounded blocks. The tutor numbers table rides
+/* TUI turn skin: full width rounded blocks. The numbers table rides
    inside the same turn, the Change column glow is the one bold note,
    everything else stays quiet. The cursor blink is the only animation,
    and the shared reduced motion query stills it. */
-.tutorLine { color: var(--cyan); }
 .tutorBlock { display: grid; gap: 8px; }
 .chatProse { display: grid; gap: 6px; font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
 .chatProse p { margin: 0; }
@@ -647,9 +645,9 @@ html, body, #root {
 }
 .chip:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
 /* Selected controls share one outlined-box style: Dracula purple border,
-   no fill change, no glow. Body tabs and Field chips carry the exact same
-   selected rule, so the active body and the active field always read as one
-   system. The tunnel hero (colorbar, latch notch) keeps the only glow. */
+   no fill change, no glow. Body tabs are Field chips (same chip classes),
+   so the active body and the active field always read as one system. The
+   tunnel hero (colorbar, latch notch) keeps the only glow. */
 .chip.active {
   background: transparent;
   color: var(--purple);
@@ -1544,13 +1542,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .exportActions, .exportNote { display: none !important; }
 }
 
-/* Body selector remnant: editor tabs only. The IDE sidebar with its
-   Explorer, Source Control, Extensions, and Analysis disclosures plus the
-   right analysis rail are deleted; TopNav is the sole topmost bar. The Body
-   tabs sit above the FIELD bar inside the scene bars. Additive under
-   .idePage so the Zenith instrument skin underneath stays untouched.
-   Palette: editor #1E1E1E, sidebar #252526, hover #2D2D2D, text #CCCCCC,
-   status #007ACC. Tracked uppercase labels. No em dashes in copy. */
+/* Body selector: BODY chip strip above the FIELD bar inside the scene
+   bars. The IDE sidebar with its Explorer, Source Control, Extensions,
+   and Analysis disclosures plus the right analysis rail are deleted;
+   TopNav is the sole topmost bar. Additive under .idePage so the Zenith
+   instrument skin underneath stays untouched. Palette: editor #1E1E1E,
+   sidebar #252526, hover #2D2D2D, text #CCCCCC, status #007ACC. Tracked
+   uppercase labels. No em dashes in copy. */
 .idePage {
   --ide-bg: #1e1e1e;
   --ide-side: #252526;
@@ -1567,61 +1565,16 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .idePage .skip:focus { background: var(--ide-accent); color: #ffffff; }
 .ideWorkbench { background: var(--ide-bg); }
 .ideEditor { background: var(--ide-bg); }
-/* Body selector bar: BODY label plus the tab strip, seated in the scene
-   bars above FIELD. */
+/* Body selector bar: BODY label plus the chip strip, seated in the scene
+   bars above FIELD. The tabs are Field chips exactly (same chip classes,
+   same 11px mono type, same outlined Dracula selected box), seated on
+   black so the strip reads as one instrument row with FIELD. */
 .bodyBar { gap: 10px; }
-.bodyTabs {
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-  border-bottom: 0;
-}
-.ideTabs {
-  flex: none;
-  min-height: 35px;
-  display: flex;
-  align-items: stretch;
-  overflow-x: auto;
-  background: var(--ide-side);
-  border-bottom: 1px solid var(--ide-line);
-  scrollbar-width: none;
-}
-.ideTab {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 8px 2px 12px;
-  background: var(--ide-tab-idle);
-  border-right: 1px solid var(--ide-line);
-  color: var(--ide-dim);
-  cursor: pointer;
-  font-size: 12px;
-  font-family: system-ui, sans-serif;
-  min-height: 35px;
-  max-width: 220px;
-}
-.ideTab.selected {
-  background: transparent;
-  color: var(--purple);
-  border: 1px solid var(--purple);
-  box-shadow: none;
-  text-shadow: none;
-}
-.ideTab:hover { color: #ffffff; }
-.ideTabDot { width: 8px; height: 8px; border-radius: 50%; background: #4ec9b0; flex: none; }
-.ideTabName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.idePage .ideTab:focus-visible {
-  outline: 1px solid #ffffff;
-  outline-offset: -1px;
-}
+.bodyBar .chip { background: #000; }
+.bodyBar .chip.active { background: #000; }
 
 @media (max-width: 900px) {
   .ideWorkbench { flex-direction: column; overflow-y: auto; }
-}
-
-@media (pointer: coarse) {
-  .ideTab { min-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

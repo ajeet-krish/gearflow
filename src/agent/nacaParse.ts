@@ -5,11 +5,11 @@
 // compact (naca2412), keyword led (airfoil 4412), and suffixed (2415
 // airfoil) forms. Status is ok, ambiguous, invalid, or none. Five digit
 // hits always clarify with single deletion candidates, never auto-fix.
-// Codes validate through parseNaca4 plus the schema envelope (m 0 to 9%,
-// p 20 to 80% chord when cambered, thickness 6 to 40% chord, matching
+// Codes validate through parseNaca4 plus the schema envelope (m 0 to 15%,
+// p in (0, 1) when cambered, thickness 2 to 100% chord, matching
 // validateGeometrySpec) while the realistic flag follows
 // the trainer band (6 to 18% thickness plus camber rules) so the tutor can
-// explain shapes that mesh but fly poorly.
+// explain shapes that mesh but fly poorly with a real-world equivalent.
 
 import { NACA_M_MAX_ENV, NACA_M_MIN, NACA_P_MAX, NACA_P_MIN, NACA_T_MAX_ENV, NACA_T_MIN, NACA_T_REALISTIC_MAX } from "@/contracts/schema";
 import { parseNaca4 } from "@/geometry/parametric";
@@ -54,7 +54,7 @@ export interface NacaParseNone {
 
 export type NacaParseResult = NacaParseOk | NacaParseAmbiguous | NacaParseInvalid | NacaParseNone;
 
-/** Widened validity is parseNaca4 itself (thickness up to 40% chord). */
+/** Widened validity is parseNaca4 itself (thickness 2 to 100% chord). */
 export interface SchemaCodeCheck {
     ok: boolean;
     code: string;
@@ -66,41 +66,65 @@ export interface SchemaCodeCheck {
     reason: string | null;
 }
 
+/** Realistic trainer bounds kept for the tutor flag, distinct from the
+ *  widened schema envelope. */
+export const REALISTIC_T_MIN = 0.06;
+export const REALISTIC_M_MAX = 0.09;
+export const REALISTIC_P_MIN = 0.2;
+export const REALISTIC_P_MAX = 0.8;
+
 /** Realistic trainer band: 6 to 18% thickness, 0 to 9% camber, peak at 20 to 80% chord. */
 export function isRealisticSection(m: number, p: number, t: number): boolean {
-    if (!(t >= NACA_T_MIN && t <= NACA_T_REALISTIC_MAX)) return false;
-    if (!(m >= 0 && m <= NACA_M_MAX_ENV)) return false;
-    if (m > 1e-10 && !(p >= NACA_P_MIN && p <= NACA_P_MAX)) return false;
+    if (!(t >= REALISTIC_T_MIN && t <= NACA_T_REALISTIC_MAX)) return false;
+    if (!(m >= 0 && m <= REALISTIC_M_MAX)) return false;
+    if (m > 1e-10 && !(p >= REALISTIC_P_MIN && p <= REALISTIC_P_MAX)) return false;
     return true;
+}
+
+/** One line real-world read for any generated airfoil. Pure, never throws.
+ *  Relates extreme but valid shapes to equivalents or names why the shape
+ *  cannot exist as drawn. Physics-only, no canvas or limit lists. */
+export function realWorldEquivalentLine(code: string, m: number, p: number, t: number): string {
+    try {
+        const pct = Math.round(t * 100);
+        if (t >= 0.6) return `Real-world read: NACA ${code} at ${pct}% thickness behaves like a blunt strut fairing rather than a lifting wing, useful for drag comparison.`;
+        if (t >= 0.3) return `Real-world read: NACA ${code} at ${pct}% thickness behaves like a thick strut fairing rather than a trainer wing, expect high drag.`;
+        if (t <= 0.04) return `Real-world read: NACA ${code} at ${pct}% thickness behaves like a thin sail or membrane section, efficient but fragile as drawn.`;
+        if (m >= 0.1) return `Real-world read: NACA ${code} with ${Math.round(m * 100)}% camber behaves like a high-lift sail or turbine section, strong turning at low speed.`;
+        if (m > 1e-10 && (p >= 0.8 || p <= 0.2)) return `Real-world read: NACA ${code} with the camber peak at ${Math.round(p * 100)}% chord behaves like an aft or forward loaded laminar section pushed past practical molds.`;
+        return `Real-world read: NACA ${code} behaves like a trainer wing pushed past textbook proportions, still useful for comparison.`;
+    } catch {
+        return `Real-world read: NACA ${code} behaves like a trainer wing pushed past textbook proportions.`;
+    }
 }
 
 /** Tutor note for a valid but unrealistic section. Null when realistic. */
 export function unrealisticSectionNote(code: string, m: number, p: number, t: number): string | null {
     if (isRealisticSection(m, p, t)) return null;
     const problems: string[] = [];
-    if (!(t >= NACA_T_MIN && t <= NACA_T_REALISTIC_MAX)) {
+    if (!(t >= REALISTIC_T_MIN && t <= NACA_T_REALISTIC_MAX)) {
         problems.push(`${Math.round(t * 100)}% thick, outside the realistic 6 to 18% band`);
     }
-    if (!(m >= 0 && m <= NACA_M_MAX_ENV)) {
+    if (!(m >= 0 && m <= REALISTIC_M_MAX)) {
         problems.push(`${Math.round(m * 100)}% camber, above the realistic 0 to 9% band`);
     }
-    if (m > 1e-10 && !(p >= NACA_P_MIN && p <= NACA_P_MAX)) {
+    if (m > 1e-10 && !(p >= REALISTIC_P_MIN && p <= REALISTIC_P_MAX)) {
         problems.push(`camber peak at ${Math.round(p * 100)}% chord, outside the realistic 20 to 80% band`);
     }
     const detail = problems.length > 0 ? ` (${problems.join("; ")})` : "";
     return (
         `NACA ${code} is valid but not a realistic trainer shape${detail}. ` +
         `It still meshes, but expect draggy, unvalidated coefficients. ` +
-        `A textbook trainer uses 12 to 15% thickness with 2 to 4% camber (try 2412 or 4412).`
+        `${realWorldEquivalentLine(code, m, p, t)}`
     );
 }
 
 /**
- * Validate one 4-digit code. Accepts the schema envelope (m 0 to 9% camber,
- * p 0.2 to 0.8 when cambered, thickness 6 to 40% chord, matching
+ * Validate one 4-digit code. Accepts the schema envelope (m 0 to 15%
+ * camber, p in (0, 1) when cambered, thickness 2 to 100% chord, matching
  * validateGeometrySpec) and marks realistic false outside the 6 to 18%
  * trainer band or the camber rules so the tutor can explain shapes that
- * mesh but fly poorly. Never throws.
+ * mesh but fly poorly with a real-world equivalent. Never throws.
  */
 export function isSchemaValidCode(code: unknown): SchemaCodeCheck {
     const label = typeof code === "string" ? code : String(code);
@@ -110,13 +134,13 @@ export function isSchemaValidCode(code: unknown): SchemaCodeCheck {
         }
         const { m, p, t } = parseNaca4(code);
         if (!(m >= NACA_M_MIN && m <= NACA_M_MAX_ENV)) {
-            return { ok: false, code: label, m: 0, p: 0, t: 0, realistic: false, note: null, reason: `NACA ${code} camber ${Math.round(m * 100)}% outside the schema 0 to 9% band` };
+            return { ok: false, code: label, m: 0, p: 0, t: 0, realistic: false, note: null, reason: `NACA ${code} camber ${Math.round(m * 100)}% outside the schema 0 to 15% band` };
         }
-        if (m > 1e-10 && !(p >= NACA_P_MIN && p <= NACA_P_MAX)) {
-            return { ok: false, code: label, m: 0, p: 0, t: 0, realistic: false, note: null, reason: `NACA ${code} camber peak ${Math.round(p * 100)}% chord outside the schema 20 to 80% band` };
+        if (m > 1e-10 && !(p > 0 && p < 1)) {
+            return { ok: false, code: label, m: 0, p: 0, t: 0, realistic: false, note: null, reason: `NACA ${code} camber peak ${Math.round(p * 100)}% chord outside the schema open interval (0, 1)` };
         }
         if (!(t >= NACA_T_MIN && t <= NACA_T_MAX_ENV)) {
-            return { ok: false, code: label, m: 0, p: 0, t: 0, realistic: false, note: null, reason: `NACA ${code} thickness ${Math.round(t * 100)}% outside the schema 6 to 40% band` };
+            return { ok: false, code: label, m: 0, p: 0, t: 0, realistic: false, note: null, reason: `NACA ${code} thickness ${Math.round(t * 100)}% outside the schema 2 to 100% band` };
         }
         const realistic = isRealisticSection(m, p, t);
         return { ok: true, code, m, p, t, realistic, note: realistic ? null : unrealisticSectionNote(code, m, p, t), reason: null };
@@ -316,7 +340,7 @@ export function parseNacaLoose(text: unknown): NacaParseResult {
             return {
                 status: "invalid",
                 code: threes[0],
-                reason: `NACA ${threes[0]} has 3 digits, sections need 4 digits (try 0012, 2412, or 4412)`,
+                reason: `NACA ${threes[0]} has 3 digits, sections need 4 digits`,
                 nearest: null,
                 explicit: true,
                 corrections,

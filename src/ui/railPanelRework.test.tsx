@@ -273,7 +273,7 @@ describe("SIMULATION section", () => {
 describe("GEOMETRY section", () => {
     it("renders the body dropdown with six bodies and no duct", () => {
         const html = renderToStaticMarkup(GeometrySectionView(geoProps()) as never);
-        for (const label of ["NACA 0012", "NACA 2412", "NACA 4412", "Cylinder", "Block", "Orifice plate"]) {
+        for (const label of ["NACA 0012", "NACA 2412", "NACA 4412", "Cylinder", "Rectangle", "Orifice plate"]) {
             expect(html).toContain(label);
         }
         expect(html).not.toContain(">Duct<");

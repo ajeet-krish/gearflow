@@ -298,11 +298,11 @@ describe("localReply offline review gates", () => {
         expect(out.reply).not.toContain("Switching field");
     });
 
-    it("suggests the nearest valid code for invalid airfoil words 0099 and 2500", () => {
-        const bad99 = localReply("set up airfoil naca 0099", makeCtx());
+    it("suggests the nearest valid code for invalid airfoil words 0001 and 2500", () => {
+        const bad99 = localReply("set up airfoil naca 0001", makeCtx());
         expect(bad99.actions).toEqual([]);
         expect(bad99.reply).toContain("not a valid 4-digit section");
-        expect(bad99.reply).toContain("Did you mean NACA 0009");
+        expect(bad99.reply).toContain("Did you mean NACA 0011");
         expect(bad99.reply).toContain("Canvas unchanged");
         const bad25 = localReply("set up airfoil naca 2500", makeCtx());
         expect(bad25.actions).toEqual([]);

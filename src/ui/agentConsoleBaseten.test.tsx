@@ -144,7 +144,7 @@ describe("modal console chrome", () => {
         expect(idleHtml).toContain("Send");
     });
 
-    it("renders applied notes and run confirm chips from turn extras", () => {
+    it("keeps apply receipts in extras while rendering rejections and run confirm chips", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline={false}
@@ -165,7 +165,8 @@ describe("modal console chrome", () => {
                 }}
             />
         );
-        expect(html).toContain("Applied: angle of attack (alpha) 6 deg.");
+        expect(html).not.toContain("Applied: angle of attack (alpha) 6 deg.");
+        expect(html).not.toContain("Applied:");
         expect(html).toContain("Rejected:");
         expect(html).toContain("Confirm run");
     });

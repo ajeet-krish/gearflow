@@ -147,7 +147,7 @@ describe("prompt snapshot", () => {
     it("teaches the NACA p bound, the rejection rule, and the block chord fence", () => {
         const system = promptSystem();
         expect(system).toContain("when camber (m) is above 0");
-        expect(system).toContain("within 0.2 to 0.8");
+        expect(system).toContain("(0, 1)");
         expect(system).toContain("nearest valid");
         expect(system).toContain("No teaching prose for unapplied cases");
         expect(system).toContain("canvas unchanged");
@@ -155,7 +155,7 @@ describe("prompt snapshot", () => {
         expect(system).toContain('"center":{"x":0.5,"y":0}');
         expect(system).toContain("angle of attack (alpha) influence");
         expect(system).toContain("no action fence");
-        expect(system).toContain("never promise a run the console did not take");
+        expect(system).toContain("agent runs now");
     });
 });
 

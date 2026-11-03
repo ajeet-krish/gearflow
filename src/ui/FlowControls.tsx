@@ -83,7 +83,7 @@ export default function FlowControls({
                 >
                     <option value="naca4">NACA 4-digit airfoil</option>
                     <option value="cylinder">Cylinder</option>
-                    <option value="block">Block</option>
+                    <option value="block">Rectangle</option>
                     <option value="orifice">Orifice plate</option>
                 </select>
                 {isNaca && (

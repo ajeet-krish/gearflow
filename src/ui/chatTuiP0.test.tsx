@@ -1,10 +1,11 @@
 // P0 chat TUI contract. Static markup plus pure helpers, zero live
 // calls. Pins the six P0 requirements: no header or offline toggle or
-// clear chrome, Tutor label with a green dot and no live text pill,
+// clear chrome, Tutor role label with a green dot and no live text pill,
 // no tool or model pills, example plus tutorial dropdowns side by side
 // in one row, no session cost render with the spend gate still forcing
-// the offline path, and one single combined response with Retry plus
-// the collapsed reasoning trace intact.
+// the offline path, and one single combined response with Retry and no
+// collapsed reasoning trace, no rendered apply receipts, and no Tutor
+// concept badge.
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -139,7 +140,7 @@ describe("P0 chat TUI chrome", () => {
         expect(spendExceeded(0.01, 0)).toBe(true);
     });
 
-    it("keeps one single combined response with Retry and reasoning intact", () => {
+    it("keeps one single combined response with Retry and no collapsed chrome", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline={false}
@@ -162,18 +163,22 @@ describe("P0 chat TUI chrome", () => {
                 }}
             />
         );
-        // Single combined turn: the applied line, the numbers table, and
-        // the Retry chip all live on the same Tutor turn, never a second
-        // tutor turn.
+        // Single combined turn: the numbers table and the Retry chip live
+        // on the same Tutor turn, never a second tutor turn. Apply
+        // receipts stay in the turn extras for the tutor capture and never
+        // render, the reasoning trace never renders, and the concept badge
+        // is gone.
         expect(html).toContain(">Tutor</span>");
-        expect(html).toContain("Applied: angle of attack (alpha) 6 deg.");
+        expect(html).not.toContain("Applied: angle of attack (alpha) 6 deg.");
+        expect(html).not.toContain("Applied:");
         expect(html).toContain("<table");
         expect(html).toContain("Retry");
         expect(html).toContain('aria-label="Retry tutor request"');
-        // Reasoning survives as a collapsed trace, never parsed or applied.
-        expect(html).toContain("reasoningTrace");
-        expect(html).toContain("Reasoning");
-        expect(html).toContain("Checked the before versus after Cl delta.");
+        // No collapsed chrome: no reasoning disclosure, no concept line.
+        expect(html).not.toContain("reasoningTrace");
+        expect(html).not.toContain("Reasoning");
+        expect(html).not.toContain("Checked the before versus after Cl delta.");
+        expect(html).not.toContain("Tutor:");
         // No second tutor turn and no tool or model pills leaked back in.
         expect(html.match(/tutorTurn/g)?.length ?? 0).toBe(1);
         expect(html).not.toContain("gearflow-chat");

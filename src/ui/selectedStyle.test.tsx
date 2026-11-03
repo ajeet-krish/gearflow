@@ -1,7 +1,7 @@
-// Selected style contract: Body tabs and Field chips share the exact
-// selected style, one Dracula purple outlined box with no fill change and
-// no glow. The tunnel hero (colorbar, latch notch) keeps the only glow.
-// Static CSS plus markup checks, no live solves.
+// Selected style contract: Body tabs are Field chips (same chip classes)
+// with an outlined Dracula purple selected box and a black seat, no fill
+// change and no glow. The tunnel hero (colorbar, latch notch) keeps the
+// only glow. Static CSS plus markup checks, no live solves.
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -24,10 +24,10 @@ function ruleOf(selector: string): string {
 }
 
 describe("unified selected style", () => {
-    it("Field chips and Body tabs share the Dracula purple outlined box", () => {
-        const chip = ruleOf(".sceneBar.fieldBar .chip.active");
-        const tab = ruleOf(".ideTab.selected");
-        for (const rule of [chip, tab]) {
+    it("Field chips and Body tabs share the outlined box through the chip rule", () => {
+        const chip = ruleOf(".chip.active");
+        const field = ruleOf(".sceneBar.fieldBar .chip.active");
+        for (const rule of [chip, field]) {
             expect(rule).toContain("1px solid var(--purple)");
             expect(rule).toContain("background: transparent");
             expect(rule).toContain("color: var(--purple)");
@@ -36,10 +36,17 @@ describe("unified selected style", () => {
         }
     });
 
+    it("Body tabs sit on black while the selected box stays outlined", () => {
+        const seat = ruleOf(".bodyBar .chip");
+        expect(seat).toContain("#000");
+        const selectedSeat = ruleOf(".bodyBar .chip.active");
+        expect(selectedSeat).toContain("#000");
+    });
+
     it("the unified selected rules carry no fill change and no glow", () => {
-        const chip = ruleOf(".sceneBar.fieldBar .chip.active");
-        const tab = ruleOf(".ideTab.selected");
-        for (const rule of [chip, tab]) {
+        const chip = ruleOf(".chip.active");
+        const field = ruleOf(".sceneBar.fieldBar .chip.active");
+        for (const rule of [chip, field]) {
             expect(rule).not.toContain("rgba(189, 147, 249");
             expect(rule).not.toContain("8px");
             expect(rule).not.toContain("#007acc");
@@ -47,12 +54,12 @@ describe("unified selected style", () => {
         }
     });
 
-    it("the selected Body tab renders with the shared selected class", () => {
+    it("the selected Body tab renders with the shared chip active class", () => {
         const tabs = defaultCaseTabs();
         const html = renderToStaticMarkup(
             <EditorTabs tabs={tabs} activeId={tabs[1].id} onActivate={() => {}} />,
         );
-        expect(html).toContain("ideTab selected");
+        expect(html).toContain("chip active");
         expect(html).toContain('aria-selected="true"');
     });
 

@@ -369,13 +369,19 @@ describe("agent console tutor hook (T2)", () => {
                     (el.props.className as string).includes("assistant")
             );
             expect(assistantTurns).toHaveLength(1);
-            expect(m.text()).toContain("attached-lift");
+            // The concept badge never renders: the teaching keeps the
+            // prose plus the numbers table with no Tutor line.
+            expect(m.text()).not.toContain("attached-lift");
+            expect(m.text()).not.toContain("Tutor:");
             expect(m.text()).toContain("Spark tutor prose");
             // Single-table contract: prose pipe block stripped, payload
             // table renders once with its accessible caption.
             expect(m.text()).toContain("Before versus after");
             expect(m.text()).not.toContain("Metric | Before");
-            expect(m.text()).toContain("Applied: body naca2412.");
+            // The apply receipt stays in the turn extras for the capture
+            // and never renders as an Applied line.
+            expect(m.text()).not.toContain("Applied: body naca2412.");
+            expect(m.text()).not.toContain("Applied:");
             const rows = buildTutorTable(snapshotLiteFor(before), snapshotLiteFor(after));
             // T2 frontend renders rows as a real numbers table, never raw pipes.
             expect(tutorTables(m.tree())).toHaveLength(1);
@@ -383,11 +389,11 @@ describe("agent console tutor hook (T2)", () => {
             expect(textOf(tutorTables(m.tree())[0])).toContain(rows[0].before);
             expect(evalSink).toHaveBeenCalledWith({ feature: TUTOR_FEATURE, model: "test-spark" });
             expect(TUTOR_FEATURE).toBe("tutor");
-            // Tutor-v2 live contract: reasoning rides collapsed, rows render
+            // Tutor-v2 live contract: no collapsed reasoning, rows render
             // once, success carries no Retry and zero local prose.
-            expect(findAll(m.tree(), (el) => el.type === "details").length).toBeGreaterThan(0);
-            expect(m.text()).toContain("Reasoning");
-            expect(m.text()).toContain("checked the table numbers");
+            expect(findAll(m.tree(), (el) => el.type === "details").length).toBe(0);
+            expect(m.text()).not.toContain("Reasoning");
+            expect(m.text()).not.toContain("checked the table numbers");
             expect(buttonsByLabel(m.tree(), "Retry tutor request")).toHaveLength(0);
             expect(m.text()).not.toContain("local mode");
             // Rerender with the same settled key fires nothing more.
@@ -719,7 +725,10 @@ describe("agent console tutor hook (T2)", () => {
             m.setProps({ ...base, agentContext: after });
             await flush();
             expect(tutorBlocks(m.tree())).toHaveLength(1);
-            expect(m.text()).toContain("stall-separation");
+            // The concept badge never renders, but the teaching still
+            // lands without rewriting the manually chosen field.
+            expect(m.text()).not.toContain("stall-separation");
+            expect(m.text()).not.toContain("Tutor:");
             const fieldWrites = onAgentAction.mock.calls.filter(
                 (c) => (c[0] as { kind?: string }).kind === "set_field"
             );

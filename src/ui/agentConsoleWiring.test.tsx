@@ -343,7 +343,10 @@ describe("agent console run gating", () => {
             expect(onAgentAction).toHaveBeenCalledWith({ kind: "run_lbm" });
             await flush(5);
             expect(buttonsByLabel(m.tree(), "Confirm run")).toHaveLength(0);
-            expect(m.text()).toContain("Applied after confirm: run.");
+            // The confirm receipt stays in extras; the turn never renders
+            // an applied line.
+            expect(m.text()).not.toContain("Applied after confirm: run.");
+            expect(m.text()).not.toContain("Applied:");
         } finally {
             m.unmount();
         }
@@ -367,7 +370,9 @@ describe("agent console run gating", () => {
         try {
             expect(onAgentAction).toHaveBeenCalledTimes(1);
             expect(onAgentAction).toHaveBeenCalledWith({ kind: "set_alpha", alphaDeg: 6 });
-            expect(m.text()).toContain("Applied: angle of attack (alpha) 6 deg.");
+            // The apply receipt stays in extras; the turn never renders it.
+            expect(m.text()).not.toContain("Applied: angle of attack (alpha) 6 deg.");
+            expect(m.text()).not.toContain("Applied:");
             expect(buttonsByLabel(m.tree(), "Confirm run")).toHaveLength(0);
             const reply = parseAgentEnvelope(SETUP_ENVELOPE, {
                 lbmEffective: true,
@@ -682,7 +687,9 @@ describe("agent console live port (no parser fast path)", () => {
             expect(counter.streams).toBe(1);
             expect(onAgentAction).toHaveBeenCalledTimes(1);
             expect(onAgentAction).toHaveBeenNthCalledWith(1, { kind: "set_alpha", alphaDeg: 6 });
-            expect(m.text()).toContain("Applied: angle of attack (alpha) 6 deg.");
+            // The apply receipt stays in extras; the turn never renders it.
+            expect(m.text()).not.toContain("Applied: angle of attack (alpha) 6 deg.");
+            expect(m.text()).not.toContain("Applied:");
         } finally {
             m.unmount();
         }
@@ -781,7 +788,7 @@ const ENGINE_LBM_ENVELOPE =
 const FIELD_OMEGA_ENVELOPE =
     "Case updated.\n```action-json\n{\"kind\":\"set_field\",\"field\":\"omega\"}\n```";
 
-describe("agent console applied notes stay physics neutral", () => {
+describe("agent console applied receipts stay physics neutral", () => {
     it.each([
         ["analytic engine", ENGINE_ANALYTIC_ENVELOPE, { kind: "set_engine", engine: "analytic" }],
         ["lbm engine", ENGINE_LBM_ENVELOPE, { kind: "set_engine", engine: "lbm" }],
@@ -804,7 +811,9 @@ describe("agent console applied notes stay physics neutral", () => {
         try {
             expect(onAgentAction).toHaveBeenCalledTimes(1);
             expect(onAgentAction).toHaveBeenCalledWith(expected);
-            expect(m.text()).toContain("Applied:");
+            // The receipt never renders, and the visible model reply
+            // carries no solver or view tokens.
+            expect(m.text()).not.toContain("Applied:");
             const lowered = m.text().toLowerCase();
             for (const token of ["lbm", "analytic", "solver", "omega", "field"]) {
                 expect(lowered).not.toContain(token);

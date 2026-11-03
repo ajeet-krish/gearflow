@@ -131,10 +131,10 @@ export function parseBlockIntent(
         }
         if (width !== null && height === null) {
             height = width as number;
-            notes.push(`Note: lone width ${width} mirrored to height (no height named).`);
+            notes.push(`Note: lone width ${width} mirrored to height (no height named), a rectangular section keeps both axes.`);
         } else if (width === null && height !== null) {
             width = height as number;
-            notes.push(`Note: lone height ${height} mirrored to width (no width named).`);
+            notes.push(`Note: lone height ${height} mirrored to width (no width named), a rectangular section keeps both axes.`);
         }
         if (width === null || height === null) return null;
         const rawWidth = width;
@@ -142,11 +142,11 @@ export function parseBlockIntent(
         width = clampExtent(width);
         height = clampExtent(height);
         if (width !== rawWidth) {
-            notes.push(`Note: width ${rawWidth} clamped to ${width} (block envelope [${BLOCK_EXTENT_MIN}, ${EXTENT_MAX}]).`);
+            notes.push(`Note: width ${rawWidth} clamped to ${width} for the rectangular section, a narrower section speeds the flow like a venturi.`);
             corrections.push(`width clamped from ${rawWidth} to ${width}`);
         }
         if (height !== rawHeight) {
-            notes.push(`Note: height ${rawHeight} clamped to ${height} (block envelope [${BLOCK_EXTENT_MIN}, ${EXTENT_MAX}]).`);
+            notes.push(`Note: height ${rawHeight} clamped to ${height} for the rectangular section, a narrower section speeds the flow like a venturi.`);
             corrections.push(`height clamped from ${rawHeight} to ${height}`);
         }
         const alphaRaw = parseAlphaDeg(text);
@@ -166,7 +166,7 @@ export function parseBlockIntent(
         const alphaDeg = alphaRaw === null && curAlpha === null ? null : clampedAlpha;
         const reynolds = reRaw === null && curRe === null ? null : clampedRe;
         // Validate the full spec before returning apply, so the caller never
-        // settles a partial block.
+        // settles a partial rectangular section.
         try {
             validateParametricSpec({
                 geometry: {
@@ -179,7 +179,7 @@ export function parseBlockIntent(
                     center: { x: 0.5, y: 0 },
                 },
                 reynolds: reynolds ?? 50000,
-                rationale: `Agent setup block ${width} by ${height}.`,
+                rationale: `Agent setup Rectangle ${width} by ${height}.`,
             });
         } catch {
             return null;
@@ -240,7 +240,7 @@ export function buildBlockEnvelope(
                         center: { x: 0.5, y: 0 },
                     },
                     reynolds,
-                    rationale: `Agent setup block ${apply.width} by ${apply.height}.`,
+                    rationale: `Agent setup Rectangle ${apply.width} by ${apply.height}.`,
                 },
             },
         ];
@@ -253,15 +253,15 @@ export function buildBlockEnvelope(
             }
         })();
         if (!checked) {
-            return { reply: "Parser block envelope unreadable, canvas unchanged.", candidates: [], corrections, notes };
+            return { reply: "Parser rectangular section envelope unreadable, canvas unchanged.", candidates: [], corrections, notes };
         }
-        const parts: string[] = [`block ${apply.width} by ${apply.height}`];
+        const parts: string[] = [`Rectangle ${apply.width} by ${apply.height}`];
         if (apply.alphaDeg !== null) parts.push(`alpha ${apply.alphaDeg}`);
         if (apply.reynolds !== null) parts.push(`Re ${apply.reynolds}`);
         const tail = notes.length > 0 ? ` ${notes.join(" ")}` : "";
         const reply = `Applying ${parts.join(", ")}. Canvas updates on apply.${tail}`;
         return { reply, candidates, corrections, notes };
     } catch {
-        return { reply: "Parser block envelope unreadable, canvas unchanged.", candidates: [], corrections: [], notes: [] };
+        return { reply: "Parser rectangular section envelope unreadable, canvas unchanged.", candidates: [], corrections: [], notes: [] };
     }
 }

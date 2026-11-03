@@ -162,6 +162,8 @@ export function buildTutorMessages(input: BuildTutorMessagesInput): ModalMessage
                 "Misconception names the correction from the misconception block, or writes No misconception spotted when none is flagged.",
                 "Try next is one physics-only thought experiment: nudge angle of attack (alpha) by 1 deg and compare, or change Reynolds number (Re) and reason about the effect. Never a field switch, never a view change, never a run.",
                 "Physics note only when the idea needs it, one line: the potential flow picture omits separation and stall.",
+                "For any generated airfoil, add one line relating it to a real-world equivalent or why the shape cannot exist as drawn.",
+                "Never list valid bodies or canvas limits in replies; keep nearest alternatives purely physical, like a venturi narrowing speeds the flow, never this-canvas-can-build talk.",
                 "No solver or tech stack talk: teach flow physics only, no solver names, no statistics, no spinning-flow copy, no field views.",
                 "Never promise a future run or sweep the console did not take: teach only the applied run in the Before vs after table.",
                 "When the setup was rejected, state what was rejected, why (naming the bound), and the nearest valid alternative with the canvas unchanged, and teach no table for the unapplied case.",
