@@ -11,7 +11,6 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import FieldBar, { couplingNoteFor } from "./FieldBar";
 import SettingsModal from "./SettingsModal";
-import IdeTitleBar from "./IdeTitleBar";
 import { readDebugPanels } from "../App";
 import {
     manualPatchForToggle,
@@ -263,32 +262,12 @@ describe("canvas particle size effect", () => {
     });
 });
 
-describe("IDE title bar", () => {
-    it("keeps the case search, offline dot, and settings entry", () => {
-        const html = renderToStaticMarkup(
-            <IdeTitleBar
-                title="GearFlow, naca2412"
-                subtitle="analytic"
-                offline={false}
-                onOpenSettings={noop}
-            />,
-        );
-        expect(html).toContain("GearFlow");
-        expect(html).toContain("Open display settings");
-        expect(html).toContain('aria-label="IDE title bar"');
-        expect(html).not.toContain("VALIDATE");
-        expect(html).not.toContain("EXPORT");
-    });
-
-    it("names offline versus live through the search dot", () => {
-        const live = renderToStaticMarkup(
-            <IdeTitleBar title="GearFlow" offline={false} onOpenSettings={noop} />,
-        );
-        const off = renderToStaticMarkup(
-            <IdeTitleBar title="GearFlow" offline={true} onOpenSettings={noop} />,
-        );
-        expect(live).toContain("Live");
-        expect(off).toContain("Offline");
+describe("shell excision: no IDE title bar module", () => {
+    it("keeps the excised bars out of the module graph", async () => {
+        const src = await readFile(appPath, "utf8");
+        expect(src).not.toContain("<IdeTitleBar");
+        expect(src).not.toContain("from \"@/ui/IdeTitleBar\"");
+        expect(src).toContain("<TopNav");
     });
 });
 
@@ -309,11 +288,11 @@ describe("debug flag gates rail sections", () => {
         expect(src).toContain('id: "export"');
     });
 
-    it("keeps status counts outside the gate with no telemetry or terminal mounts", async () => {
+    it("keeps validation counts outside the gate with no status bar, telemetry, or terminal mounts", async () => {
         const src = await readFile(appPath, "utf8");
-        expect(src).toContain("<IdeStatusBar");
+        expect(src).not.toContain("<IdeStatusBar");
         expect(src).toContain("valSummary");
-        expect(src).toContain("selectErrorCount");
+        expect(src).not.toContain("selectErrorCount");
         expect(src).not.toContain("<TelemetryBar");
         expect(src).not.toContain("<RunTerminal");
     });

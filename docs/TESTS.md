@@ -1141,3 +1141,45 @@ Phase tests integrate with prior phase tests (all 1654 pre-existing tests still 
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - tuiCaret caretMeasured gate: Test Report (static markup defers caret line, source pins conditional render)
+
+### Test Results
+npm test: 124 files, 1683 tests, all passed.
+Targeted: src/ui/agentConsoleBaseten.test.tsx (22 tests) plus src/ui/chatTerminal25.test.tsx (6 tests), 28 passed after fix. Pre-fix baseline was 3 failed plus 25 passed (28) across those two files.
+
+Updated expectations for caret now rendering only when caretMeasured is true (src/ui/AgentConsole.tsx):
+happy path mirror still renders in static markup with native caret kept (caret-color:auto), caret line hidden until measurement,
+edge SSR plus no-JS plus effect-less harness keeps native caret with zero crash (measureCaret guards null refs),
+error conditions none (measurement faults caught silently, composer never breaks).
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| agentConsoleBaseten modal console chrome caret line (1) | PASS | Was FAIL toContain tuiCaret, now not.toContain tuiCaret plus toContain tuiMirror plus caret-color:auto |
+| agentConsoleBaseten App wiring props (1) | PASS | Was FAIL toContain tuiCaret, now not.toContain tuiCaret plus toContain tuiMirror plus caret-color:auto |
+| chatTerminal25 deferred caret line (1) | PASS | Was FAIL toContain tuiCaret, now not.toContain tuiCaret plus toContain tuiMirror plus caret-color:auto, keeps tuiCursor plus chatHints absent |
+| chatTerminal25 2px line gate pin (1) | PASS | New source pin caretMeasured ? ( plus translate plus CSS width 2px plus 90ms plus blink |
+| chatTerminal25 native caret gate (1) | PASS | Pre-existing source pin caretColor conditional plus measureCaret plus tuiMirror still green |
+| all other Node suites (1678) | PASS | No regressions, 1683 total |
+| full suite build gate | PASS | vitest run only, no build step requested |
+
+### Coverage Summary
+Happy path covered (mirror renders, caret line mounts after first measurement with 2px translate plus blink).
+Edge cases covered (SSR static markup hides line, native caret auto, no-JS safe).
+Error conditions covered (null refs plus measurement faults swallowed, composer intact).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1683 tests pass, 124 files).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| 3 tuiCaret toContain asserts (pre-fix) | AgentConsole gates tuiCaret on caretMeasured true, but renderToStaticMarkup never runs effects or refs so the flag stays false | Assert not.toContain tuiCaret in static markup plus toContain tuiMirror plus caret-color:auto, pin caretMeasured ? ( in source; fixed, now passes |
+
+### Verification Checklist
+- [x] All tests pass (124 files, 1683 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

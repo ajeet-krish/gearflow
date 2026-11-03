@@ -290,6 +290,10 @@ export type BodyToken = "naca0012" | "naca2412" | "naca4412" | "cylinder" | "blo
 /** Phase B2 engine token. Analytic, wasm, and lbm drive the engine switch, surrogate drives the solve mode. */
 export type AgentEngineToken = "analytic" | "wasm" | "lbm" | "surrogate";
 
+/** Phase 25C theory nav topic. Mirrors TheoryTopicId without a hard import
+ *  cycle, validated against THEORY_TOPICS in agentActions. */
+export type AgentTheoryTopic = string;
+
 /** Phase B2 agent action union. Bounds match the canvas controls: alpha in [-180, 180], reynolds in [100, 1000000]. */
 export type AgentAction =
     | { kind: "set_body"; body: BodyToken }
@@ -300,6 +304,7 @@ export type AgentAction =
     | { kind: "run_lbm" }
     | { kind: "cancel_lbm" }
     | { kind: "set_spec"; spec: ParametricSpec }
+    | { kind: "open_theory"; topic: AgentTheoryTopic }
     | { kind: "setup_shedding" }
     | { kind: "setup_high_pressure"; body?: BodyToken }
     | { kind: "setup_high_re_wake" }
@@ -382,3 +387,38 @@ export const LBM1_SPEC = {
   channelOrder: ["u", "v", "p", "omega", "obstacle"] as const,
   dtypeFlagFloat32: 0,
 } as const;
+
+/** Phase 25C theory companion anchors. Exact TOC anchor ids from TheoryPage,
+ *  top level plus subsections, so agent topics cannot drift from the page. */
+export const THEORY_TOPICS = [
+    "what-this-guide-is",
+    "naca-geometry",
+    "naca-code",
+    "camber-thickness",
+    "reading-shape",
+    "potential-flow",
+    "continuity-irrotational",
+    "kutta",
+    "thin-airfoil",
+    "lift-coefficient",
+    "what-cl-means",
+    "cl-vs-alpha",
+    "pressure-coefficient",
+    "what-cp-means",
+    "cp-curve",
+    "angle-of-attack",
+    "alpha-definition",
+    "small-alpha",
+    "reynolds-number",
+    "what-re-means",
+    "regimes",
+    "stall-limits",
+    "linear-range",
+    "potential-limits",
+    "before-after",
+    "worked-example",
+    "agent-tips",
+] as const;
+
+/** One Theory page anchor id. Validated against THEORY_TOPICS on open_theory. */
+export type TheoryTopicId = (typeof THEORY_TOPICS)[number];

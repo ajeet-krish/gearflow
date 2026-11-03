@@ -4,15 +4,11 @@ import ErrorBoundary from "@/ui/ErrorBoundary";
 import ResizeHandle from "@/components/ui/ResizeHandle";
 import AgentConsole from "@/ui/AgentConsole";
 import SettingsModal from "@/ui/SettingsModal";
-import IdeTitleBar from "@/ui/IdeTitleBar";
 import TopNav, { type NavId } from "@/ui/TopNav";
 import TheoryPage from "@/ui/TheoryPage";
-import ActivityBar from "@/ui/ActivityBar";
 import EditorTabs from "@/ui/EditorTabs";
 import IdeSidebar from "@/ui/IdeSidebar";
-import IdeStatusBar from "@/ui/IdeStatusBar";
-import { useCaseTabs, CaseFrameCache, caseKeyFor, selectErrorCount, tabTitleFor } from "@/ui/caseTabs";
-import type { IdeActivityView } from "@/ui/ideData";
+import { useCaseTabs, CaseFrameCache, caseKeyFor, tabTitleFor } from "@/ui/caseTabs";
 import { LbmEntryNotice, LbmFailoverNotice } from "@/ui/LbmSetupRow";
 import { fallbackVariableFor } from "@/ui/FieldBar";
 import FieldBar from "@/ui/FieldBar";
@@ -66,7 +62,7 @@ import { loadDemoPack, type LoadedPack } from "@/meta/fixtures";
 import { HashCache } from "@/meta/cache";
 import { MetaClient } from "@/meta/client";
 import { g_evalLog } from "@/meta/evalLog";
-import { DEFAULT_DOMAIN, DEFAULT_GRID, type FlowField, type GeometrySpec, type OfflineCase, type ParametricSpec, type Provenance } from "@/contracts/types";
+import { DEFAULT_DOMAIN, DEFAULT_GRID, type FlowField, type GeometrySpec, type OfflineCase, type ParametricSpec, type Provenance, type TheoryTopicId } from "@/contracts/types";
 import { ORIFICE_THICKNESS_DEFAULT } from "@/contracts/types";
 import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, alphaOutOfBandNote } from "@/contracts/schema";
 import { commitReynoldsValue } from "@/flow/reynoldsField";
@@ -383,8 +379,33 @@ export default function App() {
     // while the rails stay mounted; the canvas unmounts while theory is
     // active so no solve frames render behind the page.
     const [activeNav, setActiveNav] = useState<NavId>("studio");
-    // P1 IDE shell: no bottom terminal. Escape only exits focus mode.
-    const [activityView, setActivityView] = useState<IdeActivityView>("explorer");
+    // Phase 25C theory deep link: the agent open_theory action names a
+    // Theory page anchor, the nonce retriggers scroll plus focus when the
+    // same topic applies twice. Studio renders with no topic.
+    const [theoryTopic, setTheoryTopic] = useState<TheoryTopicId | null>(null);
+    const [theoryNonce, setTheoryNonce] = useState(0);
+    const openTheory = useCallback((topic: string): void => {
+        try {
+            if (typeof topic === "string" && topic.trim().length > 0) {
+                setTheoryTopic(topic.trim() as TheoryTopicId);
+                setTheoryNonce((n) => n + 1);
+            }
+            setActiveNav("theory");
+            if (layoutPrefs.focusMode) layoutPatch({ focusMode: false });
+        } catch {
+            // Theory nav must never break the executor.
+            try {
+                setActiveNav("theory");
+            } catch {
+                // Never throws.
+            }
+        }
+    }, [layoutPrefs.focusMode, layoutPatch]);
+    // Phase 25C theoryMode layout: left chat 1/3, theory 2/3, no right rail.
+    // The tunnel canvas unmounts while theory is active.
+    const theoryMode = activeNav === "theory";
+    // Shell excision: no title, activity, or status bars. TopNav is the
+    // sole topmost bar. The right sidebar owns its disclosure state.
     // P1 IDE shell: case tab memories own the case list. The single solver
     // reads only the active tab. Memories are data only, frame cache is
     // capped at 4 and cleared on grid change below.
@@ -1546,9 +1567,8 @@ export default function App() {
         isNeuralV3Active,
         solveGridNx: solveGrid.nx,
     });
-    // P1 IDE shell: status problems come from the errorCount selector.
-    // No terminal rows are owned here.
-    const errorCount = selectErrorCount(valSummary);
+    // Status problems previously fed the removed status bar. The
+    // validation ledger still owns its counts through valSummary.
     void lbmStatus;
     void dotClass;
     const regime = regimeLabel(debouncedRe);
@@ -1800,6 +1820,18 @@ export default function App() {
             const blocked = agentFirstRejectionFor(action);
             if (blocked !== null) return finish([], [blocked]);
         }
+        // Phase 25C theory nav: open_theory names a Theory anchor and shows
+        // the companion page. No canvas writes, no tab work, no solver touch.
+        if (action.kind === "open_theory") {
+            try {
+                const topic = (action as { topic?: unknown }).topic;
+                if (typeof topic === "string" && topic.length > 0) openTheory(topic);
+                else setActiveNav("theory");
+            } catch {
+                // Nav faults never break the executor.
+            }
+            return finish([action], []);
+        }
         if (action.kind === "setup_shedding" || action.kind === "setup_high_pressure" || action.kind === "setup_high_re_wake" || action.kind === "setup_airfoil") {
             if (action.kind === "setup_shedding") ensurePresetTab("case-shedding", "cylinder", 0, 100);
             else if (action.kind === "setup_high_re_wake") ensurePresetTab("case-wake", "cylinder", 0, 700);
@@ -1902,7 +1934,7 @@ export default function App() {
             return finish([action], []);
         }
         return finish([], ["unknown action kind, canvas unchanged"]);
-    }, [agentFirst, spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setLbmArmedAndMirror, applyParametric, caseTabs]);
+    }, [agentFirst, spec, hasTke, hasRecirc, onAlphaBar, onReynoldsBar, onVariable, onLbmRun, onLbmCancel, setLbmArmedAndMirror, applyParametric, caseTabs, openTheory]);
 
     // Telemetry engine word. Short uppercase token for the status strip.
     // v3 names first: the v3 street is tried before v2. Agent-first pins
@@ -2052,13 +2084,6 @@ export default function App() {
     return (
         <div className="page idePage">
             <a className="skip" href={activeNav === "theory" ? "#theory" : "#tunnel"}>{activeNav === "theory" ? "Skip to theory content" : "Skip to flow canvas"}</a>
-            <IdeTitleBar
-                title={caseTabs.active !== null ? `GearFlow, ${caseTabs.active.title}` : "GearFlow"}
-                subtitle={provenanceLabel}
-                offline={offline}
-                onOpenSettings={() => setSettingsOpen(true)}
-            />
-
             <TopNav
                 active={activeNav}
                 onNav={handleNav}
@@ -2068,8 +2093,7 @@ export default function App() {
                 onToggleFocus={toggleFocus}
             />
 
-            <main id="flow" className="layout workbench ideWorkbench">
-                <ActivityBar active={activityView} onSelect={setActivityView} />
+            <main id="flow" className={theoryMode ? "layout workbench ideWorkbench theoryMode" : "layout workbench ideWorkbench"}>
                 <RailShell
                     side="left"
                     label="Agent console: conversational assistant"
@@ -2078,7 +2102,7 @@ export default function App() {
                     bodyId="railLeftBody"
                     collapsed={shell.left}
                     onToggle={toggleLeft}
-                    width={leftW}
+                    width={theoryMode ? Math.min(480, Math.max(280, Math.round(((typeof window !== "undefined" && window.innerWidth > 0 ? window.innerWidth : 1200) / 3)))) : leftW}
                 >
                     <div className="railHead">
                         <span className="railTitle">AGENT CONSOLE</span>
@@ -2130,9 +2154,9 @@ export default function App() {
                     />
                 )}
 
-                <section className="tunnelCol ideEditor" aria-label="Editor and tunnel window">
-                    {activeNav === "theory" ? (
-                        <TheoryPage />
+                <section className="tunnelCol ideEditor" aria-label="Editor and tunnel window" style={theoryMode ? { flex: "2 1 0%", minWidth: 0 } : undefined}>
+                    {theoryMode ? (
+                        <TheoryPage topic={theoryTopic} topicNonce={theoryNonce} />
                     ) : (
                     <>
                     <EditorTabs tabs={caseTabs.tabs} activeId={caseTabs.activeId} onActivate={caseTabs.activate} />
@@ -2251,15 +2275,18 @@ export default function App() {
                     )}
                 </section>
 
+                {/* Phase 25C theoryMode: no right rail. The companion page
+                    takes 2/3 beside the 1/3 chat, so IdeSidebar plus the
+                    right resize handle plus the analysis rail unmount. */}
+                {!theoryMode && (
                 <IdeSidebar
                     tabs={caseTabs.tabs}
                     activeId={caseTabs.activeId}
                     onActivate={caseTabs.activate}
-                    view={activityView}
-                    onSelectView={setActivityView}
                 />
+                )}
 
-                {!shell.right && (
+                {!shell.right && !theoryMode && (
                     <ResizeHandle
                         id="gripRight"
                         label="Resize instrument rack, left and right arrows adjust width"
@@ -2268,6 +2295,7 @@ export default function App() {
                     />
                 )}
 
+                {!theoryMode && (
                 <RailShell
                     side="right"
                     label="Analysis rail: geometry, validation, eval ledger, export"
@@ -2359,12 +2387,8 @@ export default function App() {
                         />
                     </ErrorBoundary>
                 </RailShell>
+                )}
             </main>
-            <IdeStatusBar
-                branch="main"
-                changedCount={0}
-                errorCount={errorCount}
-            />
             <SettingsModal
                 open={settingsOpen}
                 onClose={handleCloseSettings}

@@ -171,13 +171,21 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
         }
     }
     if (spec.kind === "block") {
-        for (const k of ["width", "height"] as const) {
-            if (spec[k] !== undefined && (!isFiniteNumber(spec[k]) || (spec[k] as number) <= 0)) {
-                throw new Error(`GeometrySpec.${k} must be a positive finite number for kind ${spec.kind as string}`);
-            }
-            if (spec[k] !== undefined && (spec[k] as number) > EXTENT_MAX) {
-                throw new Error(`GeometrySpec.${k} must be <= ${EXTENT_MAX}, got ${spec[k] as number}`);
-            }
+        // Phase 25D block completeness: set_spec must carry a full block
+        // shape. Width plus height are finite in [0.1, EXTENT_MAX], center
+        // is a finite point inside the center envelope. Solvers still
+        // default a missing center, but the agent contract rejects it.
+        const w = spec.width as unknown;
+        const h = spec.height as unknown;
+        if (!isFiniteNumber(w) || (w as number) < 0.1 || (w as number) > EXTENT_MAX) {
+            throw new Error(`GeometrySpec.width (block) must be finite in [0.1, ${EXTENT_MAX}], got ${String(w)}`);
+        }
+        if (!isFiniteNumber(h) || (h as number) < 0.1 || (h as number) > EXTENT_MAX) {
+            throw new Error(`GeometrySpec.height (block) must be finite in [0.1, ${EXTENT_MAX}], got ${String(h)}`);
+        }
+        const c = spec.center as unknown;
+        if (typeof c !== "object" || c === null || !isFiniteNumber((c as Record<string, unknown>).x) || !isFiniteNumber((c as Record<string, unknown>).y)) {
+            throw new Error("GeometrySpec.center must have finite x and y for kind block");
         }
     }
     if (spec.kind === "orifice") {

@@ -221,8 +221,62 @@ function TableOfContents() {
     );
 }
 
+/** TheoryPage props. Topic plus nonce drive the agent deep link: when the
+ *  agent applies open_theory the page scrolls to the anchor, moves focus
+ *  for assistive tech, and mirrors the hash. Studio renders with no props. */
+export interface TheoryPageProps {
+    topic?: string | null;
+    topicNonce?: number;
+}
+
+/** Scroll plus focus plus hash helper for a Theory anchor id. Returns true
+ *  when the target existed and the scroll plus focus were attempted, false
+ *  when the topic is missing or unknown. Never throws. */
+export function scrollToTheoryTopic(topic: string): boolean {
+    try {
+        if (typeof topic !== "string" || topic.trim().length === 0) return false;
+        const id = topic.trim();
+        const target = document.getElementById(id);
+        if (target === null) return false;
+        let smooth = true;
+        try {
+            smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        } catch {
+            smooth = true;
+        }
+        try {
+            target.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+        } catch {
+            // Scroll is best effort, focus still moves below.
+        }
+        try {
+            window.history.replaceState(null, "", `#${id}`);
+        } catch {
+            try {
+                window.location.hash = id;
+            } catch {
+                // Hash update is best effort.
+            }
+        }
+        try {
+            if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+            (target as HTMLElement).focus({ preventScroll: true });
+        } catch {
+            // Focus move is best effort.
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 /** TheoryPage: airfoil companion textbook for the agent chat. */
-export default function TheoryPage() {
+export default function TheoryPage({ topic = null, topicNonce = 0 }: TheoryPageProps = {}) {
+    void topicNonce;
+    useEffect(() => {
+        if (topic === null || topic === undefined) return;
+        scrollToTheoryTopic(topic);
+    }, [topic, topicNonce]);
     return (
         <div className="theoryWrap" id="theory" tabIndex={-1} aria-label="Airfoil theory companion">
             <TableOfContents />

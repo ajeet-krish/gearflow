@@ -1,10 +1,11 @@
 // IdeSidebar: RIGHT sidebar with four disclosures. Explorer carries the
 // curated project tree, Source Control is a labelled snapshot (not live
 // git), Extensions is a static list, Analysis is a mount point for the
-// analysis panel. The ActivityBar selection drives the open disclosure
-// through the view prop. Visual emulation only, no vendored code.
+// analysis panel. The sidebar owns its disclosure view state internally;
+// no activity bar drives it from App. Visual emulation only, no vendored
+// code.
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { CaseTabMemory } from "./caseTabs";
 import type { IdeActivityView } from "./ideData";
 
@@ -12,9 +13,8 @@ export interface IdeSidebarProps {
     tabs: CaseTabMemory[];
     activeId: string;
     onActivate: (id: string) => void;
-    view: IdeActivityView;
-    onSelectView: (view: IdeActivityView) => void;
     analysis?: ReactNode;
+    initialView?: IdeActivityView;
 }
 
 const CURATED_TREE: ReadonlyArray<{ name: string; detail: string }> = [
@@ -38,7 +38,8 @@ function Triangle({ open }: { open: boolean }) {
     );
 }
 
-export default function IdeSidebar({ tabs, activeId, onActivate, view, onSelectView, analysis }: IdeSidebarProps) {
+export default function IdeSidebar({ tabs, activeId, onActivate, analysis, initialView = "explorer" }: IdeSidebarProps) {
+    const [view, setView] = useState<IdeActivityView>(initialView);
     const isOpen = (id: IdeActivityView): boolean => view === id;
     return (
         <aside className="ideSide right" aria-label="Right sidebar">
@@ -47,7 +48,7 @@ export default function IdeSidebar({ tabs, activeId, onActivate, view, onSelectV
                     type="button"
                     className="ideSecHead"
                     aria-expanded={isOpen("explorer")}
-                    onClick={() => onSelectView("explorer")}
+                    onClick={() => setView("explorer")}
                 >
                     <Triangle open={isOpen("explorer")} />
                     <span className="ideSecLabel">Explorer</span>
@@ -87,7 +88,7 @@ export default function IdeSidebar({ tabs, activeId, onActivate, view, onSelectV
                     type="button"
                     className="ideSecHead"
                     aria-expanded={isOpen("source-control")}
-                    onClick={() => onSelectView("source-control")}
+                    onClick={() => setView("source-control")}
                 >
                     <Triangle open={isOpen("source-control")} />
                     <span className="ideSecLabel">Source Control</span>
@@ -103,7 +104,7 @@ export default function IdeSidebar({ tabs, activeId, onActivate, view, onSelectV
                     type="button"
                     className="ideSecHead"
                     aria-expanded={isOpen("extensions")}
-                    onClick={() => onSelectView("extensions")}
+                    onClick={() => setView("extensions")}
                 >
                     <Triangle open={isOpen("extensions")} />
                     <span className="ideSecLabel">Extensions</span>
@@ -126,7 +127,7 @@ export default function IdeSidebar({ tabs, activeId, onActivate, view, onSelectV
                     type="button"
                     className="ideSecHead"
                     aria-expanded={isOpen("analysis")}
-                    onClick={() => onSelectView("analysis")}
+                    onClick={() => setView("analysis")}
                 >
                     <Triangle open={isOpen("analysis")} />
                     <span className="ideSecLabel">Analysis</span>

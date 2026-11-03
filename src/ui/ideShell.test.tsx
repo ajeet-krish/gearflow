@@ -1,7 +1,8 @@
-// P1 IDE shell tests: caseTabs store plus static shell. The store proves
-// tab memories are data only and isolated, the frame cache caps at 4, and
-// the errorCount selector feeds the status bar. The static shell proves the
-// VS Code Dark+ emulation mounts with zero .runTerm nodes.
+// Phase 25 shell excision tests: caseTabs store plus static shell. The
+// store proves tab memories are data only and isolated, the frame cache
+// caps at 4. The static shell proves the excision: TopNav is the sole
+// topmost bar, the sidebar owns its disclosure state, and the title,
+// activity, and status bars are deleted with zero .runTerm nodes.
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -17,16 +18,13 @@ import {
     tabTitleFor,
     FRAME_CACHE_CAP,
 } from "./caseTabs";
-import IdeTitleBar from "./IdeTitleBar";
-import ActivityBar from "./ActivityBar";
+import TopNav from "./TopNav";
 import EditorTabs from "./EditorTabs";
 import IdeSidebar from "./IdeSidebar";
-import IdeStatusBar from "./IdeStatusBar";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const noop = () => {};
-const noopView = () => {};
 
 describe("caseTabs store", () => {
     it("ships three default tabs with distinct titles", () => {
@@ -95,74 +93,84 @@ describe("caseTabs store", () => {
     });
 });
 
-describe("IDE static shell", () => {
+describe("excised shell", () => {
     function shellHtml(): string {
         const tabs = defaultCaseTabs();
         return renderToStaticMarkup(
             <div className="page idePage">
-                <IdeTitleBar title="GearFlow, naca2412" subtitle="analytic" offline={false} onOpenSettings={noop} />
-                <ActivityBar active="explorer" onSelect={noopView} />
+                <TopNav active="studio" onNav={noop} settingsOpen={false} onOpenSettings={noop} />
                 <EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />
-                <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="explorer" onSelectView={noopView} />
-                <IdeStatusBar branch="main" changedCount={0} errorCount={0} />
+                <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />
             </div>,
         );
     }
 
-    it("renders VS Code chrome: title bar, activity, tabs, right sidebar, status", () => {
+    it("renders TopNav as the sole topmost bar with tabs and the right sidebar", () => {
         const html = shellHtml();
-        expect(html).toContain("ideTitleBar");
-        expect(html).toContain("ideActivity");
+        expect(html).toContain("topNav");
+        expect(html).toContain("GearFlow");
         expect(html).toContain("ideTabs");
         expect(html).toContain("Right sidebar");
         expect(html).toContain("Explorer");
         expect(html).toContain("Source Control");
         expect(html).toContain("Extensions");
         expect(html).toContain("Analysis");
-        expect(html).toContain("ideStatus");
-        expect(html).toContain('aria-label="IDE status bar"');
-        expect(html).toContain("main");
+        expect(html).not.toContain("ideTitleBar");
+        expect(html).not.toContain("ideActivity");
+        expect(html).not.toContain("ideStatus");
+        expect(html).not.toContain('aria-label="IDE status bar"');
+        expect(html).toContain("ideSide");
     });
 
-    it("status bar carries branch, changed, and error items only", () => {
-        const html = renderToStaticMarkup(<IdeStatusBar branch="main" changedCount={2} errorCount={1} />);
-        expect(html).toContain("main");
-        expect(html).toContain("2 changed");
-        expect(html).toContain('aria-label="1 errors"');
-        expect(html).not.toContain("ANALYTIC");
-        expect(html).not.toContain("LIVE");
-        expect(html).not.toContain("provenance");
+    it("the excised bar modules are deleted", () => {
+        for (const name of ["IdeTitleBar.tsx", "ActivityBar.tsx", "IdeStatusBar.tsx"]) {
+            expect(existsSync(resolve(__dirname, name))).toBe(false);
+        }
+        const names = readdirSync(__dirname);
+        expect(names.some((n) => n === "IdeTitleBar.tsx" || n === "ActivityBar.tsx" || n === "IdeStatusBar.tsx")).toBe(false);
     });
 
     it("sidebar explorer carries the curated tree", () => {
         const tabs = defaultCaseTabs();
         const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="explorer" onSelectView={noopView} />,
+            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />,
         );
         for (const name of ["docs", "src-agent", "src-ui", "src-render"]) {
             expect(html).toContain(name);
         }
     });
 
-    it("sidebar source control is a labelled snapshot, not live git", () => {
+    it("sidebar owns its disclosure state internally with explorer open by default", () => {
         const tabs = defaultCaseTabs();
         const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="source-control" onSelectView={noopView} />,
+            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />,
         );
-        expect(html).toContain("snapshot, not live git");
+        expect(html).toContain('aria-expanded="true"');
+        expect(html).toContain("src-agent");
+        expect(html).not.toContain("GearFlow Solver");
+        const src = readFileSync(resolve(__dirname, "./IdeSidebar.tsx"), "utf8");
+        expect(src).toContain("useState");
+        expect(src).not.toContain("onSelectView");
+        expect(src).not.toContain("view={activityView}");
     });
 
-    it("activity selection drives the sidebar disclosure", () => {
+    it("sidebar analysis view mounts the default placeholder and a custom node when supplied", () => {
         const tabs = defaultCaseTabs();
-        const extensions = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="extensions" onSelectView={noopView} />,
+        const fallback = renderToStaticMarkup(
+            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} initialView="analysis" />,
         );
-        expect(extensions).toContain("Extensions");
-        expect(extensions).toContain("GearFlow Solver");
-        const explorer = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="explorer" onSelectView={noopView} />,
+        expect(fallback).toContain("Analysis mounts here");
+        const custom = renderToStaticMarkup(
+            <IdeSidebar
+                tabs={tabs}
+                activeId={tabs[0].id}
+                onActivate={noop}
+                initialView="analysis"
+                analysis={<p>custom-analysis-node</p>}
+            />,
         );
-        expect(explorer).not.toContain("GearFlow Solver");
+        expect(custom).toContain("custom-analysis-node");
+        expect(custom).not.toContain("Analysis mounts here");
     });
 
     it("editor tabs show a dot only when dirty and expose no close buttons", () => {
@@ -189,31 +197,24 @@ describe("IDE static shell", () => {
         expect(html).toContain('aria-selected="true"');
     });
 
-    it("App owns useCaseTabs, mounts the IDE shell, and unmounts TelemetryBar plus RunTerminal", () => {
+    it("App owns useCaseTabs, mounts TopNav plus the sidebar, and unmounts the excised bars", () => {
         const src = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
         expect(src).toContain("useCaseTabs");
-        expect(src).toContain("IdeTitleBar");
-        expect(src).toContain("ActivityBar");
-        expect(src).toContain("EditorTabs");
-        expect(src).toContain("IdeSidebar");
-        expect(src).toContain("IdeStatusBar");
-        expect(src).toContain("selectErrorCount");
+        expect(src).toContain("<TopNav");
+        expect(src).toContain("<EditorTabs");
+        expect(src).toContain("<IdeSidebar");
         expect(src).toContain("CaseFrameCache");
+        expect(src).not.toContain("<IdeTitleBar");
+        expect(src).not.toContain("<ActivityBar");
+        expect(src).not.toContain("<IdeStatusBar");
+        expect(src).not.toContain("activityView");
+        expect(src).not.toContain("from \"@/ui/IdeTitleBar\"");
+        expect(src).not.toContain("from \"@/ui/ActivityBar\"");
+        expect(src).not.toContain("from \"@/ui/IdeStatusBar\"");
         expect(src).not.toContain("<RunTerminal");
         expect(src).not.toContain("<TelemetryBar");
         expect(src).not.toContain("from \"@/ui/RunTerminal\"");
-        expect(src).not.toContain("from \"@/ui/RunTerminal\"");
         expect(src).not.toContain("from \"@/ui/TelemetryBar\"");
-    });
-
-    it("App status bar passes branch, changed, and error counts only", () => {
-        const src = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
-        const status = src.slice(src.indexOf("<IdeStatusBar"));
-        expect(status).toContain("branch=");
-        expect(status).toContain("changedCount=");
-        expect(status).toContain("errorCount=");
-        expect(status).not.toContain("engine=");
-        expect(status).not.toContain("provenanceLabel=");
     });
 
     it("RunTerminal module is deleted", () => {

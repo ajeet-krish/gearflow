@@ -1,6 +1,7 @@
-// P1 IDE shell ruthless verification: status bar, tabs, sidebar,
-// RunTerminal eradication, tab memory isolation with full key coverage.
-// Static markup only (vitest node env), plus App source pins.
+// Phase 25 shell excision ruthless verification: excised bars, tabs,
+// sidebar with internal disclosure state, RunTerminal eradication, tab
+// memory isolation with full key coverage. Static markup only (vitest
+// node env), plus App source pins.
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -18,13 +19,10 @@ import {
 import type { GeometrySpec } from "@/contracts/types";
 import EditorTabs from "./EditorTabs";
 import IdeSidebar from "./IdeSidebar";
-import IdeStatusBar from "./IdeStatusBar";
-import ActivityBar from "./ActivityBar";
-import IdeTitleBar from "./IdeTitleBar";
+import TopNav from "./TopNav";
 import { IDE_ACTIVITY_VIEWS } from "./ideData";
 
 const noop = () => {};
-const noopView = (_v: string) => {};
 
 function baseSpec(): GeometrySpec {
     return {
@@ -40,61 +38,38 @@ function count(hay: string, needle: string): number {
     return hay.split(needle).length - 1;
 }
 
-describe("P1 status bar: git plus errors only, zero solver tokens", () => {
-    it("renders branch, changed count, and error count with honest labels", () => {
-        const html = renderToStaticMarkup(<IdeStatusBar branch="main" changedCount={2} errorCount={1} />);
-        expect(html).toContain("main");
-        expect(html).toContain("2 changed");
-        expect(html).toContain("1 errors");
-        expect(html).toContain('role="status"');
-        expect(html).toContain('aria-label="IDE status bar"');
-        expect(html).toContain('aria-label="Git branch main"');
-        expect(html).toContain('aria-label="2 changed files"');
-        expect(html).toContain('aria-label="1 errors"');
-    });
-
-    it("carries zero solver or provenance tokens in markup", () => {
-        const html = renderToStaticMarkup(<IdeStatusBar branch="main" changedCount={0} errorCount={0} />);
-        const banned = [
-            "ANALYTIC", "LIVE", "NEURAL", "LBM", "FIXTURE", "HELD",
-            "provenance", "engine", "grid", "field", "Cl", "CpMin",
-            "256", "128", "Re ", "telemetry", "runTerm", "RunTerminal",
-        ];
-        for (const token of banned) expect(html).not.toContain(token);
-    });
-
-    it("zero counts render without hiding the items", () => {
-        const html = renderToStaticMarkup(<IdeStatusBar branch="main" changedCount={0} errorCount={0} />);
-        expect(html).toContain("0 changed");
-        expect(html).toContain("0 errors");
-        expect(count(html, "ideStatusItem")).toBe(3);
-    });
-
-    it("large counts render verbatim with matching aria labels", () => {
-        const html = renderToStaticMarkup(<IdeStatusBar branch="feature/x" changedCount={128} errorCount={9} />);
-        expect(html).toContain("feature/x");
-        expect(html).toContain("128 changed");
-        expect(html).toContain("9 errors");
-        expect(html).toContain('aria-label="128 changed files"');
-        expect(html).toContain('aria-label="9 errors"');
-    });
-
-    it("App wires exactly branch, changedCount, errorCount and no solver props", () => {
-        const src = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
-        const at = src.indexOf("<IdeStatusBar");
-        expect(at).toBeGreaterThan(-1);
-        const block = src.slice(at, at + 400);
-        expect(block).toContain("branch=");
-        expect(block).toContain("changedCount=");
-        expect(block).toContain("errorCount=");
-        for (const banned of ["engine=", "provenanceLabel=", "grid=", "variable=", "reynolds=", "cl=", "cpMin=", "warningCount=", "backend="]) {
-            expect(block).not.toContain(banned);
+describe("Phase 25 excised bars: modules gone, zero tokens", () => {
+    it("deletes the title, activity, and status bar modules", () => {
+        for (const name of ["IdeTitleBar.tsx", "ActivityBar.tsx", "IdeStatusBar.tsx"]) {
+            expect(existsSync(resolve(__dirname, name))).toBe(false);
         }
+        const names = readdirSync(__dirname);
+        expect(names.some((n) => n === "IdeTitleBar.tsx" || n === "ActivityBar.tsx" || n === "IdeStatusBar.tsx")).toBe(false);
     });
 
-    it("App error count flows from selectErrorCount, never a raw fail field", () => {
+    it("carries zero excised bar tokens in App source or markup", () => {
         const src = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
-        expect(src).toContain("selectErrorCount");
+        for (const token of ["IdeTitleBar", "ActivityBar", "IdeStatusBar", "activityView", "ideTitleBar", "ideActivity", "ideStatus"]) {
+            expect(src).not.toContain(token);
+        }
+        const tabs = defaultCaseTabs();
+        const html = renderToStaticMarkup(
+            <div className="page idePage">
+                <TopNav active="studio" onNav={noop} settingsOpen={false} onOpenSettings={noop} />
+                <EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />
+                <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />
+            </div>,
+        );
+        expect(html.toLowerCase()).not.toContain("idetitlebar");
+        expect(html).not.toContain("ideActivity");
+        expect(html).not.toContain("ideStatus");
+        expect(html).toContain("topNav");
+    });
+
+    it("TopNav is the sole topmost bar", () => {
+        const src = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
+        expect(src).toContain("<TopNav");
+        expect(src.indexOf("<TopNav")).toBeLessThan(src.indexOf("<main"));
     });
 });
 
@@ -155,7 +130,7 @@ describe("P1 tabs: no close buttons, dirty dot only", () => {
     });
 });
 
-describe("P1 right sidebar: four disclosures wired to the activity view", () => {
+describe("Phase 25 right sidebar: four disclosures with internal view state", () => {
     it("declares exactly the four activity views", () => {
         expect(IDE_ACTIVITY_VIEWS.map((v) => v.id)).toEqual(["explorer", "source-control", "extensions", "analysis"]);
     });
@@ -163,7 +138,7 @@ describe("P1 right sidebar: four disclosures wired to the activity view", () => 
     it("renders exactly four disclosure sections with the VS Code labels", () => {
         const tabs = defaultCaseTabs();
         const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="explorer" onSelectView={noopView} />,
+            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />,
         );
         expect(count(html, 'class="ideSec"')).toBe(4);
         for (const label of ["Explorer", "Source Control", "Extensions", "Analysis"]) {
@@ -172,10 +147,10 @@ describe("P1 right sidebar: four disclosures wired to the activity view", () => 
         expect(html).toContain('aria-label="Right sidebar"');
     });
 
-    it("explorer view opens the curated tree and case list only", () => {
+    it("explorer view opens the curated tree and case list by default only", () => {
         const tabs = defaultCaseTabs();
         const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="explorer" onSelectView={noopView} />,
+            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />,
         );
         for (const name of ["docs", "src-agent", "src-ui", "src-render"]) expect(html).toContain(name);
         for (const t of tabs) expect(html).toContain(t.title);
@@ -187,7 +162,7 @@ describe("P1 right sidebar: four disclosures wired to the activity view", () => 
     it("source control view is a labelled snapshot, never live git", () => {
         const tabs = defaultCaseTabs();
         const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="source-control" onSelectView={noopView} />,
+            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} initialView="source-control" />,
         );
         expect(html).toContain("snapshot, not live git");
         expect(html).not.toContain("GearFlow Solver");
@@ -197,7 +172,7 @@ describe("P1 right sidebar: four disclosures wired to the activity view", () => 
     it("extensions view lists the static solver entries only", () => {
         const tabs = defaultCaseTabs();
         const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="extensions" onSelectView={noopView} />,
+            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} initialView="extensions" />,
         );
         expect(html).toContain("GearFlow Solver");
         expect(html).toContain("Validation Ledger");
@@ -209,7 +184,7 @@ describe("P1 right sidebar: four disclosures wired to the activity view", () => 
     it("analysis view mounts the default placeholder and a custom node when supplied", () => {
         const tabs = defaultCaseTabs();
         const fallback = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="analysis" onSelectView={noopView} />,
+            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} initialView="analysis" />,
         );
         expect(fallback).toContain("Analysis mounts here");
         expect(fallback).not.toContain("GearFlow Solver");
@@ -218,8 +193,7 @@ describe("P1 right sidebar: four disclosures wired to the activity view", () => 
                 tabs={tabs}
                 activeId={tabs[0].id}
                 onActivate={noop}
-                view="analysis"
-                onSelectView={noopView}
+                initialView="analysis"
                 analysis={<p>custom-analysis-node</p>}
             />,
         );
@@ -230,17 +204,20 @@ describe("P1 right sidebar: four disclosures wired to the activity view", () => 
     it("aria expanded tracks the active view one hot, three cold", () => {
         const tabs = defaultCaseTabs();
         const html = renderToStaticMarkup(
-            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="analysis" onSelectView={noopView} />,
+            <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} initialView="analysis" />,
         );
         expect(count(html, 'aria-expanded="true"')).toBe(1);
         expect(count(html, 'aria-expanded="false"')).toBe(3);
     });
 
-    it("App binds the sidebar view to ActivityBar selection state", () => {
+    it("App passes no view props: the sidebar internalizes disclosure state", () => {
         const src = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
-        expect(src).toContain("view={activityView}");
-        expect(src).toContain("onSelectView={setActivityView}");
-        expect(src).toContain("<ActivityBar active={activityView} onSelect={setActivityView} />");
+        expect(src).not.toContain("view={activityView}");
+        expect(src).not.toContain("onSelectView={setActivityView}");
+        expect(src).not.toContain("<ActivityBar active={activityView} onSelect={setActivityView} />");
+        const side = readFileSync(resolve(__dirname, "./IdeSidebar.tsx"), "utf8");
+        expect(side).toContain("useState");
+        expect(side).toContain("initialView");
     });
 });
 
@@ -259,18 +236,19 @@ describe("P1 RunTerminal eradication: module gone, zero nodes", () => {
         }
     });
 
-    it("static IDE shell markup carries zero runTerm nodes", () => {
+    it("static shell markup carries zero runTerm nodes and zero excised bars", () => {
         const tabs = defaultCaseTabs();
         const html = renderToStaticMarkup(
             <div className="page idePage">
-                <IdeTitleBar title="GearFlow, naca2412" subtitle="analytic" offline={false} onOpenSettings={noop} />
-                <ActivityBar active="explorer" onSelect={noopView} />
+                <TopNav active="studio" onNav={noop} settingsOpen={false} onOpenSettings={noop} />
                 <EditorTabs tabs={tabs} activeId={tabs[0].id} onActivate={noop} />
-                <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} view="explorer" onSelectView={noopView} />
-                <IdeStatusBar branch="main" changedCount={0} errorCount={0} />
+                <IdeSidebar tabs={tabs} activeId={tabs[0].id} onActivate={noop} />
             </div>,
         );
         expect(html.toLowerCase()).not.toContain("runterm");
+        expect(html).not.toContain("ideTitleBar");
+        expect(html).not.toContain("ideActivity");
+        expect(html).not.toContain("ideStatus");
         expect(html.toLowerCase()).not.toContain("telemetrybar");
     });
 });

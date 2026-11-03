@@ -25,6 +25,7 @@ import { detectConcept, fieldForConcept, type TutorConcept, type TutorFieldSugge
 import { buildTutorMessages, type TutorMisconceptionInput } from "@/agent/tutorPrompt";
 import { detectMisconception } from "@/agent/misconceptions";
 import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/agent/airfoilIntent";
+import { buildBlockEnvelope, parseBlockIntent } from "@/agent/blockIntent";
 import { expandCasePreset } from "@/agent/casePresets";
 import { describeSweepResult, isAlphaSweepIntent, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
 import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
@@ -121,6 +122,10 @@ export const SETUP_KINDS: ReadonlySet<string> = new Set(actionContractSummary().
 
 export const RUN_KINDS: ReadonlySet<string> = new Set(actionContractSummary().runKinds);
 
+/** Phase 25C theory nav kinds, derived from the validator contract so the
+ *  console NAV settle branch, the prompt, and the validator cannot drift. */
+export const NAV_KINDS: ReadonlySet<string> = new Set(actionContractSummary().navKinds);
+
 export interface TurnExtra {
     model: string;
     inputTokens: number;
@@ -145,6 +150,10 @@ export interface TurnExtra {
     tutorError?: string | null;
     /** Honest chat failure detail for the main composer Retry chip. */
     chatError?: string | null;
+    /** Phase 25C theory nav topics settled on this turn. Records each
+     *  applied open_theory topic so the transcript names the companion
+     *  anchor without re-reading the envelope. */
+    navTopics?: string[];
 }
 
 export interface SpendTotals {
@@ -387,6 +396,12 @@ export function buildModalMessages(
     const presetLines = presetPromptLines();
     const contextJson = JSON.stringify(physicsViewFor(ctx)).slice(0, 3500);
     void resolveAgentFirst((ctx as unknown as { agentFirst?: unknown } | null | undefined)?.agentFirst);
+    // Phase 25C prompt lines derive the nav plus block fences from the
+    // validator contract so the prompt cannot drift from the allowlists the
+    // validator enforces. Topics name Theory page anchors, block sizes stay
+    // in [0.1, 3] with a full center, matching validateGeometrySpec.
+    const contract = actionContractSummary();
+    const topicList = contract.topics.join(", ");
     const systemLines = [
         "You are the GearFlow flow tutor. Answer briefly about the run like an interactive textbook.",
         "First mention per turn expands each term, then symbols after: lift coefficient (Cl), pressure coefficient (Cp), angle of attack (alpha), Reynolds number (Re).",
@@ -402,6 +417,8 @@ export function buildModalMessages(
         presetLines.retired,
         'Any 4-digit NACA rides one set_spec with the full parametric geometry plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup NACA 2415 alpha 6.").',
         "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [1000, 1000000].",
+        `To open the companion page, append one fence with at most one nav action: {"kind":"open_theory","topic":"cl-vs-alpha"}. Valid topics name a Theory page anchor: ${topicList}.`,
+        'A square, rectangle, or block body rides one set_spec with kind block plus width plus height in [0.1, 3] plus center plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup block 0.5 by 0.5.").',
         "Alpha sweep: when the user asks for an alpha sweep, staircase, or what if across alpha, answer with no action fence and name the sweep (-4 to 12 step 2, 9 points), the console runs it locally with Stop plus per-point Apply chips.",
         "Reply with one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas), then the validated apply follows and the tutor turn teaches the result with a before versus after table plus Why plus Try next.",
         "Try next is a physics thought experiment only: nudge angle of attack by 1 deg or change Reynolds number and reason about the effect. Never a field switch, never a view change, never a run.",
@@ -446,6 +463,7 @@ function describeAction(a: AgentAction): string {
     if (a.kind === "set_field") return "view setting applied";
     if (a.kind === "run_lbm") return "run";
     if (a.kind === "cancel_lbm") return "cancelled run";
+    if (a.kind === "open_theory") return `theory ${(a as { topic?: unknown }).topic ?? ""}`;
     if (a.kind === "setup_shedding") return "vortex shedding case (cylinder, angle of attack (alpha) 0, Reynolds number (Re) 100)";
     if (a.kind === "setup_high_re_wake") return "high Reynolds number (Re) wake case (cylinder, angle of attack (alpha) 0, Reynolds number (Re) 700)";
     if (a.kind === "setup_high_pressure") return "retired high pressure case (use setup_high_re_wake instead)";
@@ -696,10 +714,26 @@ export default function AgentConsole({
         const applied: string[] = [];
         const pending: AgentAction[] = [];
         const appliedActions: AgentAction[] = [];
+        const navTopics: string[] = [];
         const rejections = [...envelope.rejections];
         for (const action of envelope.actions) {
             if (RUN_KINDS.has(action.kind)) {
                 pending.push(action);
+                continue;
+            }
+            // Phase 25C NAV branch: theory nav applies through the App
+            // executor like setup, but records the anchor and never arms the
+            // tutor hook (no canvas case change).
+            if (NAV_KINDS.has(action.kind)) {
+                try {
+                    onAgentAction?.(action);
+                    applied.push(`Applied: ${describeAction(action)}.`);
+                    const topic = (action as { topic?: unknown }).topic;
+                    if (typeof topic === "string" && topic.length > 0) navTopics.push(topic);
+                } catch {
+                    // Executor faults render as a rejection line, never throw.
+                    rejections.push(`apply failed for ${action.kind}, canvas unchanged`);
+                }
                 continue;
             }
             if (SETUP_KINDS.has(action.kind)) {
@@ -719,6 +753,7 @@ export default function AgentConsole({
         if (applied.length > 0) patch.applied = applied;
         if (rejections.length > 0) patch.rejections = rejections;
         if (pending.length > 0) patch.pendingRuns = pending;
+        if (navTopics.length > 0) patch.navTopics = navTopics;
         patch.streaming = false;
         setExtra(id, patch);
         if (envelope.reply.trim().length > 0) {
@@ -793,6 +828,8 @@ export default function AgentConsole({
         // Post-rescue: the model answered with no actionable envelope, but
         // the original request parses high confidence. Settle the parser
         // envelope on the same path instead of leaving the canvas stale.
+        // Airfoil rescue runs first, block rescue second; both stay on the
+        // post-model path only, never a pre-submit fast path.
         if (parsed.actions.length === 0 && typeof userText === "string" && userText.length > 0) {
             let intent: ReturnType<typeof parseAirfoilIntent> = null;
             try {
@@ -815,6 +852,40 @@ export default function AgentConsole({
                     settleParsedEnvelope(id, { reply, actions: [], rejections: rescued.rejections }, userText);
                     return;
                 }
+            }
+            // Phase 25E block rescue beside the airfoil rescue. A square,
+            // rectangle, or block request with dimensions maps to one
+            // validated set_spec, rechecked through the shared validator.
+            try {
+                const blockApply = parseBlockIntent(userText, {
+                    alphaDeg: agentContext?.alphaDeg ?? null,
+                    reynolds: agentContext?.reynolds ?? null,
+                });
+                if (blockApply !== null && blockApply.confidence >= PARSER_APPLY_CONFIDENCE) {
+                    const built = buildBlockEnvelope(blockApply, {
+                        alphaDeg: agentContext?.alphaDeg ?? null,
+                        reynolds: agentContext?.reynolds ?? null,
+                    });
+                    const actions: AgentAction[] = [];
+                    const rejections = [...parsed.rejections];
+                    for (const candidate of built.candidates) {
+                        const checked = validateAgentAction(candidate, validationCtx);
+                        if (checked.ok && checked.action !== null) actions.push(checked.action);
+                        else rejections.push(checked.reason ?? "parser block action rejected");
+                    }
+                    if (actions.length > 0 && rejections.length === parsed.rejections.length) {
+                        const reply = parsed.reply.trim().length > 0 ? parsed.reply : built.reply;
+                        settleParsedEnvelope(id, { reply, actions, rejections: [] }, userText);
+                        return;
+                    }
+                    if (rejections.length > parsed.rejections.length) {
+                        const reply = parsed.reply.trim().length > 0 ? parsed.reply : built.reply;
+                        settleParsedEnvelope(id, { reply, actions: [], rejections }, userText);
+                        return;
+                    }
+                }
+            } catch {
+                // Block rescue faults fall through to the model envelope.
             }
         }
         settleParsedEnvelope(id, parsed, userText);
@@ -1629,11 +1700,20 @@ export default function AgentConsole({
         });
     }
 
-    /** Composer key handling for the TUI mimic: Escape stops a live
-     *  stream or sweep, otherwise it releases focus. Tab keeps its native
-     *  cycle order through the prompt selects and the input. Never throws. */
+    /** Composer key handling for the chat terminal: Enter rides the
+     *  native form submit to send, Escape stops a live stream or sweep and
+     *  otherwise releases focus, Tab keeps its native cycle order through
+     *  the prompt selects and the input. Never throws. */
     function onComposerKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
         try {
+            if (e.key === "Enter") {
+                // Native form submit sends. No preventDefault, no Stop.
+                return;
+            }
+            if (e.key === "Tab") {
+                // Native order through selects and input. Never intercepted.
+                return;
+            }
             if (e.key === "Escape") {
                 if (busyRef.current || sweepingRef.current) {
                     e.preventDefault();
@@ -1646,6 +1726,42 @@ export default function AgentConsole({
             // Key handling never breaks the composer.
         }
     }
+
+    // Caret-following line cursor. A hidden mirror span measures the text
+    // before the native selection, the 2px line parks there with a 90ms
+    // transform transition. caret-color flips to transparent only after the
+    // first measurement so SSR and no-JS keep the native caret.
+    const inputRef = useRef<HTMLInputElement | null>(null);
+    const mirrorRef = useRef<HTMLSpanElement | null>(null);
+    const [caretX, setCaretX] = useState(0);
+    const [caretMeasured, setCaretMeasured] = useState(false);
+
+    function measureCaret(): void {
+        try {
+            const el = inputRef.current;
+            const mirror = mirrorRef.current;
+            if (el === null || mirror === null) return;
+            const value = typeof el.value === "string" ? el.value : "";
+            const rawPos = typeof el.selectionStart === "number" ? el.selectionStart : value.length;
+            const pos = Number.isFinite(rawPos) ? Math.max(0, Math.min(value.length, rawPos as number)) : value.length;
+            const head = value.slice(0, pos);
+            mirror.textContent = head.length > 0 ? head : "\u00a0";
+            const w = (mirror as unknown as { offsetWidth?: unknown }).offsetWidth;
+            setCaretX(typeof w === "number" && Number.isFinite(w) ? w : 0);
+            setCaretMeasured(true);
+        } catch {
+            // Measurement never breaks the composer.
+        }
+    }
+
+    useSafeEffect(() => {
+        try {
+            measureCaret();
+        } catch {
+            // Measurement never breaks the composer.
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [input]);
 
     return (
         <div className="agentConsole tuiConsole">
@@ -1684,7 +1800,6 @@ export default function AgentConsole({
                                 )}
                                 {extra?.streaming === true && <span className="badge tuiPill status-info">streaming</span>}
                                 {extra?.stopped === true && <span className="badge tuiPill status-warn">stopped</span>}
-                                {(extra?.applied.length ?? 0) > 0 && <span className="badge tuiPill status-pass">applied</span>}
                             </div>
                             {isAssistant && reasoningText.length > 0 && (
                                 <details className="reasoningTrace">
@@ -1848,16 +1963,28 @@ export default function AgentConsole({
                     <div className="composerBox">
                         <input
                             id="agentInput"
+                            ref={inputRef}
                             className="chatInput"
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
+                            onSelect={measureCaret}
+                            onKeyUp={measureCaret}
+                            onClick={measureCaret}
                             onKeyDown={onComposerKeyDown}
                             placeholder="Explain this run, or set up NACA 2412"
                             maxLength={500}
                             aria-label="Ask the agent"
+                            style={{ caretColor: caretMeasured ? "transparent" : "auto" }}
                         />
-                        <span className="tuiCursor" aria-hidden="true" />
+                        <span ref={mirrorRef} className="tuiMirror" aria-hidden="true" />
+                        {caretMeasured ? (
+                            <span
+                                className="tuiCaret"
+                                aria-hidden="true"
+                                style={{ transform: `translate(${caretX}px, -50%)` }}
+                            />
+                        ) : null}
                     </div>
                     {busy ? (
                         <button type="button" className="mBtn chatSend" onClick={onStop} aria-label="Stop the streaming reply">
@@ -1869,11 +1996,6 @@ export default function AgentConsole({
                         </button>
                     )}
                 </form>
-                <div className="chatHints" role="note" aria-label="Composer hints">
-                    <span><kbd>esc</kbd> stop</span>
-                    <span><kbd>tab</kbd> cycle</span>
-                    <span><kbd>enter</kbd> send</span>
-                </div>
             </div>
             {sweeping && sweepProgress !== null && (
                 <div className="sweepProgress" role="status" aria-label="Alpha sweep progress">

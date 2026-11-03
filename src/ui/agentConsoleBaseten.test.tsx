@@ -89,18 +89,22 @@ describe("modal console chrome", () => {
         expect(html).toContain("Set up NACA 2412");
     });
 
-    it("renders the TUI hint bar with no session spend meter", () => {
+    it("renders the caret-following line cursor with no hint bar and no session spend meter", () => {
         const html = renderToStaticMarkup(<AgentConsole offline={false} onOfflineChange={() => {}} />);
-        // P0 TUI mimic: the spend meter render is deleted (spend logic
-        // stays behind spendExceeded), the composer keeps a quiet hint bar.
+        // Phase 25 chat terminal: the spend meter render is deleted (spend
+        // logic stays behind spendExceeded), the hint bar is deleted, and
+        // the composer carries a hidden mirror span plus a caret-following
+        // 2px line that renders only after the first mirror measurement
+        // (caretMeasured). Static markup never runs effects or refs, so the
+        // line stays hidden there with the native caret kept (auto).
         expect(html).not.toContain("chatFoot");
         expect(html).not.toContain("Session");
         expect(html).not.toContain("est $");
-        expect(html).toContain("chatHints");
-        expect(html).toContain("esc");
-        expect(html).toContain("tab");
-        expect(html).toContain("enter");
-        expect(html).toContain("tuiCursor");
+        expect(html).not.toContain("chatHints");
+        expect(html).not.toContain("tuiCursor");
+        expect(html).not.toContain("tuiCaret");
+        expect(html).toContain("tuiMirror");
+        expect(html).toContain("caret-color:auto");
         expect(html).toContain("promptRow");
     });
 
@@ -293,10 +297,15 @@ describe("modal console helpers", () => {
         expect(calls.streams).toBe(0);
         expect(calls.chats).toBe(0);
         expect(ctx.engine).toBe("lbm");
-        // P0 TUI mimic: no spend meter, prompt row plus hint bar instead.
+        // Phase 25 chat terminal: no spend meter, prompt row plus
+        // hidden mirror with the caret line gated on the first
+        // measurement (absent in static markup) instead of the hint bar.
         expect(html).not.toContain("Session");
         expect(html).toContain("promptRow");
-        expect(html).toContain("chatHints");
+        expect(html).not.toContain("tuiCaret");
+        expect(html).toContain("tuiMirror");
+        expect(html).toContain("caret-color:auto");
+        expect(html).not.toContain("chatHints");
         expect(html).toContain("Explain this run");
         expect(html).toContain("Send");
     });

@@ -4,6 +4,7 @@
 // accepts at most five actions, extras are rejected with a note.
 
 import type { AgentAction, BodyToken, FieldMode, ParametricSpec } from "@/contracts/types";
+import { THEORY_TOPICS } from "@/contracts/types";
 import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, RE_MAX, RE_MIN, validateParametricSpec } from "@/contracts/schema";
 import { expandCasePreset } from "./casePresets";
 import { resolveAgentFirst } from "@/config/agentFirst";
@@ -30,7 +31,10 @@ export const PRESET_ACTION_KINDS: ReadonlyArray<string> = ["setup_shedding", "se
 export const RETIRED_ACTION_KINDS: ReadonlyArray<string> = ["setup_high_pressure"];
 /** Confirm chip actions. Never auto applied, they wait for the chip. */
 export const RUN_ACTION_KINDS: ReadonlyArray<string> = ["run_lbm", "cancel_lbm"];
-/** Every live action kind, in prompt order. */
+/** Phase 25C theory nav actions. Auto applied through the NAV settle branch,
+ *  never through the canvas primitives, with the topic allowlisted below. */
+export const NAV_ACTION_KINDS: ReadonlyArray<string> = ["open_theory"];
+/** Every live canvas action kind, in prompt order. */
 export const ACTION_KINDS: ReadonlyArray<string> = [...PRIMITIVE_ACTION_KINDS, ...RUN_ACTION_KINDS, ...PRESET_ACTION_KINDS];
 /** Auto apply subset: primitives plus live presets. */
 export const SETUP_ACTION_KINDS: ReadonlyArray<string> = [...PRIMITIVE_ACTION_KINDS, ...PRESET_ACTION_KINDS];
@@ -52,14 +56,18 @@ export interface PresetContract {
 /** Validator plus prompt contract. kinds lists every live action kind,
  *  setupKinds the auto apply subset, runKinds the confirm chip subset,
  *  retiredKinds the recognized but rejected kinds, and presets the
- *  expansion of each setup preset. Consumed by buildModalMessages so
- *  the prompt, the validator, and the console auto apply set cannot
- *  drift. Never throws. */
+ *  expansion of each setup preset. navKinds lists the theory nav actions
+ *  and topics the Theory page allowlist, so the prompt, the validator, and
+ *  the console NAV settle branch cannot drift. Consumed by
+ *  buildModalMessages so the prompt, the validator, and the console auto
+ *  apply set cannot drift. Never throws. */
 export interface ActionContractSummary {
     kinds: string[];
     setupKinds: string[];
     runKinds: string[];
     retiredKinds: string[];
+    navKinds: string[];
+    topics: string[];
     presets: PresetContract[];
 }
 
@@ -108,6 +116,8 @@ export function actionContractSummary(): ActionContractSummary {
         setupKinds: [...SETUP_ACTION_KINDS],
         runKinds: [...RUN_ACTION_KINDS],
         retiredKinds: [...RETIRED_ACTION_KINDS],
+        navKinds: [...NAV_ACTION_KINDS],
+        topics: [...THEORY_TOPICS],
         presets: [
             presetContractFor("shedding", "setup_shedding"),
             presetContractFor("high_re_wake", "setup_high_re_wake"),
@@ -357,6 +367,16 @@ export function validateAgentAction(action: unknown, ctx: AgentValidationContext
                 return { ok: false, reason: `set_spec invalid: ${why}`, action: null };
             }
             return { ok: true, reason: null, action: { kind: "set_spec", spec: action.spec as unknown as ParametricSpec } };
+        }
+        if (kind === "open_theory") {
+            const topic = (action as Record<string, unknown>).topic;
+            if (typeof topic !== "string" || topic.length === 0) {
+                return { ok: false, reason: "open_theory needs a topic string", action: null };
+            }
+            if (!(THEORY_TOPICS as readonly string[]).includes(topic)) {
+                return { ok: false, reason: `open_theory topic ${topic} unknown, valid topics: ${(THEORY_TOPICS as readonly string[]).join(", ")}`, action: null };
+            }
+            return { ok: true, reason: null, action: { kind: "open_theory", topic } };
         }
         // Trusted preset entry points. The setup_* actions expand through
         // expandCasePreset and carry their own validated Re (shedding uses

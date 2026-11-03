@@ -2352,3 +2352,36 @@ Tests inspected, not executed (reviewer has no shell tool in this session).
 - [x] Phase code integrates cleanly with prior phases
 
 Note recurring pattern: none new. Removed surfaces are pinned by source-reading tests (canvasTop.test.ts, railPanelRework.test.tsx, displayCoupling13.test.tsx) so the removals cannot drift back silently; the remaining seam is dead prop plumbing after a removal, the same cleanup tail flagged in earlier removal cycles.
+
+## 2026-11-03 - Phase 25A to 25E: Final Re-review
+
+Date: 2026-11-03
+Reviewer: code-reviewer
+Scope: Final re-review of 25A to 25E fixes (blockIntent question and negation guards plus no default settle, corrections populated, mirror notes, ACTION_KINDS comment, caret gated on measurement, contract tests present)
+Verdict: PASS
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| blockIntent question and negation guards | PASS | src/agent/blockIntent.ts:35-36,68-69 returns null before any trigger on what is, why, explain, compare, versus, vs, do not, dont, never, no plus block noun, and not a plus block noun; pinned at src/agent/blockIntent.test.ts:116-139 |
+| No default settle | PASS | src/agent/blockIntent.ts:102-131 returns null on a bare mention with no size, so no defaulted shape settles at high confidence; pinned at src/agent/blockIntent.test.ts:87-92; console rescue only settles when parse returns non null at confidence gate src/ui/AgentConsole.tsx:860-878 |
+| Corrections populated | PASS | src/agent/blockIntent.ts:144-151 pushes width and height clamp corrections, returned at line 194 and copied into the envelope at line 223; pinned at src/agent/blockIntent.test.ts:103-113 |
+| Mirror notes | PASS | src/agent/blockIntent.ts:132-138 mirrors a lone width or height with an explicit mirrored note; pinned at src/agent/blockIntent.test.ts:70-85 |
+| ACTION_KINDS comment | PASS | src/agent/agentActions.ts:34-40 scopes ACTION_KINDS to live canvas kinds and keeps open_theory in the separate NAV_ACTION_KINDS, with the contract summary documenting navKinds separately at lines 56-63 and 113-120, so the comment, validator, and console NAV_KINDS at src/ui/AgentConsole.tsx:125-127 cannot drift |
+| Caret gated on measurement | PASS | src/ui/AgentConsole.tsx:1730-1755,1978,1981-1987 keeps caret-color auto and mounts the 2px caret line only after caretMeasured, with the mirror span always rendered; pinned at src/ui/chatTerminal25.test.tsx:31-41,81-101 |
+| Contract tests present | PASS | src/agent/blockIntent.test.ts:160-202 pins one validated set_spec envelope, open_theory accept plus unknown and missing topic rejection, and schema rejection of block specs missing width, height, or center (src/contracts/schema.ts:173-190); src/agent/actionContract.test.ts:63-102 pins validator kinds against console setup plus run sets |
+| Prior Major closed | PASS | The prior Major (unguarded block intent settling a default shape on questions, negations, and bare mentions, with empty corrections and no mirror note) is closed by the guards, the null on bare mention, populated corrections, and mirror notes above |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| None | n/a | No FAIL items remain | None |
+
+### Verification Checklist
+- [x] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: none new. Guards, null on bare mention, corrections, and mirror notes are now pinned by behavior tests rather than source presence, closing the isolated pass gap for the block rescue path.
