@@ -97,7 +97,7 @@ describe("buildTutorMessages", () => {
             history: [],
         });
         const system = messages[0].content;
-        expect(system).toContain("Never promise a future run or sweep the console did not take");
+        expect(system).toContain("Never promise a future run or sweep the agent did not take");
         expect(system).toContain("teach no table for the unapplied case");
         expect(system).toContain("naming the bound");
         expect(system).toContain("nearest valid alternative");

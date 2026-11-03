@@ -1493,7 +1493,7 @@ export default function AgentConsole({
                 // Pending reset faults never break the sweep.
             }
             const runId = nextId();
-            pushTurn({ id: runId, role: "assistant", at: nowIso(), text: "Running the live alpha staircase, canvas stepping through -4 to 12 deg.", tool: "modal", status: "offline" });
+            pushTurn({ id: runId, role: "assistant", at: nowIso(), text: "The agent runs the live alpha staircase now, canvas stepping through -4 to 12 deg.", tool: "modal", status: "offline" });
             setExtra(runId, makeExtra({ streaming: true, sweepProgress: { done: 0, total: SWEEP_ALPHAS.length, current: SWEEP_ALPHAS[0] } }));
             const startAlpha = (() => {
                 try {

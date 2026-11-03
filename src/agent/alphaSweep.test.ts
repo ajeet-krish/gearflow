@@ -73,6 +73,18 @@ describe("isAlphaSweepIntent", () => {
         expect(isAlphaSweepIntent("how do changes in alpha affect lift")).toBe(true);
         expect(isAlphaSweepIntent("how does alpha affect suction")).toBe(true);
         expect(isAlphaSweepIntent("impact of alpha on lift")).toBe(true);
+        expect(isAlphaSweepIntent("alpha impact on suction")).toBe(true);
+        expect(isAlphaSweepIntent("impact on flow from alpha")).toBe(true);
+        expect(isAlphaSweepIntent("how does alpha impact flow")).toBe(true);
+    });
+
+    it("rejects non-alpha impact and affect phrasings", () => {
+        expect(isAlphaSweepIntent("impact of Reynolds number on flow")).toBe(false);
+        expect(isAlphaSweepIntent("how do changes in temperature affect flow")).toBe(false);
+        expect(isAlphaSweepIntent("how does drag impact flow")).toBe(false);
+        expect(isAlphaSweepIntent("impact of drag on flow")).toBe(false);
+        expect(isAlphaSweepIntent("how does Reynolds affect lift")).toBe(false);
+        expect(isAlphaSweepIntent("how do changes affect lift")).toBe(false);
     });
 
     it("rejects question guards even when sweep terms appear", () => {

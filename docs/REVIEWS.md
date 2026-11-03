@@ -2470,3 +2470,27 @@ Verdict: FAIL
 - [ ] Phase code integrates cleanly with prior phases
 
 Note recurring pattern: intent broadening landed at the pure regex layer without the question and negation guards that blockIntent already carries, so integration at the console intercept turns explain questions into canvas actions, the same guard at one layer not reused at the next pattern flagged in earlier phases.
+
+## 2026-11-03 - Combined Batch Review: Widened NACA, Sweep Triggers, Rectangle Rename, Prompt Honesty, Turn Chrome, Body Chips, Particle Scale
+
+Date: 2026-11-03
+Reviewer: code-reviewer
+Scope: Combined batch on HEAD c4397db plus uncommitted test and copy adjustments (widened NACA envelope with real-world equivalents, sweep impact triggers, Rectangle rename, prompt honesty copy, turn chrome removal for reasoning/applied/concept, body tabs as chips, particle render scale, solver finiteness backstop, Modal-only path)
+Verdict: FAIL
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Major | src/agent/alphaSweep.ts:61-63,72 and src/ui/AgentConsole.tsx:1611-1624 | Sweep impact triggers are over-broad and can mutate the canvas for non-alpha questions: IMPACT_ALPHA_RE alternative impact.*flow matches "impact of Reynolds number on flow", and HOW_DO_AFFECT_RE matches "how do changes in temperature affect flow", with no alpha or AoA requirement. AgentConsole checks isAlphaSweepIntent before the Modal path, so those prompts run the -4 to 12 deg alpha staircase and apply set_alpha instead of answering or asking. Tests at src/agent/alphaSweep.test.ts:71-75 pin only alpha-specific impact phrasings and no non-alpha negatives. | backend-dev: require alpha or AoA in every impact/affect alternative (remove bare impact.*flow and generic how-do affect), keep question and negation guards, and add negative tests for Reynolds, temperature, and drag impact phrasings plus positive alpha impact tests via tester. |
+| Minor | src/agent/nacaParse.ts:90-95,116-118 | Real-world copy overclaims physics the inviscid solver cannot support: thin sections are called "efficient" and 60% plus sections "useful for drag comparison", while the analytic path reports Cl and Cp only and the same note calls coefficients draggy and unvalidated. Potential flow gives no viscous drag or efficiency ranking. | backend-dev: reword to appearance and comparison language without efficiency or drag claims (for example "thin membrane-like section, fragile as drawn" and "blunt strut-like section, drag is not modeled here"), and pin the wording in nacaParse tests. |
+| Minor | src/ui/EditorTabs.tsx:21-36 | Body chips use role tablist and role tab with roving tabIndex (non-selected tabs are -1) but no arrow-key handler, so keyboard users can reach only the selected body tab. | frontend-dev: either drop tab roles for plain toggle buttons with all tabs focusable, or implement Left/Right/Home/End tab keyboard behavior; add a keyboard behavior test via tester. |
+
+Checks: widened NACA envelope PASS (schema.ts:68-81,149-153, parametric.ts:31-59,145-159, nacaParse.ts:76-120, realistic band separate at 6 to 18 percent); solver finiteness backstop PASS (analyticFlow.ts:179-186 throws on non-finite field values, App.tsx:103-114 isUsableField rejects non-finite cl/cpMin/channels, App.tsx:1251-1275 holds last good); Rectangle rename PASS for user strings (caseTabs.ts:190-215, EditorTabs.tsx:1-5, GeometrySection.tsx:96,214-227, FlowControls.tsx:86, remaining Block hits are code identifiers or comments); prompt honesty copy PASS with Minor above (tutorPrompt.ts:165-169, AgentConsole.tsx:419-430); turn chrome removal PASS (AgentConsole.tsx:1800-1916 renders no reasoning trace, applied list, or concept badge; reasoning remains internal at AgentConsole.tsx:907-920 and 1452-1461); body tabs as chips PASS visually with Minor above (EditorTabs.tsx:19-36 shares chip and chip active classes); particle render scale PASS (FlowCanvas.tsx:50-72, PARTICLE_SIZE_RENDER_SCALE 4 with finite clamp and default fallback, stored band unchanged); Modal-only intact PASS (AgentConsole.tsx:1631-1641 live turns go through Modal port, 1330-1350 and 1419-1427 fail honestly with no local prose fallback, offline path at 1303-1315 is explicit cached demo only); conventions PASS (no em dashes or en dashes in src, no user-facing Block label found).
+
+### Verification Checklist
+- [ ] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this review session (no shell tool available to the reviewer). Delegate fixes: sweep trigger and copy to backend-dev, EditorTabs keyboard fix to frontend-dev, added negative and keyboard coverage to tester. Recurring pattern: intent regexes are pinned on positive phrasings only, so a broadened trigger class escapes its named variable and acts on unrelated prompts, the same positive-only pinning gap seen in earlier isolated tests.

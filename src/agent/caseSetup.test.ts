@@ -142,7 +142,7 @@ describe("local phenomenological triggers", () => {
     });
 
     it("asks one clarifying question for an invalid airfoil with canvas unchanged", () => {
-        const out = localReply("set up airfoil naca 0099", makeCtx());
+        const out = localReply("set up airfoil naca 2400", makeCtx());
         expect(out.actions).toEqual([]);
         expect(out.reply).toContain("not a valid 4-digit section");
         expect(out.reply).toContain("Canvas unchanged");

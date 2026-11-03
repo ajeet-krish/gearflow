@@ -165,7 +165,7 @@ export function buildTutorMessages(input: BuildTutorMessagesInput): ModalMessage
                 "For any generated airfoil, add one line relating it to a real-world equivalent or why the shape cannot exist as drawn.",
                 "Never list valid bodies or canvas limits in replies; keep nearest alternatives purely physical, like a venturi narrowing speeds the flow, never this-canvas-can-build talk.",
                 "No solver or tech stack talk: teach flow physics only, no solver names, no statistics, no spinning-flow copy, no field views.",
-                "Never promise a future run or sweep the console did not take: teach only the applied run in the Before vs after table.",
+                "Never promise a future run or sweep the agent did not take: teach only the applied run in the Before vs after table.",
                 "When the setup was rejected, state what was rejected, why (naming the bound), and the nearest valid alternative with the canvas unchanged, and teach no table for the unapplied case.",
                 `Keep the prose under ${TUTOR_MAX_WORDS} words, not counting the table.`,
                 "Answer with no action fence and no field suggestion.",

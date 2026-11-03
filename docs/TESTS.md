@@ -1305,3 +1305,47 @@ Phase tests integrate with prior phase tests (all 1708 pre-existing tests still 
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - Combined batch fixes: Test Report (sweep alpha gating, appearance lines, body tab keys, Rectangle naming, single 512, turn chrome removed)
+
+### Test Results
+npm test: 130 files, 1741 tests, all passed. Baseline before this verification was 129 files, 1733 tests. Delta is src/batchCombined.verify.test.tsx (8 tests).
+Targeted: npx vitest run src/agent/alphaSweep.test.ts src/agent/nacaParse.test.ts src/verify.fixed512.sweepguard.test.tsx src/p4.grid512.test.ts src/ui/selectedStyle.test.tsx src/ui/chatTuiP0.test.tsx src/ui/p1IdeShell.ruthless.test.tsx src/gridUiBatch.verify.test.tsx, 8 files, 132 tests, all passed.
+
+New coverage in src/batchCombined.verify.test.tsx (8 tests):
+happy path sweep fires on alpha scoped impact and affect phrasings (alpha impact on suction, impact on flow from alpha, how does alpha impact flow, impact of alpha on lift, how do changes in alpha affect lift), real-world lines name appearance with drag not modeled on all six branches, body tablist handles arrows with wrap plus Home and End with activation and focus, selected tab renders roving tabindex with the shared chip class, block copy names Rectangle or rectangular section, controller fixed at 512, assistant turns render no reasoning trace or applied receipts or concept badge,
+edge Reynolds plus temperature plus drag impact phrasings never fire (impact of Reynolds, temperature affect, drag impact, drag on flow, Reynolds affect lift, bare changes affect lift).
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| batchCombined.verify.test.tsx (8) | PASS | Sweep alpha gating, appearance lines, tab keys, Rectangle naming, single 512, turn chrome removed |
+| alphaSweep.test.ts (18) | PASS | Pre-existing sweep intent coverage still green |
+| nacaParse.test.ts (30) | PASS | Corpus plus appearance line coverage still green |
+| verify.fixed512.sweepguard.test.tsx (16) | PASS | Fixed 512 plus sweep guard coverage still green |
+| p4.grid512.test.ts (12) | PASS | Single 512 grid coverage still green |
+| selectedStyle.test.tsx (5) | PASS | Shared chip active coverage still green |
+| chatTuiP0.test.tsx (7) | PASS | No reasoning trace coverage still green |
+| p1IdeShell.ruthless.test.tsx (26) | PASS | Tab role plus chrome removal coverage still green |
+| gridUiBatch.verify.test.tsx (18) | PASS | Grid ceiling plus UI batch coverage still green |
+| all other Node suites (1601) | PASS | No regressions, 1741 total across 130 files |
+
+### Coverage Summary
+Happy path covered (alpha scoped sweep triggers, appearance lines with drag note, tablist arrow keys with wrap and activation, Rectangle naming, single 512, chrome free turns).
+Edge cases covered (Reynolds plus temperature plus drag impact never fire, roving tabindex 0 versus minus 1, all six appearance branches).
+Error conditions covered (bare affect without alpha never fires, banned copy absent from every branch and render path).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1733 pre-existing tests still pass, 1741 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full suite green on this run, 1741 passed plus 8 new with 0 failures | No fix needed |
+
+### Verification Checklist
+- [x] All tests pass (130 files, 1741 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

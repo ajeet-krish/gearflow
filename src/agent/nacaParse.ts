@@ -87,14 +87,14 @@ export function isRealisticSection(m: number, p: number, t: number): boolean {
 export function realWorldEquivalentLine(code: string, m: number, p: number, t: number): string {
     try {
         const pct = Math.round(t * 100);
-        if (t >= 0.6) return `Real-world read: NACA ${code} at ${pct}% thickness behaves like a blunt strut fairing rather than a lifting wing, useful for drag comparison.`;
-        if (t >= 0.3) return `Real-world read: NACA ${code} at ${pct}% thickness behaves like a thick strut fairing rather than a trainer wing, expect high drag.`;
-        if (t <= 0.04) return `Real-world read: NACA ${code} at ${pct}% thickness behaves like a thin sail or membrane section, efficient but fragile as drawn.`;
-        if (m >= 0.1) return `Real-world read: NACA ${code} with ${Math.round(m * 100)}% camber behaves like a high-lift sail or turbine section, strong turning at low speed.`;
-        if (m > 1e-10 && (p >= 0.8 || p <= 0.2)) return `Real-world read: NACA ${code} with the camber peak at ${Math.round(p * 100)}% chord behaves like an aft or forward loaded laminar section pushed past practical molds.`;
-        return `Real-world read: NACA ${code} behaves like a trainer wing pushed past textbook proportions, still useful for comparison.`;
+        if (t >= 0.6) return `Real-world read: NACA ${code} at ${pct}% thickness has the appearance of a blunt strut fairing rather than a lifting wing (drag is not modeled here, for shape comparison only).`;
+        if (t >= 0.3) return `Real-world read: NACA ${code} at ${pct}% thickness has the appearance of a thick strut fairing rather than a trainer wing (drag is not modeled here, for shape comparison only).`;
+        if (t <= 0.04) return `Real-world read: NACA ${code} at ${pct}% thickness has the appearance of a thin sail or membrane section, fragile as drawn (drag is not modeled here).`;
+        if (m >= 0.1) return `Real-world read: NACA ${code} with ${Math.round(m * 100)}% camber has the appearance of a high-lift sail or turbine section with strong visual turning (drag is not modeled here).`;
+        if (m > 1e-10 && (p >= 0.8 || p <= 0.2)) return `Real-world read: NACA ${code} with the camber peak at ${Math.round(p * 100)}% chord has the appearance of an aft or forward loaded laminar section pushed past practical molds (drag is not modeled here).`;
+        return `Real-world read: NACA ${code} has the appearance of a trainer wing pushed past textbook proportions, still useful for shape comparison (drag is not modeled here).`;
     } catch {
-        return `Real-world read: NACA ${code} behaves like a trainer wing pushed past textbook proportions.`;
+        return `Real-world read: NACA ${code} has the appearance of a trainer wing pushed past textbook proportions (drag is not modeled here).`;
     }
 }
 

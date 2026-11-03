@@ -45,10 +45,14 @@ export function defaultSweepYield(): Promise<void> {
 /** Sweep intent patterns: sweep, what if alpha, alpha staircase, plus
  *  influence and effect phrasings (how AoA influences, influence of
  *  alpha/AoA, effect of alpha, across alpha, sweep through alpha) plus
- *  impact phrasings (impact of alpha, how AoA impacts, how changes affect).
- *  Question guards (what is, why, explain, compare, vs) and negation
- *  guards (do not, never, no sweep) return false, mirroring blockIntent,
- *  so definitional or declined sweeps fall through to teaching. */
+ *  alpha-scoped impact and affect phrasings (impact of alpha, alpha
+ *  impact, impact mentioning alpha, how alpha or AoA affects or impacts).
+ *  Bare impact on flow and generic how-do affect without an alpha or AoA
+ *  mention never fire, so Reynolds, temperature, and drag questions fall
+ *  through to teaching. Question guards (what is, why, explain, compare,
+ *  vs) and negation guards (do not, never, no sweep) return false,
+ *  mirroring blockIntent, so definitional or declined sweeps fall through
+ *  to teaching. */
 const SWEEP_QUESTION_RE = /\bwhat\s+is\b|\bwhat'?s\b|\bwhy\b|\bexplain\b|\bcompar\w*|\bversus\b|\bvs\.?(?!\w)/i;
 const SWEEP_NEGATION_RE = /\bdo\s+not\b|\bdon'?t\b|\bnever\b|\bno\s+sweep\b|\bnot\s+a\s+sweep\b/i;
 const SWEEP_RE = /\bsweep\b/;
@@ -58,9 +62,9 @@ const INFLUENCE_RE = /influence\s+of\s+(alpha|aoa)|how\s+(alpha|aoa)\s+influence
 const EFFECT_RE = /effect\s+of\s+(alpha|aoa)/;
 const ACROSS_ALPHA_RE = /across\s+(alpha|aoa)/;
 const SWEEP_THROUGH_RE = /sweep\s+through/;
-const IMPACT_ALPHA_RE = /impact\s+of\s+(alpha|aoa)|(alpha|aoa).*impact|impact.*flow/;
+const IMPACT_ALPHA_RE = /impact\s+of\s+(alpha|aoa)|(alpha|aoa).*impact|impact.*(alpha|aoa)/;
 const HOW_DOES_RE = /how\s+does\s+(alpha|aoa)\b/;
-const HOW_DO_AFFECT_RE = /how\s+do\b.*\baffect\b|how\s+does\b.*\baffect\b|how\s+do\b.*\beffect\b|how\s+does\b.*\bimpact\b/;
+const HOW_DO_AFFECT_RE = /how\s+do\b.*(alpha|aoa).*affect\b|how\s+does\b.*(alpha|aoa).*affect\b|how\s+do\b.*(alpha|aoa).*effect\b|how\s+does\b.*(alpha|aoa).*impact\b|how\s+do\b.*affect\b.*(alpha|aoa)|how\s+does\b.*affect\b.*(alpha|aoa)|how\s+do\b.*effect\b.*(alpha|aoa)|how\s+does\b.*impact\b.*(alpha|aoa)/;
 
 /** True when the text asks for the live alpha staircase. Never throws. */
 export function isAlphaSweepIntent(text: unknown): boolean {

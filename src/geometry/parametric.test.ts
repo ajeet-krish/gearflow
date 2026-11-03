@@ -43,11 +43,11 @@ describe("naca4Airfoil", () => {
 
     it("rejects invalid inputs with specific errors", () => {
         expect(() => naca4Airfoil(0.02, 0.4, 0.12, 1)).toThrow(/nPoints/);
-        expect(() => naca4Airfoil(0.2, 0.4, 0.12, 10)).toThrow(/m.*\[0, 0\.095\]/);
+        expect(() => naca4Airfoil(0.2, 0.4, 0.12, 10)).toThrow(/m.*\[0, 0\.15\]/);
         expect(() => naca4Airfoil(0.02, 0, 0.12, 10)).toThrow(/p.*\(0, 1\)/);
-        expect(() => naca4Airfoil(0.02, 0.4, 0.5, 10)).toThrow(/t.*\(0, 0\.4\]/);
-        expect(() => naca4Airfoil(0.02, 0.4, 0, 10)).toThrow(/t.*\(0, 0\.4\]/);
-        expect(() => parseNaca4("9999")).toThrow(/thickness/);
+        expect(() => naca4Airfoil(0.02, 0.4, 1.5, 10)).toThrow(/t.*\[0\.02, 1\]/);
+        expect(() => naca4Airfoil(0.02, 0.4, 0.01, 10)).toThrow(/t.*\[0\.02, 1\]/);
+        expect(() => parseNaca4("2400")).toThrow(/thickness/);
         expect(() => parseNaca4("912")).toThrow(/4 digits/);
     });
 });

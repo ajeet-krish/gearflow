@@ -92,7 +92,7 @@ describe("validateDemoPack", () => {
         pack.geometry = { ...pack.geometry, chord: 0 };
         expect(() => validateDemoPack(pack)).toThrow(/chord/);
         const pack2 = goodPack();
-        pack2.geometry = { ...pack2.geometry, naca: { code: "9999", m: 0.09, p: 0.4, t: 0.99 } };
+        pack2.geometry = { ...pack2.geometry, naca: { code: "2401", m: 0.02, p: 0.4, t: 0.01 } };
         expect(() => validateDemoPack(pack2)).toThrow(/naca\.t/);
     });
 
@@ -334,26 +334,29 @@ describe("alpha envelope (hard plus characterized band)", () => {
         expect(alphaOutOfBandNote(45)).toContain("outside the characterized band");
     });
 
-    it("rejects naca params outside the widened envelope (thickness to 40%)", () => {
-        // Widened per the trainer decision: 19% meshes now and only fails
-        // the tutor realistic band, while past 40% chord fails validation.
+    it("rejects naca params outside the widened envelope (thickness 2 to 100%, p in (0, 1))", () => {
+        // Widened: 19% and 41% and 85% mesh now, only past 100% or below 2%
+        // chord fails validation, p must stay in the open interval (0, 1).
         expect(() =>
             validateGeometrySpec({ ...base(), naca: { code: "2419", m: 0.02, p: 0.4, t: 0.19 } })
         ).not.toThrow();
         expect(() =>
             validateGeometrySpec({ ...base(), naca: { code: "2441", m: 0.02, p: 0.4, t: 0.41 } })
+        ).not.toThrow();
+        expect(() =>
+            validateGeometrySpec({ ...base(), naca: { code: "2385", m: 0.02, p: 0.3, t: 0.85 } })
+        ).not.toThrow();
+        expect(() =>
+            validateGeometrySpec({ ...base(), naca: { code: "2401", m: 0.02, p: 0.4, t: 0.01 } })
         ).toThrow(/naca\.t/);
         expect(() =>
-            validateGeometrySpec({ ...base(), naca: { code: "2412", m: 0.02, p: 0.4, t: 0.05 } })
-        ).toThrow(/naca\.t/);
-        expect(() =>
-            validateGeometrySpec({ ...base(), naca: { code: "9412", m: 0.09 + 0.005, p: 0.4, t: 0.12 } })
+            validateGeometrySpec({ ...base(), naca: { code: "6415", m: 0.16, p: 0.4, t: 0.15 } })
         ).toThrow(/naca\.m/);
         expect(() =>
-            validateGeometrySpec({ ...base(), naca: { code: "2912", m: 0.02, p: 0.9, t: 0.12 } })
+            validateGeometrySpec({ ...base(), naca: { code: "2012", m: 0.02, p: 0, t: 0.12 } })
         ).toThrow(/naca\.p/);
         expect(() =>
-            validateGeometrySpec({ ...base(), naca: { code: "2112", m: 0.02, p: 0.1, t: 0.12 } })
+            validateGeometrySpec({ ...base(), naca: { code: "2912", m: 0.02, p: 1, t: 0.12 } })
         ).toThrow(/naca\.p/);
     });
 

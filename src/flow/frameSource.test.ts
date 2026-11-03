@@ -118,12 +118,15 @@ describe("AnalyticFlowProvider", () => {
 describe("AnalyticFlowProvider envelope (no bypass)", () => {
     it("constructor rejects out-of-hard-envelope geometry fail-fast", () => {
         expect(() => new AnalyticFlowProvider(SMALL, { ...NACA, alphaDeg: 200 })).toThrow(/alphaDeg/);
-        // Thickness envelope widened to 40% chord: 19% constructs, past 40% fails.
+        // Thickness envelope widened to 100% chord: 19% and 41% construct, below 2% fails.
         expect(
             () => new AnalyticFlowProvider(SMALL, { ...NACA, naca: { code: "2419", m: 0.02, p: 0.4, t: 0.19 } })
         ).not.toThrow();
         expect(
             () => new AnalyticFlowProvider(SMALL, { ...NACA, naca: { code: "2441", m: 0.02, p: 0.4, t: 0.41 } })
+        ).not.toThrow();
+        expect(
+            () => new AnalyticFlowProvider(SMALL, { ...NACA, naca: { code: "2401", m: 0.02, p: 0.4, t: 0.01 } })
         ).toThrow(/naca\.t/);
     });
 
@@ -143,7 +146,7 @@ describe("AnalyticFlowProvider envelope (no bypass)", () => {
         const solves = p.solveCount;
         expect(() => p.setGeometry({ ...NACA, alphaDeg: 200 })).toThrow(/alphaDeg/);
         expect(() =>
-            p.setGeometry({ ...NACA, naca: { code: "2912", m: 0.02, p: 0.9, t: 0.12 } })
+            p.setGeometry({ ...NACA, naca: { code: "2012", m: 0.02, p: 0, t: 0.12 } })
         ).toThrow(/naca\.p/);
         p.getFrame();
         expect(p.solveCount).toBe(solves);

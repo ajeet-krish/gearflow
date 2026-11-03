@@ -361,7 +361,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         }
         if (isAlphaSweepIntent(raw)) {
             return {
-                reply: "Local sweep note, no network. Running the live alpha staircase -4 to 12 deg in 2 deg steps (9 points) on the analytic path, the canvas morphs as each alpha applies. Cancel with Stop, per-point Apply chips land after the run. Canvas updates on apply.",
+                reply: "Local sweep note, no network. The agent runs the live alpha staircase now, -4 to 12 deg in 2 deg steps (9 points) on the analytic path, the canvas morphs as each alpha applies. Cancel with Stop, per-point Apply chips land after the run. Canvas updates on apply.",
                 actions: [],
                 rejections: [],
             };

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import corpus from "./fixtures/airfoilCorpus.json";
-import { isSchemaValidCode, nearestValidCode, parseNacaLoose } from "./nacaParse";
+import { isSchemaValidCode, nearestValidCode, parseNacaLoose, realWorldEquivalentLine } from "./nacaParse";
 
 interface CorpusParseExpect {
     status: "ok" | "ambiguous" | "invalid" | "none";
@@ -152,6 +152,29 @@ describe("isSchemaValidCode", () => {
                 expect(typeof check.reason).toBe("string");
                 expect(check.realistic).toBe(false);
             }
+        }
+    });
+});
+
+describe("realWorldEquivalentLine", () => {
+    it("uses appearance language with a drag-not-modeled note", () => {
+        const samples: Array<[string, number, number, number]> = [
+            ["9960", 0.09, 0.4, 0.6],
+            ["2940", 0.09, 0.4, 0.4],
+            ["2402", 0.02, 0.4, 0.02],
+            ["1912", 0.19, 0.4, 0.12],
+            ["2192", 0.02, 0.9, 0.12],
+            ["2385", 0.02, 0.3, 0.85],
+        ];
+        for (const [code, m, p, t] of samples) {
+            const line = realWorldEquivalentLine(code, m, p, t);
+            expect(line).toContain("Real-world read");
+            expect(line).toContain("appearance");
+            expect(line).toContain("drag is not modeled here");
+            expect(line).not.toContain("behaves like");
+            expect(line.toLowerCase()).not.toContain("efficient");
+            expect(line).not.toContain("expect high drag");
+            expect(line).not.toContain("useful for drag comparison");
         }
     });
 });

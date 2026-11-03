@@ -280,7 +280,7 @@ describe("phase2 error conditions: oversize, NaN, poisoned spec, singular", () =
     const goodU = good.u.slice();
     expect(p.solveCount).toBe(1);
     expect(() => p.setGeometry({ ...NACA, alphaDeg: 200 })).toThrow(/alphaDeg/);
-    expect(() => p.setGeometry({ ...NACA, naca: { code: "2912", m: 0.02, p: 0.9, t: 0.12 } })).toThrow(/naca/);
+    expect(() => p.setGeometry({ ...NACA, naca: { code: "2012", m: 0.02, p: 0, t: 0.12 } })).toThrow(/naca/);
     expect(() => p.setAlpha(200)).toThrow(/alphaDeg/);
     expect(() => p.setAlpha(-200)).toThrow(/alphaDeg/);
     expect(() => p.setRe(NaN)).toThrow(/Re/);
@@ -323,8 +323,8 @@ describe("phase2 provider cache and UI contract", () => {
     expect(ALPHA_MAX).toBe(12);
     expect(ALPHA_HARD_MIN).toBe(-180);
     expect(ALPHA_HARD_MAX).toBe(180);
-    expect(NACA_T_MIN).toBe(0.06);
-    expect(NACA_T_MAX_ENV).toBe(0.4);
+    expect(NACA_T_MIN).toBe(0.02);
+    expect(NACA_T_MAX_ENV).toBe(1.0);
     const src = fs.readFileSync(path.join(process.cwd(), "src/ui/FlowControls.tsx"), "utf8");
     expect(src).toMatch(/min=\{-4\}/);
     expect(src).toMatch(/max=\{12\}/);
