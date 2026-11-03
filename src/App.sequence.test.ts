@@ -75,10 +75,12 @@ function switchTab(s: Shell, id: string): void {
     mirrorEffect(s);
 }
 
-/** App ensureBodyTab: provisional spec resolves the tab via bodyTabIdForSpec. */
+/** App ensureBodyTab: provisional spec resolves the tab via bodyTabIdForSpec.
+ *  Custom specs resolve to null and leave the tab unchanged. */
 function ensureBodyTab(s: Shell, body: string): void {
     const provisional = applyBodyPreset(s.spec, body);
     const id = bodyTabIdForSpec(provisional);
+    if (id === null) return;
     if (id !== s.store.activeId) {
         s.agentCommit = id;
         s.store = storeActivate(s.store, id);

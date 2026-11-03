@@ -220,15 +220,18 @@ export function bodyTabLabelFor(spec: GeometrySpec): string {
     }
 }
 
-/** Body tab id for a spec kind. Naca4 family maps to airfoil. Never throws. */
-export function bodyTabIdForSpec(spec: GeometrySpec): BodyTabId {
+/** Body tab id for a spec kind. Naca4 family maps to airfoil. Custom and
+ *  unknown kinds map to null so the caller leaves the tab unchanged
+ *  instead of guessing a body tab. Never throws. */
+export function bodyTabIdForSpec(spec: GeometrySpec): BodyTabId | null {
     try {
         if (spec.kind === "naca4") return "airfoil";
         if (spec.kind === "cylinder") return "cylinder";
         if (spec.kind === "block") return "block";
-        return "orifice";
+        if (spec.kind === "orifice") return "orifice";
+        return null;
     } catch {
-        return "airfoil";
+        return null;
     }
 }
 

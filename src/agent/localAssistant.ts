@@ -107,6 +107,12 @@ const CANNOT_COMPRESSIBLE_RE = /(supersonic|compressible|transonic|mach\s*\d)/;
 const SEPARATION_RE = /(viscous separation|flow separation|separation bubble|\bstall\b)/;
 /** Glossary questions name a physics term, never a setup action. */
 const GLOSSARY_Q_RE = /\bwhat\s+(is|are|does|do)\b|\bwhat's\b|\bdefine\b|\bmeaning of\b/;
+/** Negation guard for phenomenological rescues: declined pressure talk
+ *  never stages a preset, it falls through to teaching with zero actions. */
+const PRESSURE_NEGATION_RE = /\bdo\s+not\b|\bdon'?t\b|\bnever\b|\bnot\b/i;
+/** Embedded definitional clause: what a/the cylinder (block, orifice,
+ *  airfoil) is never stages a body, even with an action verb present. */
+const DEFINITIONAL_CLAUSE_RE = /\bwhat\s+(a|an|the)\b[\s\S]*\bis\b/i;
 
 function finiteOrNull(v: unknown): number | null {
     return typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -418,6 +424,12 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         };
         let presetHandled = false;
         let suppressFieldStage = false;
+        // Declined pressure talk never stages: the preset branch below is
+        // negation gated and the Cp field stage is suppressed here, so the
+        // turn falls through to teaching with zero actions.
+        if (HIGH_PRESSURE_PHENOM_RE.test(lower) && PRESSURE_NEGATION_RE.test(lower)) {
+            suppressFieldStage = true;
+        }
         // NACA plus alpha plus Re come from the shared airfoil intent parser
         // so offline setup agrees with the tested corpus. The live section
         // code in the context snapshot grounds relative edits, the body
@@ -450,7 +462,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     ? "Local setup note, no network. Applying the vortex shedding case (cylinder, alpha 0, Re 100, speed field). Canvas updates on apply."
                     : `Local setup note, no network. Staying on ${bodyLabel}; the shedding case is outside the serving envelope. Canvas unchanged.`
             );
-        } else if (HIGH_PRESSURE_PHENOM_RE.test(lower)) {
+        } else if (HIGH_PRESSURE_PHENOM_RE.test(lower) && !PRESSURE_NEGATION_RE.test(lower)) {
             presetHandled = true;
             if (lower.includes("cylinder")) {
                 suppressFieldStage = true;
@@ -631,11 +643,18 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         // R1 verb gating for pure mentions: a named body with no parsed
         // action (no code, alpha, Re, or reshape) only stages when the text
         // carries an action verb, so questions and mentions ("what is NACA
-        // 2412") leave the canvas alone. Parsed intents bypass the gate.
+        // 2412") leave the canvas alone. Embedded definitional clauses
+        // ("show me what a cylinder is") never stage even with a verb.
+        // Parsed intents bypass the gate.
         if (bodyTok !== null && applyIntent === null && intentCode === null && !VERB_GATE_RE.test(lower)) {
             bodyTok = null;
         }
-        const unknownNaca = presetHandled ? null : unknownNacaHere(intentCode, bodyTok);
+        if (bodyTok !== null && applyIntent === null && DEFINITIONAL_CLAUSE_RE.test(lower)) {
+            bodyTok = null;
+            orificeViaTrigger = false;
+        }
+        const unknownNacaRaw = presetHandled ? null : unknownNacaHere(intentCode, bodyTok);
+        const unknownNaca = unknownNacaRaw !== null && applyIntent === null && DEFINITIONAL_CLAUSE_RE.test(lower) ? null : unknownNacaRaw;
         const alphaVal = presetHandled ? null : (applyIntent?.alphaDeg ?? null);
         const reVal = presetHandled ? null : (applyIntent?.reynolds ?? null);
         const tutorNote = applyIntent !== null && applyIntent.notes.length > 0 ? applyIntent.notes.join(" ") : null;

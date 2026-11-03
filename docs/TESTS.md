@@ -1,5 +1,7 @@
 # GearFlow Test Results
-Last updated: 2026-11-03
+Last updated: 2026-11-04
+
+## 2026-11-04 - Review Fixes Verification: Test Report (strict set_preset alias, custom tab, sweep dwell, pressure rescue, definitional guard)
 
 ## 2026-10-26 - Phase 1: Test Report (contracts+skeleton Vite shell, NACA kernel, fake flow, fixtures, particles, textures, loader hardened)
 
@@ -1432,6 +1434,44 @@ Phase tests integrate with prior phase tests (all prior batch suites green along
 
 ### Verification Checklist
 - [x] All tests pass (132 files, 1770 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests
+
+## 2026-11-04 - Review Fixes Verification: Test Report (strict set_preset alias, custom tab, sweep dwell, pressure rescue, definitional guard)
+
+### Test Results
+npm test: 133 files, 1781 tests, all passed. Baseline at the prior entry was 132 files, 1770 tests. Delta is plus 1 file plus 11 tests: src/agent/reviewFailsRound.test.ts (11) covering all five review fixes.
+npm run build: tsc plus vite build succeeded. dist index 781.09 kB plus three 465.13 kB plus ort 537.92 kB plus wasm asset 194.74 kB (chunk size warning only, pre-existing pattern).
+Targeted: src/agent/reviewFailsRound.test.ts 11 tests, all passed.
+Training: 207 passed (263 collected; modal network suites excluded, they need live Baseten access). Prior canonical entry logged 11 passed on the narrow training runner; the broader training/tests tree now reports 207 passed with zero failures.
+Rust: cargo test for gearflow-wasm timed out in this sandbox (dependency build exceeds the shell budget); not a code failure, no Rust sources changed by these fixes.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| reviewFailsRound.test.ts (11) | PASS | Fix 1 strict alias (conflicts reject, bare wake untouched, high resistance no match, high re wake maps, cylinder maps); fix 2 custom tab null (naca4/cylinder/block/orifice still map); fix 3 sweep dwell skips final yield plus stopped only when unfinished; fix 4 pressure negation stages zero plus envelope cap holds; fix 5 definitional bare text never applies |
+| all other Node suites (1770) | PASS | No regressions, 1781 total across 133 files |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+| training/tests (207) | PASS | Modal network suites excluded, zero failures |
+| cargo test gearflow-wasm | NOT RUN | Timed out in sandbox, no Rust changes in scope |
+
+### Coverage Summary
+Happy path covered (explicit high re wake maps, unambiguous cylinder maps, custom tab null while the four body tabs still map, sweep yields between points only).
+Edge cases covered (conflicting cylinder plus airfoil names reject, bare wake alone untouched, high resistance without bounded re or wake untouched, full 9 point cancelled run does not report stopped early, envelope cap holds on a crowded pressure request).
+Error conditions covered (strict rejection carries unknown action kind, definitional what a cylinder/block/orifice is stages zero actions, declined high pressure talk stages zero).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1770 prior tests still pass alongside the 11 new fix tests, 1781 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full Node suite green on this run, 1781 passed plus build clean plus 207 Python passed | No fix needed; rerun cargo test on a machine with a warm target dir to confirm the unchanged Rust suite |
+
+### Verification Checklist
+- [x] All tests pass (133 files, 1781 Node tests; 207 Python passed)
 - [x] Happy path covered
 - [x] Edge cases covered
 - [x] Error conditions covered

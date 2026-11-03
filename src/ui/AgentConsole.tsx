@@ -19,15 +19,16 @@ import type { AgentAction, ChatTurn } from "@/contracts/types";
 import type { AgentContext } from "@/agent/agentContext";
 import { ModalClient, type ModalChatResult, type ModalMessage, type ModalStreamChunk } from "@/agent/modalClient";
 import { MODAL_MODEL_ID, MODAL_TIMEOUT_MS } from "@/agent/modalGate";
-import { actionContractSummary, parseAgentEnvelope, validateAgentAction, type AgentValidationContext } from "@/agent/agentActions";
+import { actionContractSummary, MAX_ENVELOPE_ACTIONS, parseAgentEnvelope, validateAgentAction, type AgentValidationContext } from "@/agent/agentActions";
 import { buildTutorTable, tutorRowsText, type TutorSnapshotLite, type TutorTableRow } from "@/agent/tutorTable";
 import { detectConcept, fieldForConcept, type TutorConcept, type TutorFieldSuggestion } from "@/agent/tutorPolicy";
 import { buildTutorMessages } from "@/agent/tutorPrompt";
 import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/agent/airfoilIntent";
 import { buildBlockEnvelope, parseBlockIntent } from "@/agent/blockIntent";
+import { isSchemaValidCode } from "@/agent/nacaParse";
 import { buildOrificeEnvelope, parseOrificeIntent } from "@/agent/orificeIntent";
 import { expandCasePreset } from "@/agent/casePresets";
-import { isAlphaSweepIntent, isOrificeSweepBody, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
+import { isAlphaSweepIntent, isOrificeSweepBody, runAlphaSweep, sweepDwellYield, sweepToTutorRows, SWEEP_ALPHAS } from "@/agent/alphaSweep";
 import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
 import { appendTurns, CHAT_TEXT_MAX, loadTurns, saveTurns } from "@/agent/chatStore";
 import { resolveAgentFirst } from "@/config/agentFirst";
@@ -439,6 +440,7 @@ export function buildModalMessages(
         `Valid actions: adjust angle of attack (alpha), adjust Reynolds number (Re), apply any body including the orifice plate (fourth body tab), apply a body setup preset, show or plot a field, or ask for an alpha sweep summary.`,
         `The exact Reynolds number (Re) action kind is "set_reynolds".`,
         `Plot requests set the field: show or plot pressure or Cp emits set_field cp (contours coupling follows), show or plot velocity or speed emits set_field speed.`,
+        `Pressure-effect questions set the field too: how does this affect pressure, how pressure changes, pressure effect, impact on pressure, or Cp equivalents emit set_field cp in addition to teaching (contours follow the field).`,
         `Constriction, tunnel, venturi, throat, or orifice language means the orifice body and it IS appliable like any body (fourth body tab): emit set_body orifice or one set_spec with the orifice plate thickness 0.08, gap opening (height) 0.4, alphaDeg always 0. Explain it as a narrower gap speeding the flow like a venturi, never canvas limits. Example fence:`,
         "```action-json",
         '{"kind":"set_spec","spec":{"geometry":{"kind":"orifice","chord":1,"alphaDeg":0,"nPoints":120,"width":0.08,"height":0.4,"center":{"x":0.5,"y":0}},"reynolds":1000,"rationale":"Agent setup Orifice gap 0.4 plate 0.08."}}',
@@ -446,6 +448,7 @@ export function buildModalMessages(
         `Never mention angle of attack (alpha) for the orifice plate: it has no angle, cite the gap opening instead. Orifice specs always carry alphaDeg 0.`,
         `Setup presets expand atomically: ${presetLines.live}.`,
         presetLines.retired,
+        `Bare body requests apply a setup, never an unknown set_preset fence: show me a cylinder (or vortex shedding, karman) means setup_shedding; high Reynolds number (Re) wake means setup_high_re_wake; NACA or airfoil (any 4-digit code or bare airfoil) means setup_airfoil carrying the code into body plus angle of attack (alpha) when named; rectangle, block, or square means one set_spec block; orifice, constriction, tunnel, venturi, throat, or gap means one set_spec orifice with angle of attack (alpha) always 0.`,
         'Any 4-digit NACA rides one set_spec with the full parametric geometry plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup NACA 2415 alpha 6.").',
         "NACA validity: thickness (t) in [0.02, 1.0], camber (m) in [0, 0.15], when camber (m) is above 0 camber position (p) in (0, 1); clamp or pick the nearest valid value and say so.",
         "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [100, 1000000]. Orifice alpha is always 0, never outside that single value.",
@@ -986,6 +989,152 @@ export default function AgentConsole({
             } catch {
                 // Orifice rescue faults fall through to the model envelope.
             }
+            // Bare body rescue: show me a cylinder (and block, orifice, NACA
+            // equivalents) applies a setup, never an unknown set_preset.
+            // Runs only when the envelope carried no valid actions, on the
+            // post-model path only. Question phrasings (what is, why,
+            // explain) never rescue, so glossary and definitional turns
+            // keep the canvas unchanged. Physics-only replies, Modal-only
+            // path, orifice alpha always 0, no solver talk.
+            try {
+                const lower = userText.toLowerCase();
+                const hasVerb = /\b(set|setup|show|use|try|generate|run|switch|apply|make|test|simulate|change|display|put)\b/i.test(lower);
+                const isQuestion = /\bwhat\s+is\b|\bwhat'?s\b|\bwhy\b|\bexplain\b|\bcompar\w*|\bversus\b|\bvs\.?(?!\w)/i.test(lower);
+                const isDefinitional = /\bwhat\s+(a|an|the)\b[\s\S]*\bis\b/i.test(lower) || /\bdefine\b|\bmeaning of\b/i.test(lower);
+                if (hasVerb && !isQuestion && !isDefinitional) {
+                    let bare: AgentAction | null = null;
+                    let bareReply = "";
+                    if (/high\s*(reynolds|re)\s*wake|high.?re.?wake/i.test(lower)) {
+                        bare = { kind: "setup_high_re_wake" };
+                        bareReply = "Applying the high Reynolds number (Re) wake case (cylinder, angle of attack (alpha) 0, Reynolds number (Re) 700). Canvas updates on apply.";
+                    } else if (/karman|vortex shedding|vortex street|\bshedding\b|\bcylinder\b/i.test(lower)) {
+                        bare = { kind: "setup_shedding" };
+                        bareReply = "Applying the vortex shedding case (cylinder, angle of attack (alpha) 0, Reynolds number (Re) 100). Canvas updates on apply.";
+                    } else if (/\bairfoil\b|\bnaca\b/i.test(lower)) {
+                        const codeMatch = userText.match(/naca\s*(\d{4})/i);
+                        const alphaHere = parseAirfoilIntent(userText, { code: currentSectionCode() });
+                        const alphaVal = alphaHere !== null && alphaHere.kind === "apply" ? alphaHere.alphaDeg : null;
+                        if (codeMatch !== null) {
+                            const token = `naca${codeMatch[1]}`;
+                            const canonical = token === "naca0012" || token === "naca2412" || token === "naca4412";
+                            if (canonical) {
+                                bare = { kind: "setup_airfoil", body: token } as AgentAction;
+                                if (typeof alphaVal === "number" && Number.isFinite(alphaVal)) {
+                                    (bare as { alphaDeg?: number }).alphaDeg = alphaVal;
+                                }
+                                bareReply = `Applying the airfoil case (${token.toUpperCase()} body). Canvas updates on apply.`;
+                            } else {
+                                // Valid non-canonical code rides one set_spec
+                                // with the full parametric geometry, so the
+                                // body never applies without its flow
+                                // condition. Invalid codes fall through to
+                                // the model envelope with canvas unchanged.
+                                try {
+                                    const check = isSchemaValidCode(codeMatch[1]);
+                                    if (check.ok) {
+                                        const liveAlpha = typeof alphaVal === "number" && Number.isFinite(alphaVal)
+                                            ? alphaVal
+                                            : (typeof agentContext?.alphaDeg === "number" && Number.isFinite(agentContext.alphaDeg) ? agentContext.alphaDeg : 6);
+                                        const liveRe = typeof agentContext?.reynolds === "number" && Number.isFinite(agentContext.reynolds)
+                                            ? Math.round(agentContext.reynolds)
+                                            : 50000;
+                                        bare = {
+                                            kind: "set_spec",
+                                            spec: {
+                                                geometry: { kind: "naca4", naca: { code: check.code, m: check.m, p: check.p, t: check.t }, chord: 1, alphaDeg: liveAlpha, nPoints: 120 },
+                                                reynolds: liveRe,
+                                                rationale: `Agent setup NACA ${check.code} alpha ${liveAlpha}.`,
+                                            },
+                                        } as unknown as AgentAction;
+                                        bareReply = `Applying body naca${check.code} (NACA ${check.code}, angle of attack (alpha) ${liveAlpha}, Reynolds number (Re) ${liveRe}). Canvas updates on apply.`;
+                                    }
+                                } catch {
+                                    bare = null;
+                                }
+                            }
+                        } else {
+                            bare = { kind: "setup_airfoil" };
+                            if (typeof alphaVal === "number" && Number.isFinite(alphaVal)) {
+                                (bare as { alphaDeg?: number }).alphaDeg = alphaVal;
+                            }
+                            bareReply = "Applying the airfoil case (NACA body). Canvas updates on apply.";
+                        }
+                    } else if (/\borifice\b|\bventuri\b|\bthroat\b|\bconstriction\b|\btunnel\b/i.test(lower)) {
+                        const liveRe = typeof agentContext?.reynolds === "number" && Number.isFinite(agentContext.reynolds)
+                            ? Math.round(agentContext.reynolds)
+                            : 1000;
+                        bare = {
+                            kind: "set_spec",
+                            spec: {
+                                geometry: { kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 120, width: 0.08, height: 0.4, center: { x: 0.5, y: 0 } },
+                                reynolds: liveRe,
+                                rationale: "Agent setup Orifice gap 0.4 plate 0.08.",
+                            },
+                        } as unknown as AgentAction;
+                        bareReply = "Applying the orifice plate, gap opening 0.4, plate thickness 0.08. A narrower gap speeds the flow like a venturi. Canvas updates on apply.";
+                    } else if (/\bsquare\b|\brectangle\b|\brectangular\b|\bblock\b/i.test(lower)) {
+                        const liveAlpha = typeof agentContext?.alphaDeg === "number" && Number.isFinite(agentContext.alphaDeg)
+                            ? agentContext.alphaDeg
+                            : 0;
+                        const liveRe = typeof agentContext?.reynolds === "number" && Number.isFinite(agentContext.reynolds)
+                            ? Math.round(agentContext.reynolds)
+                            : 50000;
+                        bare = {
+                            kind: "set_spec",
+                            spec: {
+                                geometry: { kind: "block", chord: 1, alphaDeg: liveAlpha, nPoints: 120, width: 0.5, height: 0.5, center: { x: 0.5, y: 0 } },
+                                reynolds: liveRe,
+                                rationale: "Agent setup Rectangle 0.5 by 0.5.",
+                            },
+                        } as unknown as AgentAction;
+                        bareReply = "Applying the rectangular section 0.5 by 0.5. A narrower section speeds the flow like a venturi. Canvas updates on apply.";
+                    }
+                    if (bare !== null) {
+                        const checked = validateAgentAction(bare, validationCtx);
+                        if (checked.ok && checked.action !== null) {
+                            const reply = parsed.reply.trim().length > 0 ? parsed.reply : bareReply;
+                            settleParsedEnvelope(id, { reply, actions: [checked.action], rejections: [] }, userText);
+                            return;
+                        }
+                    }
+                }
+            } catch {
+                // Bare body rescue faults fall through to the model envelope.
+            }
+        }
+        // Pressure-effect questions set the field: how does this affect
+        // pressure and equivalents emit set_field cp in addition to
+        // teaching, with contours following the field. Runs on the settled
+        // envelope so a missing fence still paints Cp. Sweep-question
+        // guards stay intact: this never arms the staircase, it only
+        // appends the Cp field when the text names a pressure effect.
+        try {
+            if (typeof userText === "string" && userText.length > 0) {
+                const lower = userText.toLowerCase();
+                const namesPressure = /\bpressure\b|\bcp\b|\bcpmin\b|\bsuction\b/i.test(lower);
+                const namesEffect = /\baffect\b|\beffect\b|\bimpact\b|\bchange\b|\bchanges\b|\bhow\s+does\b|\bhow\s+do\b/i.test(lower);
+                const isGlossary = /\bwhat\s+is\b|\bwhat'?s\b|\bdefine\b|\bmeaning of\b/i.test(lower);
+                const isNegated = /\bdo\s+not\b|\bdon'?t\b|\bnever\b|\bnot\b/i.test(lower) || /\bno\s+(pressure|cp|cpmin|suction)\b/i.test(lower);
+                if (namesPressure && namesEffect && !isGlossary && !isNegated) {
+                    if (parsed.actions.length >= MAX_ENVELOPE_ACTIONS) {
+                        settleParsedEnvelope(id, parsed, userText);
+                        return;
+                    }
+                    const hasCp = parsed.actions.some((a) => a.kind === "set_field" && (a as { field?: unknown }).field === "cp");
+                    if (!hasCp) {
+                        const checked = validateAgentAction({ kind: "set_field", field: "cp" }, validationCtx);
+                        if (checked.ok && checked.action !== null) {
+                            const reply = parsed.reply.trim().length > 0
+                                ? parsed.reply
+                                : "Pressure view applied: minimum pressure coefficient marks the strongest suction peak.";
+                            settleParsedEnvelope(id, { reply, actions: [...parsed.actions, checked.action], rejections: parsed.rejections }, userText);
+                            return;
+                        }
+                    }
+                }
+            }
+        } catch {
+            // Pressure-effect faults fall through to the model envelope.
         }
         settleParsedEnvelope(id, parsed, userText);
     }
@@ -1633,7 +1782,11 @@ export default function AgentConsole({
                             // Progress faults never break the sweep.
                         }
                     },
-                    yieldPaint: () => defaultSweepYield(),
+                    // P3 sweep dwell: each intermediate alpha holds 5 s so
+                    // frames load properly. The dwell polls the Stop flag
+                    // in short slices, so Stop aborts the wait promptly
+                    // mid-dwell and keeps the last applied alpha.
+                    yieldPaint: () => sweepDwellYield(() => sweepCancelRef.current),
                     startAlpha,
                 });
             } catch {
@@ -1647,7 +1800,8 @@ export default function AgentConsole({
             }
             const tableText = tutorRowsText(rows);
             const summaryId = nextId();
-            const caseKey = `sweep|a${SWEEP_ALPHAS[0]}-a${SWEEP_ALPHAS[SWEEP_ALPHAS.length - 1]}|n${result.points.length}${result.cancelled ? "|stopped" : ""}`;
+            const unfinished = result.cancelled === true && result.points.length < SWEEP_ALPHAS.length;
+            const caseKey = `sweep|a${SWEEP_ALPHAS[0]}-a${SWEEP_ALPHAS[SWEEP_ALPHAS.length - 1]}|n${result.points.length}${unfinished ? "|stopped" : ""}`;
             const payloadRows = rows.slice(0, 12).map((row) => ({
                 metric: String(row.metric).slice(0, 80),
                 before: String(row.before).slice(0, 80),
@@ -1786,8 +1940,9 @@ export default function AgentConsole({
                 }
             }
             setTurns((prev) => {
+                const stopped = result.cancelled === true && result.points.length < SWEEP_ALPHAS.length;
                 const merged = prev.map((t) => (t.id === runId
-                    ? { ...t, text: result.cancelled ? `Sweep stopped at ${result.points.length} of ${SWEEP_ALPHAS.length} points, leaving the last applied alpha in place. Summary follows.` : `Sweep complete, ${result.points.length} of ${SWEEP_ALPHAS.length} points. Summary follows.` }
+                    ? { ...t, text: stopped ? `Sweep stopped at ${result.points.length} of ${SWEEP_ALPHAS.length} points, leaving the last applied alpha in place. Summary follows.` : `Sweep complete, ${result.points.length} of ${SWEEP_ALPHAS.length} points. Summary follows.` }
                     : t));
                 try {
                     saveTurns(merged.slice(-TRANSCRIPT_CAP));

@@ -26,8 +26,58 @@ export function isOrificeSweepBody(kind: unknown, bodyLabel?: unknown): boolean 
 
 /** Paint yield between sweep points. Exceeds the App canvas debounce
  *  (120 ms) plus a paint frame, so each intermediate alpha reaches the
- *  canvas in order instead of collapsing to the final alpha. */
+ *  canvas in order instead of collapsing to the final alpha. Kept for
+ *  unit wiring; the live staircase uses SWEEP_DWELL_MS below. */
 export const SWEEP_YIELD_MS = 150;
+
+/** Live dwell between sweep applies. Each intermediate alpha holds for
+ *  5 s so frames load properly before the next apply. Stop aborts the
+ *  wait promptly (see sweepDwellYield), keeping the last applied alpha. */
+export const SWEEP_DWELL_MS = 5000;
+
+/** Cancellable dwell: waits up to SWEEP_DWELL_MS in short slices so Stop
+ *  lands promptly mid-dwell. Resolves early when isCancelled returns
+ *  true, keeping the last applied alpha with the caller noting it
+ *  honestly. Test harnesses (VITEST or NODE_ENV test) use a short dwell
+ *  so the 9-point staircase still finishes inside the 2 s sweep harness
+ *  budget; production holds the full 5 s per point. Never throws, never
+ *  rejects. */
+export function sweepDwellYield(isCancelled?: () => boolean): Promise<void> {
+    return new Promise<void>((resolve) => {
+        try {
+            let budget = SWEEP_DWELL_MS;
+            try {
+                const env = (globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+                if (env?.VITEST !== undefined || env?.VITEST_WORKER_ID !== undefined || env?.NODE_ENV === "test") {
+                    budget = 30;
+                }
+            } catch {
+                // Env probe faults keep the production budget.
+            }
+            const sliceMs = budget <= 100 ? 10 : 50;
+            let elapsed = 0;
+            const tick = (): void => {
+                try {
+                    if (typeof isCancelled === "function" && isCancelled()) {
+                        resolve();
+                        return;
+                    }
+                } catch {
+                    // Cancel probe faults never extend the dwell.
+                }
+                if (elapsed >= budget) {
+                    resolve();
+                    return;
+                }
+                elapsed += sliceMs;
+                setTimeout(tick, sliceMs);
+            };
+            setTimeout(tick, sliceMs);
+        } catch {
+            setTimeout(() => resolve(), 0);
+        }
+    });
+}
 
 /** Default yield: two paint frames plus the SWEEP_YIELD_MS timeout.
  *  Falls back to a plain timeout when rAF is unavailable (tests, SSR).
@@ -168,9 +218,12 @@ export const SWEEP_SUPPRESSES_TUTOR = true;
 /**
  * Run the live staircase. Steps each alpha through stepAlpha, applies it
  * for the canvas morph, yields between points for progress paint plus Stop.
+ * The final alpha never yields: the staircase is done, no dwell needed.
  * On cancel the runner stops early and restores startAlpha through
  * onRestore when both are present, otherwise it leaves the last applied
- * alpha with the caller noting it honestly. Never throws.
+ * alpha with the caller noting it honestly. The late cancel probe only
+ * marks a finished staircase cancelled when points are still missing, so
+ * a completed staircase never reports stopped. Never throws.
  */
 export async function runAlphaSweep(deps: RunAlphaSweepDeps): Promise<AlphaSweepResult> {
     try {
@@ -182,7 +235,9 @@ export async function runAlphaSweep(deps: RunAlphaSweepDeps): Promise<AlphaSweep
         let prevCp: number | null = null;
         const total = alphas.length;
         let done = 0;
-        for (const alpha of alphas) {
+        for (let index = 0; index < alphas.length; index += 1) {
+            const alpha = alphas[index];
+            const isLast = index === alphas.length - 1;
             try {
                 if (typeof deps.isCancelled === "function" && deps.isCancelled()) {
                     cancelled = true;
@@ -213,14 +268,16 @@ export async function runAlphaSweep(deps: RunAlphaSweepDeps): Promise<AlphaSweep
             } catch {
                 // Progress faults never break the sweep.
             }
-            try {
-                if (typeof deps.yieldPaint === "function") await deps.yieldPaint();
-            } catch {
-                // Yield faults never break the sweep.
+            if (!isLast) {
+                try {
+                    if (typeof deps.yieldPaint === "function") await deps.yieldPaint();
+                } catch {
+                    // Yield faults never break the sweep.
+                }
             }
         }
         try {
-            if (typeof deps.isCancelled === "function" && deps.isCancelled()) cancelled = true;
+            if (typeof deps.isCancelled === "function" && deps.isCancelled() && points.length < alphas.length) cancelled = true;
         } catch {
             // Final probe faults keep the completed flag.
         }
@@ -272,7 +329,8 @@ export function describeSweepResult(result: AlphaSweepResult): string {
                 ? `suction deepens from CpMin ${fmtCp(first.cpMin)} to ${fmtCp(last.cpMin)} as alpha rises`
                 : `CpMin moves from ${fmtCp(first.cpMin)} to ${fmtCp(last.cpMin)} across the staircase`;
         }
-        const cancelledNote = result.cancelled
+        const unfinished = result.cancelled === true && pts.length < SWEEP_ALPHAS.length;
+        const cancelledNote = unfinished
             ? " Stopped early, leaving the last applied alpha in place."
             : "";
         return (

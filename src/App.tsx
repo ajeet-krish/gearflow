@@ -1799,11 +1799,23 @@ export default function App() {
         // The activation plus the spec commit below are atomic: the target
         // id is stamped into agentTabCommitRef so the one-shot tab load
         // effect mirrors the agent spec forward instead of loading the
-        // stale stored memory over it.
+        // stale stored memory over it. Direct token mapping keeps
+        // cylinder, block (Rectangle), orifice, and any NACA code on the
+        // right tab even when applyBodyPreset cannot carry a generic code.
         const ensureBodyTab = (body: string): void => {
             try {
-                const provisional = applyBodyPreset(spec, body);
-                const id = bodyTabIdForSpec(provisional);
+                const norm = body.trim().toLowerCase();
+                let id: string | null = null;
+                if (norm === "airfoil" || norm === "naca4" || norm.startsWith("naca")) id = "airfoil";
+                else if (norm === "cylinder") id = "cylinder";
+                else if (norm === "block" || norm === "rectangle") id = "block";
+                else if (norm === "orifice") id = "orifice";
+                if (id === null) {
+                    const provisional = applyBodyPreset(spec, body);
+                    const mapped = bodyTabIdForSpec(provisional);
+                    if (mapped === null) return;
+                    id = mapped;
+                }
                 if (id !== caseTabs.activeId) {
                     agentTabCommitRef.current = id;
                     caseTabs.activate(id);
@@ -1926,6 +1938,17 @@ export default function App() {
             return finish([action], []);
         }
         if (action.kind === "set_spec") {
+            // Chat-created specs own their body tab: map the geometry kind
+            // directly so orifice, block, cylinder, and any NACA code land
+            // on the matching tab with the live body reflected in the
+            // canvas status and body selector right after the apply.
+            try {
+                const gkind = (action.spec.geometry as { kind?: unknown }).kind;
+                if (gkind === "naca4") ensureBodyTab("airfoil");
+                else if (typeof gkind === "string" && gkind.length > 0) ensureBodyTab(gkind);
+            } catch {
+                // Tab mapping faults never break the spec commit.
+            }
             applyParametric(action.spec);
             return finish([action], []);
         }

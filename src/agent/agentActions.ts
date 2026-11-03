@@ -226,13 +226,83 @@ function normalizeNacaFractions(candidate: unknown): { candidate: unknown; note:
     }
 }
 
+/** Normalize a model-invented preset alias to an exact setup action
+ *  before validation. The model sometimes emits set_preset (plus case or
+ *  separator variants) with a preset, body, or value naming a body; the
+ *  validator stays strict and only accepts the exact setup_* kinds, so
+ *  this maps unambiguous bare body nouns onto their setup presets and
+ *  leaves ambiguous or unknown presets untouched for the strict validator
+ *  to reject. Category matches are collected first and conflicts leave
+ *  the candidate untouched: text naming two bodies (cylinder plus
+ *  airfoil) never maps. High Re wake requires an explicit high qualifier
+ *  with a word bounded re or wake, so bare wake alone stays untouched
+ *  and high resistance never maps. Cylinder and shedding talk maps to
+ *  setup_shedding, high Re wake talk maps to setup_high_re_wake, NACA
+ *  and airfoil talk maps to setup_airfoil (carrying body plus alphaDeg
+ *  when present), and retired high pressure talk maps to
+ *  setup_high_pressure so the honest retired reason surfaces. Block,
+ *  rectangle, square, orifice, venturi, tunnel, throat, and constriction
+ *  presets have no setup preset and stay untouched. Never throws. */
+function normalizePresetAlias(candidate: unknown): unknown {
+    try {
+        if (!isRecord(candidate) || typeof candidate.kind !== "string") return candidate;
+        const squashed = candidate.kind.toLowerCase().replace(/[\s\-_]/g, "");
+        if (squashed !== "setpreset" && squashed !== "setuppreset" && squashed !== "preset") return candidate;
+        const rec = candidate as Record<string, unknown>;
+        const rawName = [rec.preset, rec.body, rec.value, rec.name]
+            .map((v) => (typeof v === "string" ? v.toLowerCase() : ""))
+            .join(" ");
+        const isHighPressure = rawName.includes("high_pressure") ||
+            rawName.includes("highpressure") ||
+            /\bhigh[\s\-]+pressure\b/.test(rawName);
+        const hasHighWord = /\bhigh\b/.test(rawName);
+        const hasWakeWord = /\bwake\b/.test(rawName);
+        const hasReWord = /\bhigh[\s_\-]*re\b/.test(rawName) || rawName.includes("high_re_wake") || rawName.includes("highrewake");
+        const isHighWake = rawName.includes("high_re_wake") ||
+            rawName.includes("highrewake") ||
+            (hasHighWord && (hasWakeWord || hasReWord));
+        const isShedding = /\bshed\w*\b/.test(rawName) || /\bkarman\b/.test(rawName) || /\bvortex\b/.test(rawName) || /\bcylinder\b/.test(rawName);
+        const isAirfoil = /\bairfoil\b/.test(rawName) || /\bnaca\b/.test(rawName);
+        const matched: string[] = [];
+        if (isHighPressure) matched.push("high_pressure");
+        if (isHighWake) matched.push("high_re_wake");
+        if (isShedding) matched.push("shedding");
+        if (isAirfoil) matched.push("airfoil");
+        if (matched.length !== 1) return candidate;
+        const only = matched[0];
+        if (only === "high_pressure") {
+            const next: Record<string, unknown> = { kind: "setup_high_pressure" };
+            if (typeof rec.body === "string" && rec.body.length > 0) next.body = rec.body;
+            return next;
+        }
+        if (only === "high_re_wake") {
+            return { kind: "setup_high_re_wake" };
+        }
+        if (only === "shedding") {
+            return { kind: "setup_shedding" };
+        }
+        if (only === "airfoil") {
+            const next: Record<string, unknown> = { kind: "setup_airfoil" };
+            if (typeof rec.body === "string" && rec.body.length > 0) next.body = rec.body;
+            const rawAlpha = rec.alphaDeg ?? rec.alpha;
+            const numericAlpha = typeof rawAlpha === "string" ? Number(rawAlpha) : rawAlpha;
+            if (typeof numericAlpha === "number" && Number.isFinite(numericAlpha)) next.alphaDeg = numericAlpha;
+            return next;
+        }
+        return candidate;
+    } catch {
+        return candidate;
+    }
+}
+
 /** Apply the envelope normalizations to one candidate before the strict
- *  validator runs: Reynolds alias mapping first, then canonical NACA
- *  fractions. Returns the normalized candidate plus an optional note.
+ *  validator runs: preset alias mapping first, then Reynolds alias
+ *  mapping, then canonical NACA fractions. Returns the normalized candidate plus an optional note.
  *  Never throws. */
 function normalizeEnvelopeCandidate(candidate: unknown): { candidate: unknown; note: string | null } {
     try {
-        const aliased = normalizeReynoldsAlias(candidate);
+        const preset = normalizePresetAlias(candidate);
+        const aliased = normalizeReynoldsAlias(preset);
         return normalizeNacaFractions(aliased);
     } catch {
         return { candidate, note: null };
