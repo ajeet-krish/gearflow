@@ -179,10 +179,11 @@ describe("physics-only prompt leak guard", () => {
     it("full assembled messages carry no banned tokens case-insensitively", () => {
         const text = fullPromptText(richContext());
         const lowered = text.toLowerCase();
+        // set_field stays teachable: the plot-request line intentionally
+        // names set_field cp and set_field speed, so it is not banned.
         const banned = [
             "run_lbm",
             "cancel_lbm",
-            "set_field",
             "set_engine",
             "strouhal",
             "neural",

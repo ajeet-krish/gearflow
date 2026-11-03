@@ -2535,3 +2535,42 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: none new for this batch. Normalization now sits explicitly before the strict validator rather than loosening it, and removed surfaces are pinned by rendered markup tests instead of source presence alone.
+
+## 2026-11-03 - Combined Batch Review: Orifice Apply, RE_MIN 100, Sweep Fence and Stall, Plot Field, Follow-up Chips, Particle Visibility
+
+Date: 2026-11-03
+Reviewer: code-reviewer
+Scope: Orifice apply path with gap/width defaults and alpha 0, RE_MIN 100, sweep fence mapping plus stall triggers, plot-to-field mapping, suggestedPrompts follow-up chips, one-sentence reply discipline, particle visibility toggle with dark-only theme, no particle size control, white default, no resolution; Modal-only intact, validator strictness, no solver talk, conventions
+Verdict: FAIL
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| Orifice apply path, gap/width defaults, alpha 0 | PASS | src/agent/orificeIntent.ts:37-42,88-91 triggers and defaults (gap 0.4 at src/contracts/schema.ts:86, thickness 0.08 at schema.ts:89), schema pins orifice alphaDeg exactly 0 at schema.ts:203-215, envelope builds one validated set_spec at orificeIntent.ts:169-186, console rescue rechecks through validateAgentAction at src/ui/AgentConsole.tsx:960-985, body preset resets alpha at src/geometry/bodyPresets.ts:85-96 |
+| RE_MIN 100 | PASS | src/contracts/schema.ts:457-468 sets RE_MIN 100 in validateParametricSpec; agent validator uses the same floor at src/agent/agentActions.ts:378-381; prompt bound at AgentConsole.tsx:451; orifice Re 100 and 700 pin at src/agent/orificeIntent.test.ts:65-73 |
+| Sweep fence mapping | PASS | src/ui/AgentConsole.tsx:876-888 maps alpha_sweep_summary and any sweep-kind fence to runSweepFlow instead of rejecting; prompt forbids fences on sweep replies at AgentConsole.tsx:458 |
+| Stall sweep triggers | FAIL | Stall phrasings fire the staircase at src/agent/alphaSweep.ts:70-84 with question and negation guards at 57-59, but no body guard: on an orifice body the sweep applies alpha -4 to 12 through AgentConsole.tsx:1588-1594 and App.tsx:1725-1730, violating the orifice alpha 0 invariant. See Findings. |
+| Plot-to-field mapping | PASS | Prompt maps pressure/Cp to set_field cp and velocity/speed to set_field speed at AgentConsole.tsx:441; validator allowlist and gating at src/agent/agentActions.ts:396-414; executor recouple via onVariable at src/App.tsx:1888-1893 |
+| suggestedPrompts follow-up chips | PASS | src/ui/AgentConsole.tsx:261-272 derives at most two prompts (orifice, NACA 2412 alpha 6), attached only on no-apply and no-pending turns at 798-801, rendered as user-clicked chips that submit as new turns at 2043-2054, never auto applies |
+| One-sentence reply discipline | PASS | AgentConsole.tsx:459 pins exactly one sentence plus the fence only with teaching deferred to the tutor upsert; contract pin at src/agent/actionContract.test.ts:137-138 |
+| Particle visibility toggle, dark-only theme | PASS | Toggle at src/ui/SettingsModal.tsx:257-265 patches showParticles; canvas gates draw count and restores stored count at src/render/FlowCanvas.tsx:828-839; App passes prefs at src/App.tsx:2174-2175; theme forced dark at src/ui/displayStore.ts:30 with type "dark" only at src/contracts/types.ts:355 |
+| No particle size control, white default, no resolution | PASS | No particle size control or RESOLUTION section rendered in SettingsModal.tsx:255-310 (title at 184); particleColor default white at src/contracts/types.ts:394; internal legacy particleSize remains in prefs only (types.ts:366, displayStore.ts:47-50) with Reset restoring it at SettingsModal.tsx:153 |
+| Modal-only intact | PASS | No localAssistant or local reply import in AgentConsole.tsx; non-sweep live turns ride the Modal port at AgentConsole.tsx:1810-1820, sweep summary rides Modal at 1699 and lands an honest offline error at 1643-1657 and 1743-1757 |
+| Validator strictness | PASS | validateAgentAction accepts only exact kinds after envelope normalization (agentActions.ts:349-497), orifice alpha and dimension envelopes at schema.ts:203-215, set_spec revalidated at agentActions.ts:431-442 |
+| No solver talk | PASS | Prompt bans at AgentConsole.tsx:461 and sweep summary prompt at 1680-1682; physics-only context projection at AgentConsole.tsx:387-410 |
+| Conventions | PASS | 4-space indent and PascalCase types in scoped files, no em dashes in scoped prose, no eval or exec |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Major | src/agent/alphaSweep.ts:74-84, src/ui/AgentConsole.tsx:1792-1802,1588-1594, src/App.tsx:1725-1730, src/contracts/schema.ts:206-207 | Stall and sweep triggers have no body guard, so after the new orifice apply path sets up the plate (alpha 0 invariant), asking for a stall demo or stall sweep runs the alpha staircase on the orifice: whatIfSweepStep solves stepped specs that validateGeometrySpec rejects (n/a samples), while applySweepAlpha still writes alphaDeg -4 to 12 into both spec and debouncedSpec, leaving App state with an orifice spec the validator forbids and a stale invisible alpha that resurfaces on the next body switch. | backend-dev/frontend-dev: gate the sweep by body in runSweepFlow or isAlphaSweepIntent callers: on an orifice body, do not apply set_alpha steps (answer with the gap-opening teaching and no staircase, or first switch to an airfoil case through a validated setup), and make applySweepAlpha refuse alpha changes for kind orifice as defense in depth. Add a regression test: set up the orifice, request a stall demo, assert spec alphaDeg stays 0 and no sweep points apply. Delegate via orchestrator. |
+| Minor | src/ui/AgentConsole.tsx:1647,1746 | Sweep failure copy is inconsistent: the offline text says points ran on the analytic path (solver talk in user copy) and the Modal failure text says Canvas unchanged after reporting the last applied alpha in place, which reads as if the staircase never moved the canvas. | frontend-dev: reword both to physics-only copy that separates the staircase effect from the summary failure, for example: the staircase stepped the canvas to the last alpha, only the written summary is unavailable. Delegate via orchestrator. |
+
+### Verification Checklist
+- [ ] All checks passed
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases
+
+Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). Note recurring pattern: a broadened trigger (stall phrasings) landed at the intent layer without the body invariant guard that the orifice path enforces at the schema layer, the same guard at one layer not reused at the next pattern flagged in earlier phases. Delegate the Major fix to backend-dev and frontend-dev via the orchestrator, and the regression test to tester.

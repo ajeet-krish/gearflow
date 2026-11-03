@@ -12,7 +12,9 @@ import AgentConsole, {
     SPEND_SOFT_STOP_USD,
     buildModalMessages,
     localOfflineReply,
+    snapshotLiteFor,
     spendExceeded,
+    suggestedPromptsFor,
     validationContextFor,
 } from "./AgentConsole";
 import { CURRICULUM_CHIPS } from "@/agent/curriculum";
@@ -517,5 +519,64 @@ describe("modal console live path (tutor-v3, Modal port only)", () => {
         expect(src).not.toContain("localAssistant");
         expect(src).toContain("buildTutorMessages");
         expect(src).toContain("TUTOR_FEATURE");
+    });
+});
+
+describe("modal console truthfulness batch", () => {
+    it("teaches the orifice as appliable with gap defaults and no angle", () => {
+        const messages = buildModalMessages("set up the orifice", null, []);
+        const system = messages[0].content;
+        expect(system).toContain("orifice");
+        expect(system).toContain("IS appliable");
+        expect(system).toContain("fourth body tab");
+        expect(system).toContain("0.4");
+        expect(system).toContain("has no angle");
+        expect(system).toContain("alphaDeg 0");
+    });
+
+    it("bounds Re at 100 with orifice alpha pinned to 0", () => {
+        const messages = buildModalMessages("set Re 100", null, []);
+        expect(messages[0].content).toContain("[100, 1000000]");
+        expect(messages[0].content).toContain("Orifice alpha is always 0");
+    });
+
+    it("forbids any fence on sweep replies including alpha_sweep_summary", () => {
+        const messages = buildModalMessages("stall demo", null, []);
+        const system = messages[0].content;
+        expect(system).toContain("stall demo");
+        expect(system).toContain("Sweep replies carry NO fence");
+        expect(system).toContain("alpha_sweep_summary");
+    });
+
+    it("routes plot requests to fields with contours coupling", () => {
+        const messages = buildModalMessages("plot pressure", null, []);
+        const system = messages[0].content;
+        expect(system).toContain("show or plot pressure or Cp emits set_field cp");
+        expect(system).toContain("contours coupling follows");
+        expect(system).toContain("show or plot velocity or speed emits set_field speed");
+    });
+
+    it("pins applied-setup replies to exactly one sentence with no teaching", () => {
+        const messages = buildModalMessages("set up NACA 2412 alpha 6", null, []);
+        const system = messages[0].content;
+        expect(system).toContain("exactly one sentence");
+        expect(system).toContain("never teaching sections, never tables");
+        expect(system).toContain("tutor upsert owns all teaching");
+    });
+
+    it("attaches orifice and airfoil follow-ups on no-action explain turns", () => {
+        expect(suggestedPromptsFor("The orifice constriction speeds the flow like a venturi.")).toEqual(["Set up the orifice"]);
+        expect(suggestedPromptsFor("This NACA airfoil run looks attached.")).toEqual(["Set up NACA 2412 alpha 6"]);
+        expect(suggestedPromptsFor("The run looks healthy.")).toEqual([]);
+        expect(suggestedPromptsFor(null)).toEqual([]);
+    });
+
+    it("nulls alpha on orifice lite snapshots so tables read n/a", () => {
+        const snap = snapshotLiteFor({
+            spec: { kind: "orifice", alphaDeg: 0 },
+            alphaDeg: 0,
+            caseKey: "orifice|a0",
+        } as never);
+        expect(snap.alpha).toBe(null);
     });
 });

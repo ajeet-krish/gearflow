@@ -27,7 +27,7 @@ import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/a
 import { buildBlockEnvelope, parseBlockIntent } from "@/agent/blockIntent";
 import { buildOrificeEnvelope, parseOrificeIntent } from "@/agent/orificeIntent";
 import { expandCasePreset } from "@/agent/casePresets";
-import { isAlphaSweepIntent, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
+import { isAlphaSweepIntent, isOrificeSweepBody, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
 import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
 import { appendTurns, CHAT_TEXT_MAX, loadTurns, saveTurns } from "@/agent/chatStore";
 import { resolveAgentFirst } from "@/config/agentFirst";
@@ -1552,6 +1552,34 @@ export default function AgentConsole({
             }
             return "current body";
         })();
+        // Orifice gate: the plate has no angle of attack (alpha invariant
+        // 0), so the staircase never runs and alpha is never written.
+        // Teach the gap instead (venturi Try next style), canvas unchanged.
+        const sweepBodyKind = (() => {
+            try {
+                const kind = (agentContext as { spec?: { kind?: unknown } } | null | undefined)?.spec?.kind;
+                return typeof kind === "string" ? kind : "";
+            } catch {
+                return "";
+            }
+        })();
+        if (isOrificeSweepBody(sweepBodyKind, bodyLabel)) {
+            try {
+                const gateId = nextId();
+                pushTurn({
+                    id: gateId,
+                    role: "assistant",
+                    at: nowIso(),
+                    text: "The orifice plate has no angle of attack, alpha stays 0, so there is no stall staircase to run. Canvas unchanged. Try next: reason about the same plate with a narrower gap opening at the same Reynolds number (Re) and how the jet speed shifts minimum pressure coefficient, a narrower gap speeds the flow like a venturi.",
+                    tool: "modal",
+                    status: "offline",
+                });
+                setExtra(gateId, makeExtra({ streaming: false }));
+            } catch {
+                // Gate notice faults never break the console.
+            }
+            return;
+        }
         sweepingRef.current = true;
         sweepCancelRef.current = false;
         setSweeping(true);
@@ -1638,13 +1666,14 @@ export default function AgentConsole({
                 sweepPoints: result.points.map((p) => ({ alphaDeg: p.alphaDeg, cl: p.cl, cpMin: p.cpMin })),
                 sweepCancelled: result.cancelled,
             });
-            // Truly down: rows plus an honest error, zero local prose, the
-            // staircase still ran with the last applied alpha in place.
+            // Truly down: rows plus an honest error, zero local prose. The
+            // staircase effect stands apart from the missing summary: flow
+            // stays held at the last applied alpha.
             if (forcedRef.current) {
                 const detail = "offline demo mode, cached table only";
                 const offlineText = result.points.length === 0
                     ? `Sweep summary unavailable offline (${detail}). No sweep points landed, canvas unchanged.`
-                    : `Sweep summary unavailable offline (${detail}). The staircase ran ${result.points.length} of ${SWEEP_ALPHAS.length} points on the analytic path with the last applied alpha in place; per-point Apply chips below restage any alpha. Canvas unchanged.`;
+                    : `Sweep summary unavailable offline (${detail}). Staircase effect kept: ${result.points.length} of ${SWEEP_ALPHAS.length} alphas sampled, flow held at the last applied alpha. Summary teaching is missing; per-point Apply chips below restage any alpha.`;
                 pushTurn({
                     id: summaryId,
                     role: "assistant",
@@ -1743,7 +1772,7 @@ export default function AgentConsole({
                 } catch (err) {
                     const reason = err instanceof Error ? err.message : String(err);
                     const detail = (reason.length > 0 ? reason : "unknown error").slice(0, 160);
-                    const failText = `Sweep summary request failed (${detail}). The staircase ran ${result.points.length} of ${SWEEP_ALPHAS.length} points with the last applied alpha in place; per-point Apply chips below restage any alpha. Canvas unchanged.`;
+                    const failText = `Sweep summary request failed (${detail}). Staircase effect kept: ${result.points.length} of ${SWEEP_ALPHAS.length} alphas sampled, flow held at the last applied alpha. Summary teaching is missing; per-point Apply chips below restage any alpha.`;
                     pushTurn({
                         id: summaryId,
                         role: "assistant",
@@ -1853,6 +1882,20 @@ export default function AgentConsole({
      *  local to the chip control. */
     function onApplySweepAlpha(alphaDeg: number): void {
         try {
+            // Orifice gate: per-point Apply chips never move alpha on the
+            // plate (alpha invariant 0), canvas unchanged.
+            try {
+                const applyKind = (agentContext as { spec?: { kind?: unknown } } | null | undefined)?.spec?.kind;
+                const applyLabel = typeof agentContext?.bodyLabel === "string" ? agentContext.bodyLabel : "";
+                if (isOrificeSweepBody(applyKind, applyLabel)) {
+                    const id = nextId();
+                    pushTurn({ id, role: "assistant", at: nowIso(), text: "The orifice plate has no angle of attack, alpha stays 0, so sweep Apply leaves the plate unchanged. Canvas unchanged.", tool: "modal", status: "offline" });
+                    setExtra(id, makeExtra({ streaming: false }));
+                    return;
+                }
+            } catch {
+                // Gate check faults fall through to validation below.
+            }
             const checked = validateAgentAction({ kind: "set_alpha", alphaDeg }, validationCtx);
             if (!checked.ok || checked.action === null) {
                 const reason = typeof checked.reason === "string" && checked.reason.length > 0

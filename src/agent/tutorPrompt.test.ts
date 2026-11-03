@@ -92,6 +92,20 @@ describe("buildTutorMessages", () => {
         expect(system).not.toContain("Strouhal");
     });
 
+    it("pins the orifice no-angle rule with gap-first copy", () => {
+        const messages = buildTutorMessages({
+            after: null,
+            rows: rows(),
+            concept: "stagnation",
+            suggestion: { primary: "speed", secondary: "cp" },
+            history: [],
+        });
+        const system = messages[0].content;
+        expect(system).toContain("orifice");
+        expect(system).toContain("has no angle");
+        expect(system).toContain("gap opening");
+    });
+
     it("pins the never-promise-a-run and rejection rules", () => {
         const messages = buildTutorMessages({
             after: null,

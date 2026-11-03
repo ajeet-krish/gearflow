@@ -107,6 +107,15 @@ describe("validateDemoPack", () => {
             validateGeometrySpec({ kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 8, width: 0.08, height: 5 })
         ).toThrow(/height/);
     });
+
+    it("forces alphaDeg 0 on orifice specs, which have no angle of attack", () => {
+        expect(() =>
+            validateGeometrySpec({ kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 8, width: 0.08, height: 0.4 })
+        ).not.toThrow();
+        expect(() =>
+            validateGeometrySpec({ kind: "orifice", chord: 1, alphaDeg: 6, nPoints: 8, width: 0.08, height: 0.4 })
+        ).toThrow(/no angle of attack/);
+    });
 });
 
 describe("validatePackFlowConsistency", () => {

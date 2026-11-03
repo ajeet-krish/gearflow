@@ -256,6 +256,14 @@ describe("localReply engine, field, and run", () => {
         expect(out.reply).toContain("high pressure case is outside the serving envelope");
         expect(out.reply).toContain("Switching field to cp");
     });
+
+    it("maps plot and show pressure/Cp to the cp field and velocity/speed to speed", () => {
+        expect(localReply("show pressure", makeCtx()).actions).toContainEqual({ kind: "set_field", field: "cp" });
+        expect(localReply("plot Cp", makeCtx()).actions).toContainEqual({ kind: "set_field", field: "cp" });
+        expect(localReply("show the pressure field", makeCtx()).actions).toContainEqual({ kind: "set_field", field: "cp" });
+        expect(localReply("plot velocity", makeCtx()).actions).toContainEqual({ kind: "set_field", field: "speed" });
+        expect(localReply("show speed", makeCtx()).actions).toContainEqual({ kind: "set_field", field: "speed" });
+    });
 });
 
 describe("localReply safety", () => {

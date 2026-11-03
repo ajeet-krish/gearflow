@@ -79,6 +79,17 @@ describe("buildTutorTable", () => {
         expect(cell(rows, "Cl", "delta")).toBe("+0.020");
     });
 
+    it("reads Alpha n/a on both sides for the orifice plate, which has no angle", () => {
+        const rows = buildTutorTable(
+            lite({ bodyLabel: "Orifice", alpha: 0 }),
+            lite({ bodyLabel: "Orifice", alpha: 0 }),
+        );
+        expect(cell(rows, "Alpha", "before")).toBe("n/a");
+        expect(cell(rows, "Alpha", "after")).toBe("n/a");
+        expect(cell(rows, "Alpha", "delta")).toBe("n/a");
+        expect(rows).toHaveLength(6);
+    });
+
     it("never throws on null snapshots and renders pending text", () => {
         const rows = buildTutorTable(null, undefined);
         expect(rows.length).toBeGreaterThan(0);

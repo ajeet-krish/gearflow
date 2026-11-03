@@ -10,6 +10,20 @@ import { buildTutorTable, type TutorSnapshotLite, type TutorTableRow } from "./t
 /** Live staircase: -4 to 12 deg in 2 deg steps, 9 points. */
 export const SWEEP_ALPHAS: ReadonlyArray<number> = [-4, -2, 0, 2, 4, 6, 8, 10, 12];
 
+/** Orifice sweep gate. The plate has no angle of attack (alpha invariant
+ *  0), so any sweep request on an orifice body must skip the staircase
+ *  and never write alpha. Kind is authoritative, the body label is the
+ *  fallback. Never throws. */
+export function isOrificeSweepBody(kind: unknown, bodyLabel?: unknown): boolean {
+    try {
+        if (typeof kind === "string" && kind.toLowerCase() === "orifice") return true;
+        if (typeof bodyLabel === "string" && bodyLabel.toLowerCase().includes("orifice")) return true;
+        return false;
+    } catch {
+        return false;
+    }
+}
+
 /** Paint yield between sweep points. Exceeds the App canvas debounce
  *  (120 ms) plus a paint frame, so each intermediate alpha reaches the
  *  canvas in order instead of collapsing to the final alpha. */

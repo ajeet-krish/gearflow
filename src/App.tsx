@@ -1720,14 +1720,37 @@ export default function App() {
     };
     /** P3 sweep immediate apply: bypasses the 120 ms canvas debounce by
      *  writing both spec and debouncedSpec in the same tick, so each
-     *  intermediate alpha paints in order. The pending debounce timer then
-     *  rewrites the same value harmlessly. Never throws. */
+     *  intermediate alpha paints in order. Orifice gate: the plate has no
+     *  angle of attack (alpha invariant 0), so sweep applies refuse any
+     *  alpha write and leave the canvas unchanged. Never throws. */
     const applySweepAlpha = useCallback((next: number): void => {
         try {
             if (!Number.isFinite(next)) return;
             const clamped = Math.min(ALPHA_HARD_MAX, Math.max(ALPHA_HARD_MIN, next));
-            setSpec((s) => ({ ...s, alphaDeg: clamped }));
-            setDebouncedSpec((s) => ({ ...s, alphaDeg: clamped }));
+            let refused = false;
+            setSpec((s) => {
+                try {
+                    if ((s as { kind?: unknown }).kind === "orifice") {
+                        refused = true;
+                        return s;
+                    }
+                } catch {
+                    refused = true;
+                    return s;
+                }
+                if (s.alphaDeg === clamped) return s;
+                return { ...s, alphaDeg: clamped };
+            });
+            if (refused) return;
+            setDebouncedSpec((s) => {
+                try {
+                    if ((s as { kind?: unknown }).kind === "orifice") return s;
+                } catch {
+                    return s;
+                }
+                if (s.alphaDeg === clamped) return s;
+                return { ...s, alphaDeg: clamped };
+            });
         } catch {
             // Sweep applies never break the canvas.
         }

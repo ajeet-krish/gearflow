@@ -50,6 +50,7 @@ describe("applyBodyPreset", () => {
         const orifice = applyBodyPreset(BASE, "orifice");
         expect(orifice.width).toBe(0.08);
         expect(orifice.height).toBe(0.4);
+        expect(orifice.alphaDeg).toBe(0);
         const block = applyBodyPreset(BASE, "block");
         expect(block.width).toBe(0.5);
         expect(block.height).toBe(0.5);

@@ -5,7 +5,7 @@
 
 import { LBM_MAX_RE } from "./lbmRunConfig";
 
-/** Field floor and ceiling. The Spark spec envelope starts at 1000, the canvas field accepts 100. */
+/** Field floor and ceiling. The Spark spec envelope starts at 100, the canvas field accepts 100. */
 export const RE_FIELD_MIN = 100;
 export const RE_FIELD_MAX = 1000000;
 

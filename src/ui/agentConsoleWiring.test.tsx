@@ -763,7 +763,7 @@ describe("agent console live port (no parser fast path)", () => {
             chatClient: streamingPort("Noted, holding the current case.", counter),
             initialTurns: [],
         });
-        // Re 5 misses the [1000, 1000000] envelope: the live model answers,
+        // Re 5 misses the [100, 1000000] envelope: the live model answers,
         // and the rescue must apply nothing while surfacing the reynolds
         // rejection next to the model reply.
         typeText(m, "Set up NACA 2412 alpha 6 Re 5");
@@ -774,7 +774,7 @@ describe("agent console live port (no parser fast path)", () => {
             expect(onAgentAction).not.toHaveBeenCalled();
             expect(m.text()).toContain("Noted, holding the current case.");
             expect(m.text()).toContain("Rejected:");
-            expect(m.text()).toContain("outside [1000, 1000000]");
+            expect(m.text()).toContain("outside [100, 1000000]");
             expect(m.text()).not.toContain("Applied:");
         } finally {
             m.unmount();

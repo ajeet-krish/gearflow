@@ -1393,3 +1393,47 @@ Phase tests integrate with prior phase tests (batch suites green alongside full 
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - Orifice sweep gate plus batch: Test Report (stall demo gap teaching, physics-only sweep failure, prior batch reconfirmed)
+
+### Test Results
+npm test: 132 files, 1770 tests, all passed. Baseline at the prior Full Batch entry was 130 files, 1750 tests with 1 stale FAIL (settingsManualToggle missing particleSize). Delta is plus 2 files plus 20 tests: src/ui/agentConsoleOrificeSweep.test.tsx (2) plus growth in alphaSweep (18 to 19), agentActions, caseSetup, baseten (22 to 29), SettingsModal, and related suites. The stale settingsManualToggle expectation now passes with particleSize included. No production changes in this verification.
+npm run build: tsc plus vite build succeeded. dist index 774.08 kB plus three 465.13 kB plus ort 537.92 kB plus wasm asset 194.74 kB (chunk size warning only, pre-existing pattern).
+Targeted: 15 files, 171 tests, all passed (agentConsoleOrificeSweep 2, orificeIntent 6, alphaSweep 19, agentConsoleSweep 5, sweepPaintWiring 4, agentActions 23, caseSetup 21, curriculum 2, agentConsoleCurriculum 4, agentConsoleBaseten 29, SettingsModal 12, sweepguard 16, gridUiBatch 18, batchCombined 8, particleColor 2).
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| agentConsoleOrificeSweep.test.tsx (2) | PASS | Orifice classification by kind plus label fallback; stall demo on orifice runs zero stepper plus zero canvas writes, alpha stays 0, copy teaches gap with venturi Try next and Canvas unchanged, no Sweep complete |
+| alphaSweep.test.ts (19) | PASS | Sweep intent fires on show/run/influence/effect/across/impact with alpha or AoA, blocked on explain/what/why/negation/bare setup; 9 point staircase minus 4 to 12; stall demo phrasings run the staircase on non-orifice bodies |
+| agentConsoleSweep.test.tsx (5) | PASS | Full staircase paints in order with one Modal summary plus Apply chips; offline failure keeps staircase effect with honest offline demo mode plus missing summary note, physics-only with no solver path talk and no Canvas unchanged on the kept effect |
+| sweepPaintWiring.test.ts (4) | PASS | Sweep always runs with guards, live stepping wiring green |
+| orificeIntent.test.ts (6) | PASS | Orifice apply from set up phrasing with high confidence, constriction language mapping, full set_spec with alpha always 0, Re 100 and Re 700 validate on the canvas floor |
+| agentActions.test.ts (23) | PASS | Re 100 floor accepted on the analytic path, setup_shedding carries Re 100, set_re alias maps to set_reynolds, canonical NACA fractions override |
+| caseSetup.test.ts (21) | PASS | setup_shedding at Re 100 on analytic and neural paths, rejected setups teach no table with Canvas unchanged |
+| agentConsoleBaseten.test.tsx (29) | PASS | Plot to field routing (plot pressure emits set_field cp with contours coupling), one-sentence setups (exactly one sentence plus fence only), follow-up chips (orifice plus airfoil follow-ups on no-action explain turns), no cached pill (Tutor with live dot, no model or cached badge) |
+| agentConsoleCurriculum.test.tsx (4) plus curriculum.test.ts (2) | PASS | 3 tutorials offered one per lesson with example dropdown side by side, dispatch is a normal offline turn with zero port calls |
+| SettingsModal.test.tsx (12) plus gridUiBatch.verify (18) plus sweepguard (16) plus batchCombined (8) | PASS | No size slider plus no resolution section with Display Settings title, particle count 0 to 8000 with Off at 0, live grid fixed at 512, turn chrome removed |
+| particleColor.test.ts (2) plus phase6 hardening dark pins | PASS | Particle color white default with no Auto option, theme dark-only (defaults dark, forces dark over legacy light) |
+| all other Node suites (1599) | PASS | No regressions, 1770 total across 132 files |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+
+### Coverage Summary
+Happy path covered (orifice stall gate teaches gap with alpha 0 unchanged and no staircase, sweep summary-only with Apply chips, orifice apply with gap plus plate plus Re, Re 100 floor, plot to field with contours coupling, follow-up chips, one-sentence setups, 3 tutorials dispatch).
+Edge cases covered (orifice classification by kind and label fallback, Reynolds/temperature/drag never fire sweep, bare setup never fires, custom grid 127 plus 1025 rejected, legacy grid modes coerce to 512, count clamp 0 to 8000).
+Error conditions covered (sweep failure copy stays physics-only with no solver or tech stack talk, rejected setups teach no unapplied table, corrupt chat JSON returns empty, oversize grid rejected, offline pack failures).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all prior batch suites green alongside the 2 new orifice sweep gate tests, 1770 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full suite green on this run, 1770 passed plus build clean; prior stale settingsManualToggle FAIL is resolved in the current tree | No fix needed |
+
+### Verification Checklist
+- [x] All tests pass (132 files, 1770 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

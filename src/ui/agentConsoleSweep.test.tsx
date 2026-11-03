@@ -319,11 +319,15 @@ describe("agent console sweep summary-only", () => {
         submitForm(m);
         await waitSweep();
         try {
-            // The staircase still runs locally even when down.
+            // The staircase effect stands apart from the missing summary.
             expect(sweepApplied).toEqual([...SWEEP_ALPHAS]);
             expect(m.text()).toContain("Sweep complete");
             expect(m.text()).toContain("offline demo mode");
-            expect(m.text()).toContain("Canvas unchanged");
+            expect(m.text()).toContain("Staircase effect kept");
+            expect(m.text()).toContain("flow held at the last applied alpha");
+            expect(m.text()).toContain("Summary teaching is missing");
+            expect(m.text()).not.toContain("analytic path");
+            expect(m.text()).not.toContain("Canvas unchanged");
             expect(m.text()).not.toContain("Sweep summary from the tutor");
             const chips = buttonsByLabel(m.tree(), "Apply angle of attack (alpha) 6 degrees");
             expect(chips.length).toBeGreaterThan(0);
