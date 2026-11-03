@@ -37,3 +37,5 @@ section footer .foot-right { text-align: right; }
 section .brand { display: flex; align-items: center; justify-content: center; gap: 48px; }
 section .brand img { width: 180px; height: auto; flex: none; }
 section .brand-title { font-size: 1.5em; font-weight: 700; line-height: 1.25; margin: 0; text-align: left; letter-spacing: 2px; }
+section span.purple { color: var(--color-highlight); }
+section footer { font-size: 0.55em; color: #BD93F9; }
