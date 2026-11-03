@@ -103,6 +103,7 @@ describe("forceModel", () => {
         const out = forceModel(null) as Record<string, unknown>;
         expect(out.model).toBe(MODAL_MODEL_ID);
         expect(out.n).toBe(1);
+        expect(out.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
     });
 
     it("resolves the Modal default from the pinned constant without env", () => {
@@ -115,6 +116,31 @@ describe("forceModel", () => {
         const out = forceModel({ model: "attacker", n: 9, max_tokens: 4096 }, { MODAL_MODEL_ID: "custom-endpoint" }) as Record<string, unknown>;
         expect(out.model).toBe("custom-endpoint");
         expect(resolveModalModelId({ MODAL_MODEL_ID: "custom-endpoint" })).toBe("custom-endpoint");
+    });
+
+    it("pins chat_template_kwargs reasoning_effort to low with low winning", () => {
+        const missing = forceModel({ model: "x" }) as Record<string, unknown>;
+        expect(missing.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
+        const medium = forceModel({
+            model: "x",
+            chat_template_kwargs: { reasoning_effort: "medium" },
+        }) as Record<string, unknown>;
+        expect(medium.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
+        const merged = forceModel({
+            model: "x",
+            chat_template_kwargs: { reasoning_effort: "high", extra: "keep" },
+        }) as Record<string, unknown>;
+        expect(merged.chat_template_kwargs).toEqual({ reasoning_effort: "low", extra: "keep" });
+        const nonObject = forceModel({ model: "x", chat_template_kwargs: "smuggle" }) as Record<string, unknown>;
+        expect(nonObject.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
+    });
+
+    it("does not mutate nested chat_template_kwargs input", () => {
+        const kwargs = { reasoning_effort: "medium", extra: "keep" };
+        const input = { model: "x", chat_template_kwargs: kwargs };
+        forceModel(input);
+        expect(kwargs.reasoning_effort).toBe("medium");
+        expect(input.chat_template_kwargs).toBe(kwargs);
     });
 });
 
@@ -275,13 +301,23 @@ describe("forceModel allowlist", () => {
         expect(out.temperature).toBe(0);
         expect(out.stream).toBe(true);
         expect(out.messages).toEqual([{ role: "user", content: "hi" }]);
+        expect(out.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
         expect("tools" in out).toBe(false);
         expect("tool_choice" in out).toBe(false);
         expect("top_p" in out).toBe(false);
         expect("extra" in out).toBe(false);
         expect(Object.keys(out).sort()).toEqual(
-            ["max_tokens", "messages", "model", "n", "stream", "temperature"].sort()
+            ["chat_template_kwargs", "max_tokens", "messages", "model", "n", "stream", "temperature"].sort()
         );
+    });
+
+    it("merges client chat_template_kwargs with low reasoning_effort winning", () => {
+        const out = forceModel({
+            model: "attacker",
+            messages: [{ role: "user", content: "hi" }],
+            chat_template_kwargs: { reasoning_effort: "medium", extra: "keep" },
+        }) as Record<string, unknown>;
+        expect(out.chat_template_kwargs).toEqual({ reasoning_effort: "low", extra: "keep" });
     });
 
     it("validates message roles and caps count plus chars", () => {

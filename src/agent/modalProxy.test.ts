@@ -174,7 +174,7 @@ describe("modalProxy wiring", () => {
             method: "POST",
             url: "/api/modal/chat/completions",
             headers: {},
-            body: JSON.stringify({ model: "attacker-model", n: 9, max_tokens: 4096, temperature: 0.9, stream: false }),
+            body: JSON.stringify({ model: "attacker-model", n: 9, max_tokens: 4096, temperature: 0.9, stream: false, chat_template_kwargs: { reasoning_effort: "medium" } }),
             ip: "10.1.0.1",
         });
         const sent = JSON.parse(seenBody) as Record<string, unknown>;
@@ -182,6 +182,7 @@ describe("modalProxy wiring", () => {
         expect(sent.n).toBe(1);
         expect(sent.max_tokens).toBe(400);
         expect(sent.temperature).toBe(0);
+        expect(sent.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
         expect(out.statusCode).toBe(200);
     });
 

@@ -2,6 +2,7 @@
 // Pinned live contract: OpenAI compatible chat completions over the
 // operator configured MODAL_CHAT_URL (a https Modal serving host) with
 // n fixed to 1, max_tokens capped at 400, temperature forced to 0, and
+// chat_template_kwargs.reasoning_effort pinned to low,
 // the pinned gearflow-chat endpoint model. Modal-only: invalid or
 // missing upstream config fails closed, never falls back. No React,
 // no DOM, no secrets in this module.
@@ -18,6 +19,7 @@ export const MODAL_RATE_LIMIT_MAX_ENTRIES = 5000;
 export const MODAL_MAX_MESSAGES = 32;
 export const MODAL_MAX_MESSAGE_CHARS = 8000;
 export const MODAL_MAX_TOTAL_MESSAGE_CHARS = 48000;
+export const MODAL_REASONING_EFFORT = "low";
 
 /** Browser safe process.env read. Default params evaluate at call time,
  *  so direct process.env access throws ReferenceError in browsers where
@@ -177,14 +179,26 @@ export function sanitizeModalMessages(value: unknown): ModalSanitizedMessage[] {
 /**
  * Overwrite any client supplied model with the pinned gearflow-chat id
  * (overridable via the server only MODAL_MODEL_ID env for endpoint
- * renames), force n to 1, cap max_tokens at 400, and force temperature
- * to 0. Returns a new object, never mutates input. The optional env map
- * keeps the override pure and testable; production callers omit it so
- * safeProcessEnv() is read. */
+ * renames), force n to 1, cap max_tokens at 400, force temperature
+ * to 0, and pin chat_template_kwargs.reasoning_effort to low (merged
+ * over any client supplied chat_template_kwargs so low always wins;
+ * GLM small spends the whole 400 token budget on reasoning under the
+ * endpoint default medium, leaving empty content). Returns a new
+ * object, never mutates input. The optional env map keeps the override
+ * pure and testable; production callers omit it so safeProcessEnv()
+ * is read. */
 export function forceModel(body: unknown, env: Record<string, string | undefined> = safeProcessEnv()): unknown {
     const model = resolveModalModelId(env);
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
-        return { messages: [], stream: false, model, n: 1, max_tokens: MODAL_MAX_TOKENS, temperature: 0 };
+        return {
+            messages: [],
+            stream: false,
+            model,
+            n: 1,
+            max_tokens: MODAL_MAX_TOKENS,
+            temperature: 0,
+            chat_template_kwargs: { reasoning_effort: MODAL_REASONING_EFFORT },
+        };
     }
     const src = body as Record<string, unknown>;
     return {
@@ -194,7 +208,29 @@ export function forceModel(body: unknown, env: Record<string, string | undefined
         n: 1,
         max_tokens: clampTokens(src.max_tokens),
         temperature: 0,
+        chat_template_kwargs: forceReasoningKwargs(src.chat_template_kwargs),
     };
+}
+
+/** Merge client chat_template_kwargs over a pinned low reasoning effort.
+ *  Keeps client keys (so endpoint extras survive) but always overwrites
+ *  reasoning_effort with low. Returns a fresh object, never mutates
+ *  input; non objects become the pinned default. Skips prototype
+ *  pollution keys. */
+function forceReasoningKwargs(value: unknown): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+            if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+            try {
+                out[key] = entry;
+            } catch {
+                continue;
+            }
+        }
+    }
+    out.reasoning_effort = MODAL_REASONING_EFFORT;
+    return out;
 }
 
 /** Retryable upstream status: 429 plus any 5xx. */
