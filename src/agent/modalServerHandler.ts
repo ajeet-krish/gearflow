@@ -91,19 +91,26 @@ function writeGenericModalError(
 }
 
 /** Minimal server side log for Modal upstream failures. Logs only the
- *  upstream status, retry-after presence, and the first 300 chars of the
- *  upstream body. Never logs Authorization tokens or request bodies. */
+ *  upstream status, retry-after presence, elapsed wall time, and the first
+ *  300 chars of the upstream body plus a cause prefixed fetch detail
+ *  (total-timeout, req-close, res-close, idle-timeout, or fetch-error).
+ *  Never logs Authorization tokens or request bodies. */
 function logModalUpstreamFailure(
     upstreamStatus: number | string,
     upstreamRetryAfter: string | null,
     upstreamBodyPreview: string,
-    fetchDetail = ""
+    fetchDetail = "",
+    elapsedMs?: number
 ): void {
     try {
         const retry = upstreamRetryAfter ? "yes" : "no";
         const preview = (upstreamBodyPreview ?? "").slice(0, 300);
+        const elapsed =
+            typeof elapsedMs === "number" && Number.isFinite(elapsedMs)
+                ? ` elapsedMs=${Math.max(0, Math.round(elapsedMs))}`
+                : "";
         const suffix = fetchDetail ? ` error=${fetchDetail.slice(0, 300)}` : "";
-        console.error(`[modal-upstream] status=${upstreamStatus} retry-after=${retry} body=${preview}${suffix}`);
+        console.error(`[modal-upstream] status=${upstreamStatus} retry-after=${retry}${elapsed} body=${preview}${suffix}`);
     } catch {
         // Logging never throws.
     }
@@ -212,6 +219,7 @@ export function createModalServerHandler(
         });
         req.on("end", () => {
             if (rejected) return;
+            const startMs = Date.now();
             let payload: unknown;
             try {
                 payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
@@ -229,6 +237,10 @@ export function createModalServerHandler(
             const controller = new AbortController();
             let settled = false;
             let readerRef: { cancel: () => unknown } | null = null;
+            let abortCause: string | null = null;
+            const noteAbort = (cause: string): void => {
+                if (abortCause === null) abortCause = cause;
+            };
             let streamClosed = false;
             const pendingDrainCloses: Array<() => void> = [];
             const notifyDrainClosed = (): void => {
@@ -251,14 +263,17 @@ export function createModalServerHandler(
                 notifyDrainClosed();
             };
             const totalTimer = setTimeout(() => {
+                noteAbort("total-timeout");
                 abortUpstream();
             }, timeoutMs);
             const onClose = (): void => {
                 if (settled) return;
+                noteAbort("req-close");
                 abortUpstream();
             };
             const onResClose = (): void => {
                 if (settled) return;
+                noteAbort("res-close");
                 abortUpstream();
                 finish();
             };
@@ -284,6 +299,7 @@ export function createModalServerHandler(
             const pokeIdle = (reader: { cancel: () => unknown }): void => {
                 if (idleTimer !== undefined) clearTimeout(idleTimer);
                 idleTimer = setTimeout(() => {
+                    noteAbort("idle-timeout");
                     abortUpstream();
                 }, timeoutMs);
             };
@@ -306,7 +322,7 @@ export function createModalServerHandler(
                         } catch {
                             // Error path body cancel is best effort.
                         }
-                        logModalUpstreamFailure(upstream.status, upstreamRetry, preview);
+                        logModalUpstreamFailure(upstream.status, upstreamRetry, preview, "", Date.now() - startMs);
                         finish();
                         writeGenericModalError(res, upstream.status, upstreamRetry);
                         return;
@@ -481,8 +497,10 @@ export function createModalServerHandler(
                     res.end(buf);
                 })
                 .catch((err: unknown) => {
-                    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-                    logModalUpstreamFailure("fetch-error", null, "", detail);
+                    const rawDetail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+                    const cause = abortCause ?? "fetch-error";
+                    const detail = `${cause}: ${rawDetail}`;
+                    logModalUpstreamFailure("fetch-error", null, "", detail, Date.now() - startMs);
                     finish();
                     if (!res.writableEnded) {
                         res.statusCode = 502;
