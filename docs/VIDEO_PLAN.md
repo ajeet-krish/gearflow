@@ -40,7 +40,7 @@
 * OBS: 1440p canvas, 60 fps, screen plus webcam bottom corner, separate mic track, record to MKV then remux.
 * Environment: do not disturb on, notifications off, browser zoom 100 percent, only GearFlow tab plus slides.
 * Warm up: hit the live endpoint once, pretype camera safe prompts in chat drafts, keep Tutorials dropdown ready.
-* Camera-safe prompts, type verbatim. Case 1: set up airfoil naca 2415 at angle of attack 6, then set NACA 3412 at alpha 6, then set alpha to 10. Case 2: set body to cylinder at Reynolds number 1000 (never say shedding or karman here, the preset collision drops Re to 100), then set cylinder radius to 0.5. Case 3: show me flow around a square, then set block width to 1.2, height to 0.5, alpha to 10. Case 4: set up the orifice constriction (constriction, never constricted, never say high pressure), then how does this affect pressure, then set orifice gap to 0.8.
+* Camera-safe prompts, paste verbatim and send. Case 1: Set up an airfoil naca 2415 at angle of attack 6, then increase camber and decrease thickness, then increase the angle to 10. Case 2: Show me a flow around a cylinder at Re 1000, then increase radius. Case 3: Show me flow around a square, then increase the length and rotate a bit. Case 4: what happens when flow is constricted, then what happens to pressure, then widen the gap a lot. Backups (swap in at go/no-go for any misfiring turn): set NACA 3408 at alpha 6, set alpha to 10, set body to cylinder at Reynolds number 1000, set cylinder radius 0.5, set block width 1.2 height 0.5 alpha 10, set up the orifice constriction, how does this affect pressure, set orifice gap 0.8.
 * Directing: speed ramps on waits, zoom keyframes at 125 percent on chat enter and RUN card, hold 1 sec on the RUN card and read actuals live, never invent numbers.
 * Audio: voice to minus 16 LUFS, test on phone speaker, test full video sound off.
 * Never show: Validation panel, WASM badge, SAM overlay, poster generation, offline toggle, Export JSON button, misconception card.
@@ -53,8 +53,9 @@
 * Upload morning of Nov 4, at least 3 plus hours before 9PM ET Nov 4 deadline (02:00 UTC Nov 5).
 * Submission form needs: live demo URL, repo URL, YouTube link, short writeup (problem, users, Meta tooling, architecture, next steps), third party asset notes.
 * Writeup mitigation for Tooling 25: the video shows the Meta text model path honestly. The README plus submission writeup document the full orchestration (Meta client, per call cache with 24h Spark TTL, eval ledger with cost, fallback chain with honest error plus Retry) to support the multi model Tooling criterion.
-* YouTube chapters to paste: 0:00 Cold open, chat sets up an airfoil. 0:07 Intro. 0:20 The problem with CFD setup. 0:40 GearFlow, chat runs the solver. 1:06 Live demo, four cases. 2:28 Honest labels and limits. 2:40 Next steps and close.
+* YouTube chapters to paste: 0:00 Cold open, chat sets up an airfoil. 0:07 Intro. 0:38 Live demo, four cases. 2:01 Agent architecture. 2:29 Honest labels and limits. 2:40 Next steps and close.
+* Code B roll files in order: src/agent/modalGate.ts (single completion, capped tokens, zero temperature, low reasoning, fail closed), src/agent/agentActions.ts (contract validator, five action cap), src/ui/AgentConsole.tsx (executor plus tutor), src/agent/sessionSpend.ts (5 dollar soft cap).
 * Captions: export SRT from the editor and upload it, in addition to burned in captions, for judging accessibility.
 * Slide files in order: slides/01-intro.png, slides/02-problem-friction.png, slides/03-problem-intuition.png, slides/04-solution-harness.png, slides/05-constraints.png, slides/06-next-steps.png, slides/07-end-card.png.
-* Go or no go 30 min before recording: hit the live endpoint once, confirm a tutor summary lands, confirm warm cache.
+* Go or no go 30 min before recording: send each of the 10 verbatim prompts live and confirm the canvas changes as expected. Any misfire swaps to its backup prompt. Confirm warm cache.
 * Keep a local MP4 backup plus slide images in case of upload retry.
