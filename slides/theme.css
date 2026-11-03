@@ -1,0 +1,82 @@
+/* @theme gearflow */
+@import 'default';
+
+section {
+  background: #0A0A0F;
+  color: #F8F8F2;
+  font-family: Helvetica, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 64px 80px;
+}
+
+section h1,
+section h2 {
+  color: #F8F8F2;
+  font-weight: 800;
+  line-height: 1.05;
+  margin: 0.15em 0;
+}
+
+section p,
+section div {
+  color: #F8F8F2;
+}
+
+.eyebrow {
+  font-size: 22px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #6272A4;
+  margin-bottom: 24px;
+}
+
+.lead {
+  font-size: 72px;
+  font-weight: 800;
+  line-height: 1.05;
+  color: #F8F8F2;
+  margin: 0.15em 0;
+}
+
+.accent-purple {
+  color: #BD93F9;
+  font-weight: 800;
+}
+
+.accent-cyan {
+  color: #8BE9FD;
+  font-weight: 700;
+  font-size: 36px;
+}
+
+.accent-amber {
+  color: #FFB86C;
+  font-weight: 700;
+}
+
+.muted {
+  color: #6272A4;
+  font-size: 26px;
+}
+
+.mono {
+  font-family: Menlo, Courier New, monospace;
+  font-size: 22px;
+  color: #F8F8F2;
+  background: #0D0D12;
+  border: 1px solid #6272A4;
+  border-radius: 10px;
+  padding: 12px 20px;
+  margin-top: 28px;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+small,
+.mono.small {
+  font-size: 20px;
+}
