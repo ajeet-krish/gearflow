@@ -5,7 +5,7 @@
 
 import type { AgentAction, BodyToken, FieldMode, ParametricSpec } from "@/contracts/types";
 import { THEORY_TOPICS } from "@/contracts/types";
-import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, RE_MAX, RE_MIN, validateParametricSpec } from "@/contracts/schema";
+import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, CYLINDER_RADIUS_MAX, CYLINDER_RADIUS_MIN, RE_MAX, RE_MIN, validateParametricSpec } from "@/contracts/schema";
 import { isSchemaValidCode } from "./nacaParse";
 import { expandCasePreset } from "./casePresets";
 import { resolveAgentFirst } from "@/config/agentFirst";
@@ -295,15 +295,114 @@ function normalizePresetAlias(candidate: unknown): unknown {
     }
 }
 
+/** Normalize a model set_body that carries a cylinder size into one validated
+ *  cylinder set_spec before the strict validator runs. The model sometimes
+ *  emits an exact set_body cylinder with extra radius, diameter, r, or size
+ *  fields (which the validator would otherwise apply while silently dropping
+ *  the size, so the canvas never recomputes), or a model-invented body token
+ *  such as cylinder radius 0.5 that the strict body allowlist rejects. Both
+ *  shapes map here onto one set_spec with the full cylinder geometry (alpha
+ *  always 0, radius in [0.05, 1], diameter halves) plus Re plus rationale, so
+ *  radius phrasing keeps working end to end and bare set_body never carries
+ *  extra fields. Candidates that are not cylinder sized pass through
+ *  untouched for the strict validator. Never throws. */
+function normalizeCylinderBody(candidate: unknown): { candidate: unknown; note: string | null } {
+    try {
+        if (!isRecord(candidate) || candidate.kind !== "set_body") return { candidate, note: null };
+        const rec = candidate as Record<string, unknown>;
+        const extraKeys = ["radius", "diameter", "r", "size"] as const;
+        let extraRadius: number | null = null;
+        let fromDiameter = false;
+        let badSizeKey: string | null = null;
+        for (const key of extraKeys) {
+            if (!(key in rec) || rec[key] === undefined) continue;
+            const raw = rec[key];
+            if (typeof raw !== "number" || !Number.isFinite(raw)) {
+                if (badSizeKey === null) badSizeKey = key;
+                continue;
+            }
+            if (key === "diameter") {
+                extraRadius = raw / 2;
+                fromDiameter = true;
+            } else {
+                extraRadius = raw;
+            }
+            badSizeKey = null;
+            break;
+        }
+        const bodyRaw = typeof rec.body === "string" ? rec.body : "";
+        const bodyLower = bodyRaw.toLowerCase();
+        const namesCylinder = bodyLower.includes("cylinder") || bodyLower.includes("circular") || /\bdisk\b/.test(bodyLower);
+        const bodyValid = BODY_TOKENS.includes(bodyRaw);
+        // A size field only ever sizes a cylinder naming body. Sized
+        // non-cylinder bodies (naca2412, block) and sizes with no body at
+        // all stay untouched so the strict validator rejects them instead
+        // of silently rebuilding the requested body as a cylinder.
+        if (extraRadius !== null && !namesCylinder) return { candidate, note: null };
+        // A present but non-finite size stays untouched so the strict
+        // validator rejects naming the field instead of silently dropping it.
+        if (extraRadius === null && badSizeKey !== null) return { candidate, note: null };
+        if (extraRadius === null && (bodyValid || !namesCylinder)) return { candidate, note: null };
+        if (extraRadius === null) {
+            const numMatch = bodyRaw.match(/(\d+(?:\.\d+)?)/);
+            const num = numMatch !== null ? Number(numMatch[1]) : Number.NaN;
+            if (!Number.isFinite(num)) return { candidate, note: null };
+            if (/diameter/i.test(bodyRaw)) {
+                extraRadius = num / 2;
+                fromDiameter = true;
+            } else {
+                extraRadius = num;
+            }
+        }
+        const rawRadius = extraRadius as number;
+        const clamped = Math.min(Math.max(rawRadius, CYLINDER_RADIUS_MIN), CYLINDER_RADIUS_MAX);
+        const reRaw = rec.reynolds ?? rec.re ?? rec.value;
+        const reNum = typeof reRaw === "string" ? Number(reRaw) : reRaw;
+        const reynolds = typeof reNum === "number" && Number.isFinite(reNum)
+            ? Math.min(Math.max(Math.round(reNum), RE_MIN), RE_MAX)
+            : 100;
+        const built = {
+            kind: "set_spec",
+            spec: {
+                geometry: {
+                    kind: "cylinder",
+                    chord: 1,
+                    alphaDeg: 0,
+                    nPoints: 120,
+                    radius: clamped,
+                    center: { x: 0.5, y: 0 },
+                },
+                reynolds,
+                rationale: `Agent setup Cylinder radius ${clamped}.`,
+            },
+        };
+        try {
+            validateParametricSpec(built.spec as unknown as ParametricSpec);
+        } catch {
+            return { candidate, note: null };
+        }
+        const tail = fromDiameter ? " (diameter halves to radius)" : "";
+        return { candidate: built, note: `Note: cylinder size rides one set_spec with radius ${clamped}${tail}.` };
+    } catch {
+        return { candidate, note: null };
+    }
+}
+
 /** Apply the envelope normalizations to one candidate before the strict
- *  validator runs: preset alias mapping first, then Reynolds alias
- *  mapping, then canonical NACA fractions. Returns the normalized candidate plus an optional note.
+ *  validator runs: preset alias mapping first, then cylinder body sizing,
+ *  then Reynolds alias mapping, then canonical NACA fractions. Returns the
+ *  normalized candidate plus an optional note.
  *  Never throws. */
 function normalizeEnvelopeCandidate(candidate: unknown): { candidate: unknown; note: string | null } {
     try {
         const preset = normalizePresetAlias(candidate);
-        const aliased = normalizeReynoldsAlias(preset);
-        return normalizeNacaFractions(aliased);
+        const cylinder = normalizeCylinderBody(preset);
+        const aliased = normalizeReynoldsAlias(cylinder.candidate);
+        const fractions = normalizeNacaFractions(aliased);
+        if (cylinder.note !== null && fractions.note !== null) {
+            return { candidate: fractions.candidate, note: `${cylinder.note} ${fractions.note}` };
+        }
+        return { candidate: fractions.candidate, note: cylinder.note ?? fractions.note };
     } catch {
         return { candidate, note: null };
     }
@@ -425,6 +524,22 @@ export function validateAgentAction(action: unknown, ctx: AgentValidationContext
         }
         const kind = action.kind;
         if (kind === "set_body") {
+            // Strict size guard: bare set_body never carries a size field.
+            // Finite cylinder sizes are mapped to one set_spec by the
+            // normalization layer before validation, so any size key
+            // reaching here is either non-finite (string, NaN) or a sized
+            // non-cylinder body. Reject naming the field instead of
+            // silently dropping the stated size.
+            const rec = action as Record<string, unknown>;
+            for (const sizeKey of ["radius", "diameter", "r", "size"] as const) {
+                if (!(sizeKey in rec) || rec[sizeKey] === undefined) continue;
+                const v = rec[sizeKey];
+                if (typeof v !== "number" || !Number.isFinite(v)) {
+                    return { ok: false, reason: `set_body ${sizeKey} needs a finite number`, action: null };
+                }
+                const named = typeof rec.body === "string" ? rec.body : "";
+                return { ok: false, reason: `set_body ${sizeKey} applies to cylinder only, got body ${named === "" ? "missing" : named}`, action: null };
+            }
             if (typeof action.body !== "string" || !BODY_TOKENS.includes(action.body)) {
                 return { ok: false, reason: `set_body needs body in [${BODY_TOKENS.join(", ")}]`, action: null };
             }

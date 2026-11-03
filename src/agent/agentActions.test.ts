@@ -260,3 +260,79 @@ describe("agent-first analytic enforcement", () => {
         expect(expanded.domainNote ?? "").toContain("analytic preview");
     });
 });
+
+describe("cylinder size normalization", () => {
+    it("maps set_body cylinder with an extra radius field onto one validated set_spec", () => {
+        const raw = `Sizing up.\n\`\`\`action-json\n{"kind": "set_body", "body": "cylinder", "radius": 0.5}\n\`\`\``;
+        const out = parseAgentEnvelope(raw, ANALYTIC);
+        expect(out.actions).toHaveLength(1);
+        const only = out.actions[0];
+        expect(only.kind).toBe("set_spec");
+        if (only.kind === "set_spec") {
+            expect(only.spec.geometry.kind).toBe("cylinder");
+            expect((only.spec.geometry as { radius?: unknown }).radius).toBe(0.5);
+        }
+        expect(out.rejections).toEqual([]);
+        expect(out.reply).toContain("set_spec");
+    });
+
+    it("maps a model-invented cylinder body token onto one validated set_spec", () => {
+        const raw = `Sizing up.\n\`\`\`action-json\n{"kind": "set_body", "body": "cylinder radius 0.5"}\n\`\`\``;
+        const out = parseAgentEnvelope(raw, ANALYTIC);
+        expect(out.actions).toHaveLength(1);
+        expect(out.actions[0].kind).toBe("set_spec");
+        expect(out.rejections).toEqual([]);
+    });
+
+    it("halves diameter phrasing and clamps out of envelope radii", () => {
+        const raw = `Wider.\n\`\`\`action-json\n{"kind": "set_body", "body": "cylinder", "diameter": 3}\n\`\`\``;
+        const out = parseAgentEnvelope(raw, ANALYTIC);
+        expect(out.actions).toHaveLength(1);
+        const only = out.actions[0];
+        if (only.kind === "set_spec") {
+            expect((only.spec.geometry as { radius?: unknown }).radius).toBe(1);
+        }
+    });
+
+    it("leaves a bare set_body cylinder untouched", () => {
+        const raw = `Cylinder.\n\`\`\`action-json\n{"kind": "set_body", "body": "cylinder"}\n\`\`\``;
+        const out = parseAgentEnvelope(raw, ANALYTIC);
+        expect(out.actions).toEqual([{ kind: "set_body", body: "cylinder" }]);
+    });
+
+    it("leaves a sized non-cylinder body untouched for strict rejection, never inventing a cylinder", () => {
+        const naca = parseAgentEnvelope(
+            `Airfoil.\n\`\`\`action-json\n{"kind": "set_body", "body": "naca2412", "radius": 0.5}\n\`\`\``,
+            ANALYTIC,
+        );
+        expect(naca.actions).toEqual([]);
+        expect(naca.rejections.join(" ")).toContain("radius");
+        const block = parseAgentEnvelope(
+            `Block.\n\`\`\`action-json\n{"kind": "set_body", "body": "block", "size": 0.5}\n\`\`\``,
+            ANALYTIC,
+        );
+        expect(block.actions).toEqual([]);
+        expect(block.rejections.join(" ")).toContain("size");
+        const noBody = parseAgentEnvelope(
+            `Sized.\n\`\`\`action-json\n{"kind": "set_body", "radius": 0.5}\n\`\`\``,
+            ANALYTIC,
+        );
+        expect(noBody.actions).toEqual([]);
+        expect(noBody.actions.some((a) => a.kind === "set_spec")).toBe(false);
+    });
+
+    it("rejects a present but non-finite size naming the field instead of silently dropping it", () => {
+        const str = parseAgentEnvelope(
+            `Sizing.\n\`\`\`action-json\n{"kind": "set_body", "body": "cylinder", "radius": "0.5"}\n\`\`\``,
+            ANALYTIC,
+        );
+        expect(str.actions).toEqual([]);
+        expect(str.rejections.join(" ")).toContain("radius");
+        const directString = validateAgentAction({ kind: "set_body", body: "cylinder", radius: "0.5" }, ANALYTIC);
+        expect(directString.ok).toBe(false);
+        expect(directString.reason ?? "").toContain("radius");
+        const directNaN = validateAgentAction({ kind: "set_body", body: "cylinder", radius: Number.NaN }, ANALYTIC);
+        expect(directNaN.ok).toBe(false);
+        expect(directNaN.reason ?? "").toContain("radius");
+    });
+});

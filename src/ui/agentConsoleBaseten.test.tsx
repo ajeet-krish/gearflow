@@ -11,6 +11,7 @@ import AgentConsole, {
     EXAMPLE_PROMPTS,
     SPEND_SOFT_STOP_USD,
     buildModalMessages,
+    honestRejectionReply,
     localOfflineReply,
     snapshotLiteFor,
     spendExceeded,
@@ -578,5 +579,61 @@ describe("modal console truthfulness batch", () => {
             caseKey: "orifice|a0",
         } as never);
         expect(snap.alpha).toBe(null);
+    });
+
+    it("moves the lite caseKey on cylinder radius changes so the tutor waits for the fresh frame", () => {
+        const before = snapshotLiteFor({
+            spec: { kind: "cylinder", alphaDeg: 0, radius: 0.25 },
+            alphaDeg: 0,
+            reynolds: 100,
+        } as never);
+        const after = snapshotLiteFor({
+            spec: { kind: "cylinder", alphaDeg: 0, radius: 0.5 },
+            alphaDeg: 0,
+            reynolds: 100,
+        } as never);
+        expect(before.radius).toBe(0.25);
+        expect(after.radius).toBe(0.5);
+        expect(after.caseKey).not.toBe(before.caseKey);
+    });
+
+    it("carries the cylinder radius from the built agent context into the lite snapshot", () => {
+        const ctx = buildAgentContext({
+            spec: { kind: "cylinder", chord: 1, alphaDeg: 0, nPoints: 120, radius: 0.5, center: { x: 0.5, y: 0 } },
+            reynolds: 100,
+        } as never);
+        expect(ctx.spec.radius).toBe(0.5);
+        expect(snapshotLiteFor(ctx).radius).toBe(0.5);
+    });
+
+    it("replaces model teaching with the honest rejection on total rejection", () => {
+        const reply = honestRejectionReply([
+            "set_body needs body in [naca0012, naca2412, naca4412, cylinder, block, orifice]",
+        ]);
+        expect(reply).toContain("Request rejected");
+        expect(reply).toContain("set_body needs body in");
+        expect(reply).toContain("Canvas unchanged");
+        expect(reply.endsWith(".")).toBe(true);
+        expect(honestRejectionReply([])).toContain("Canvas unchanged");
+    });
+
+    it("appends the radius suffix to a supplied caseKey lacking the r token", () => {
+        const before = snapshotLiteFor({
+            spec: { kind: "cylinder", alphaDeg: 0, radius: 0.25 },
+            alphaDeg: 0,
+            reynolds: 100,
+            field: { variable: "speed" },
+            caseKey: "cylinder|cylinder|a0|Re100|analytic|fspeed",
+        } as never);
+        const after = snapshotLiteFor({
+            spec: { kind: "cylinder", alphaDeg: 0, radius: 0.5 },
+            alphaDeg: 0,
+            reynolds: 100,
+            field: { variable: "speed" },
+            caseKey: "cylinder|cylinder|a0|Re100|analytic|fspeed",
+        } as never);
+        expect(before.caseKey).toContain("|r");
+        expect(after.caseKey).toContain("|r");
+        expect(after.caseKey).not.toBe(before.caseKey);
     });
 });

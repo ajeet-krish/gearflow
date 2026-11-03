@@ -1,5 +1,10 @@
 # GearFlow Test Results
-Last updated: 2026-11-04
+Last updated: 2026-11-03
+
+## 2026-11-03 - Cylinder Fixes Verification: Test Report (radius re-solve, cylinder-only guard, non-finite size naming, liteRadius suffix, honest rejection override, orifice alpha 0, Re floor, sweep handling, single 512 grid)
+
+### Test Results
+npm test (Node only, per owner scope): 134 files, 1803 tests, all passed. Zero failures. cargo test skipped per owner (Rust wasm not part of the deliverable). Modal network suites excluded per scope (need live Baseten access).
 
 ## 2026-11-04 - Review Fixes Verification: Test Report (strict set_preset alias, custom tab, sweep dwell, pressure rescue, definitional guard)
 
@@ -1516,3 +1521,40 @@ Targeted fidelity rerun: 12 files, 123 tests, all passed (cylinderIntent 5, revi
 - [x] Error conditions covered (rejected setups teach no unapplied table, honest fault copy, oversize grid rejected, offline pack failures)
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests (all 1781 prior tests still pass plus 12 new, 1793 total)
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| cylinderIntent.test.ts (5) | PASS | Radius phrasing, diameter halving, envelope clamp with note, null on bare/question/negation, validated set_spec envelope carrying radius plus Re |
+| agentActions.test.ts cylinder guard (2 of suite) | PASS | Sized non-cylinder body (naca2412 radius, block size, missing body) left untouched for strict rejection, never rebuilt as cylinder; non-finite size (string, NaN) rejected naming the field |
+| reviewFailsRound.test.ts (17) | PASS | Explain-tolerant radius keeps size end to end, radius re-solve teaching fresh numbers |
+| agentConsoleBaseten.test.tsx cylinder plus rejection (4 of suite) | PASS | Lite caseKey moves on radius change so tutor waits for fresh frame; radius carried from built context into lite snapshot; honestRejectionReply override replaces model teaching on total rejection; radius suffix appended to supplied key lacking the r token |
+| orificeIntent.test.ts (6) | PASS | Orifice apply with alpha always 0, gap mapping, Re floor respected |
+| agentConsoleOrificeSweep.test.tsx (2) | PASS | Orifice stall gate, zero stepper, alpha 0 unchanged, gap teaching copy |
+| agentConsoleSweep.test.tsx (5) | PASS | Staircase paints with fence handling, sweep replies carry no fence |
+| verify.fixed512.sweepguard.test.tsx (16) | PASS | Single 512 grid only reachable, no picker, no fallback on slow solves, sweep guards |
+| p4.grid512.test.ts (12) | PASS | Fixed 512 contract, slow solves never fall back |
+| all other Node suites (remaining to 1803) | PASS | No regressions, 1803 total across 134 files |
+| cargo test gearflow-wasm | NOT RUN | Skipped per owner, Node tests only, Rust wasm not part of the deliverable |
+| Modal network suites | NOT RUN | Excluded per scope, need live Baseten access |
+
+### Coverage Summary
+Happy path covered (cylinder radius apply with Re, diameter halving, radius re-solve teaching fresh numbers, orifice alpha 0 with Re floor, liteRadius key suffix moving the tutor key, single 512 grid).
+Edge cases covered (clamped out of envelope radius with note, sized non-cylinder strict rejection, radius suffix on legacy keys lacking the r token, sweep handling with no fence).
+Error conditions covered (non-finite size field naming and rejection, honestRejectionReply override on total rejection with canvas unchanged, bare cylinder with no size returns null to the bare-body rescue).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (prior entry 1793 total across 134 files, now 1803 total across 134 files, plus 10 from cylinder and related growth, zero regressions).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full Node suite green on this run, 1803 passed with zero failures, wasm skipped per owner | No fix needed |
+
+### Verification Checklist
+- [x] All Node tests pass (134 files, 1803 tests)
+- [x] Happy path covered (radius re-solve, cylinder-only guard, liteRadius suffix, honest rejection override, orifice alpha 0, Re floor, sweep handling, single 512 grid)
+- [x] Edge cases covered (clamped radius, sized non-cylinder, legacy key suffix, sweep fence handling)
+- [x] Error conditions covered (non-finite size naming, total rejection override, null on bare/question/negation)
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests (1793 prior plus 10 new, 1803 total, zero regressions)
+- [x] wasm skipped per owner, Modal network excluded per scope

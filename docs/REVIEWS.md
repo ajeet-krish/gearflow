@@ -2643,3 +2643,39 @@ Verdict: FAIL
 - [ ] Phase code integrates cleanly with prior phases (explain gate, radius, and mixed-envelope atomicity remain)
 
 Note recurring pattern: guards that exist in one layer (negation and explain in the intent parsers, zero-rejection gates in the airfoil, block, orifice, and cylinder rescues) are not reused at the next layer (bare rescue, general envelope settle), the same guard-at-one-layer pattern flagged in earlier phases. Tests were inspected, not executed, in this review session (no shell tool available to the reviewer). Delegate fixes: implementation to backend-dev and frontend-dev per row, added behavioral coverage to tester, all via the orchestrator.
+
+## 2026-11-03 - Cylinder Radius Fixes Review
+
+Date: 2026-11-03
+Reviewer: code-reviewer
+Scope: Cylinder fixes (radius through AgentContext spec plus caseKey, normalizeCylinderBody mapping, honestRejectionReply override, physics copy, stale-frame teaching, validator strictness, Modal-only, conventions). Tests inspected, not executed (reviewer has no shell tool).
+Verdict: FAIL
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| Radius through AgentContext spec | PASS | src/agent/agentContext.ts:180,239,377 carries finite radius in spec; test src/ui/agentConsoleBaseten.test.tsx:600-607 carries it into the lite snapshot |
+| Radius through caseKey | PASS | src/App.tsx:2024-2025 puts r<radius> (or r?) in the App caseKey; src/ui/AgentConsole.tsx:222-228 builds the fallback lite key with liteRadius; pinned at src/ui/agentConsoleBaseten.test.tsx:584-598 |
+| normalizeCylinderBody mapping | FAIL | Finite numeric radius, diameter, r, size on a cylinder token and invented cylinder radius tokens map to one validated set_spec at src/agent/agentActions.ts:309-371, pinned at src/agent/agentActions.test.ts:264-301, but a sized non-cylinder body also maps to cylinder per the Finding below |
+| honestRejectionReply override | PASS | src/ui/AgentConsole.tsx:582-593 replaces total-rejection teaching with the rejection plus Canvas unchanged, wired at lines 910 and 975-977, pinned at src/ui/agentConsoleBaseten.test.tsx:609-618 |
+| Physics copy intact | PASS | Radius names only physics terms: tutor Table cell folds radius at src/agent/tutorTable.ts:120-127,165-166, applied description at src/ui/AgentConsole.tsx:638-640, no solver tokens in those surfaces |
+| No stale-frame teaching | PASS | Tutor capture arms only after applied actions at src/ui/AgentConsole.tsx:996-1014, the settle effect waits for a moved caseKey plus frameSettled at lines 1770-1807, and radius moves both the App key and the fallback lite key so a radius-only change cannot dedupe against the old frame |
+| Validator strictness | FAIL | Direct validateAgentAction still accepts only exact kinds and set_spec revalidates through validateParametricSpec at src/agent/agentActions.ts:586-597, but the normalization layer silently drops a non-numeric size per the Finding below |
+| Modal-only | PASS | src/ui/AgentConsole.tsx:15-37 imports ModalClient and no localAssistant or local reply path; live turns ride the Modal port |
+| Conventions | PASS | 4-space indent, PascalCase types, camelCase locals in scoped files, no em dash characters in scoped prose, no eval or exec |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Major | src/agent/agentActions.ts:331-343 | normalizeCylinderBody only consults namesCylinder and bodyValid when extraRadius is null, so a set_body naming a non-cylinder body (for example naca2412 or block) with a finite radius, diameter, r, or size field is rebuilt as a cylinder set_spec, silently changing the requested body; a set_body with a size but no body at all also invents a cylinder | backend-dev: require a cylinder naming body (valid cylinder token or cylinder, circular, disk wording) before building the set_spec whenever a size field is present, leave other sized bodies untouched for strict rejection, and add parseAgentEnvelope tests for naca2412 plus radius, block plus size, and size with no body asserting no cylinder action applies. Delegate via orchestrator |
+| Minor | src/agent/agentActions.ts:313-331,512-517 | A string or non-finite radius on an otherwise valid set_body cylinder is skipped by the finite check, falls through as a bare set_body, and validateAgentAction drops the size silently, so the canvas applies the default cylinder while the stated size never lands and no rejection names it | backend-dev: when a size key is present but not a finite number, keep the candidate for a strict rejection naming the size field instead of dropping it, and pin string and NaN radius cases. Delegate via orchestrator |
+| Minor | src/ui/AgentConsole.tsx:226-232 | snapshotLiteFor appends the field suffix to a supplied caseKey that lacks one but never appends a radius suffix, so a hand built or legacy context whose caseKey lacks the radius token would not move the lite key on a radius-only change; the production App key always carries r<radius> at src/App.tsx:2024-2025, so this is a defense in depth gap only | frontend-dev: append the liteRadius token when a supplied key lacks an r token, mirroring the field suffix rule, and pin a supplied-key radius change. Delegate via orchestrator |
+
+### Verification Checklist
+- [ ] All checks passed
+- [ ] No critical issues found (no Critical, one Major)
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases (normalizeCylinderBody body guard remains)
+
+Note recurring pattern: normalization layers are correct on the cylinder happy path but ambiguous cross-category inputs (sized non-cylinder body, non-numeric size) are silently reinterpreted or dropped instead of rejected, the same normalization versus strict validator seam flagged in earlier phases. Delegate fixes to backend-dev and frontend-dev via the orchestrator, added tests to tester.

@@ -219,20 +219,29 @@ export function snapshotLiteFor(ctx: AgentContext | null | undefined): TutorSnap
             return "speed";
         })();
         const fieldToken = `f${fieldVar}`;
+        const liteRadius = (() => {
+            const r = (spec as { radius?: unknown }).radius;
+            return typeof r === "number" && Number.isFinite(r) ? `r${r}` : "r?";
+        })();
         const key = typeof c.caseKey === "string" && c.caseKey.trim().length > 0
             ? c.caseKey.trim()
-            : `${kind}|a${alpha === null ? "?" : alpha}|Re${reynolds === null ? "?" : Math.round(reynolds)}|${text(c.neural?.path, "analytic")}|${fieldToken}`;
+            : `${kind}|a${alpha === null ? "?" : alpha}|Re${reynolds === null ? "?" : Math.round(reynolds)}|${liteRadius}|${text(c.neural?.path, "analytic")}|${fieldToken}`;
         // Explicit keys from the App already carry the field token. Legacy or
         // hand built keys without one get the field suffix so a field-only
         // apply moves the key and cannot be mistaken for a settled repeat.
+        // The same defense in depth applies to the radius token: a supplied
+        // key without an r segment gets the lite radius suffix so a
+        // radius-only change moves the lite key.
         const keyWithField = key.includes("|f") ? key : `${key}|${fieldToken}`;
+        const hasRadiusToken = keyWithField.split("|").some((seg) => seg.startsWith("r"));
+        const caseKey = hasRadiusToken ? keyWithField : `${keyWithField}|${liteRadius}`;
         const pathLabel = text(c.provenanceLabel, "") !== ""
             ? text(c.provenanceLabel, "analytic")
             : text(c.neural?.path, "analytic");
         const strouhal = c.surrogate?.strouhal ?? c.lbm?.stats?.strouhal ?? null;
         const specRadius = (spec as { radius?: unknown }).radius;
         return {
-            caseKey: keyWithField,
+            caseKey,
             bodyLabel: text(c.bodyLabel, "unknown body"),
             alpha,
             reynolds,
@@ -454,7 +463,10 @@ export function buildModalMessages(
         presetLines.retired,
         `Only setup_shedding, setup_high_re_wake, and setup_airfoil exist: set_preset aliases map before validation (cylinder, shedding, karman, or vortex map to setup_shedding; high Re wake maps to setup_high_re_wake; NACA or airfoil maps to setup_airfoil; high pressure maps to retired setup_high_pressure), while conflicting or unknown presets (bare wake, high resistance, cylinder airfoil together) are strictly rejected with the canvas unchanged.`,
         `Bare body requests apply a setup with the stated Reynolds number (Re) together: show me a cylinder (or vortex shedding, karman) means setup_shedding plus a validated Reynolds number action carrying the stated Re when one is named; high Reynolds number (Re) wake means setup_high_re_wake plus a validated Reynolds number action carrying the stated Re when one is named; NACA or airfoil (any 4-digit code or bare airfoil) means setup_airfoil carrying the code into body plus angle of attack (alpha) when named; rectangle, block, or square means one set_spec block; orifice, constriction, tunnel, venturi, throat, or gap means one set_spec orifice with angle of attack (alpha) always 0.`,
-        `Cylinder size maps to the cylinder radius in [0.05, 1]: radius phrasing carries directly, diameter phrasing halves into radius, out of range values clamp with a note naming the bound.`,
+        `Cylinder size maps to the cylinder radius in [0.05, 1]: radius phrasing carries directly, diameter phrasing halves into radius, out of range values clamp with a note naming the bound. A cylinder size always rides one set_spec with the full cylinder geometry plus Reynolds number (Re) plus rationale, never set_body with extra fields. Example fence:`,
+        "```action-json",
+        '{"kind":"set_spec","spec":{"geometry":{"kind":"cylinder","chord":1,"alphaDeg":0,"nPoints":120,"radius":0.5,"center":{"x":0.5,"y":0}},"reynolds":100,"rationale":"Agent setup Cylinder radius 0.5."}}',
+        "```",
         `Explain or teach plus a body noun applies that body setup first (when it names a body other than the current one) and then teaches fully in the same single response; a pure explain-this-run question with no body noun never writes the canvas. What, why, and define questions without a setup request never write the canvas.`,
         'Any 4-digit NACA rides one set_spec with the full parametric geometry plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup NACA 2415 alpha 6.").',
         "NACA validity: thickness (t) in [0.02, 1.0], camber (m) in [0, 0.15], when camber (m) is above 0 camber position (p) in (0, 1); clamp or pick the nearest valid value and say so.",
@@ -560,6 +572,28 @@ export function collapseToOneSentence(reply: unknown): string {
         return `${joined}.`;
     } catch {
         return typeof reply === "string" ? reply : "";
+    }
+}
+
+/** Honest override for total-rejection turns. When an envelope carries
+ *  rejections with zero applied and zero pending actions, the model reply
+ *  (which may still teach the unapplied case when the model ignores the
+ *  one-sentence rule) is replaced with the honest rejection plus the canvas
+ *  unchanged note, collapsed to one sentence. The validator rejections
+ *  already name the bound and the nearest valid alternative, so they ride
+ *  along verbatim. Questions with zero actions AND zero rejections keep the
+ *  model reply: callers only invoke this when rejections exist. Never
+ *  throws. */
+export function honestRejectionReply(rejections: unknown): string {
+    try {
+        const list = Array.isArray(rejections)
+            ? rejections.filter((r): r is string => typeof r === "string" && r.trim().length > 0)
+            : [];
+        if (list.length === 0) return "Request rejected, Canvas unchanged.";
+        const joined = list.slice(0, 3).map((r) => r.trim()).join("; ");
+        return collapseToOneSentence(`Request rejected: ${joined}. Canvas unchanged.`);
+    } catch {
+        return "Request rejected, Canvas unchanged.";
     }
 }
 
@@ -875,14 +909,15 @@ export default function AgentConsole({
             const patchAtomic: Partial<TurnExtra> = { rejections };
             patchAtomic.streaming = false;
             setExtra(id, patchAtomic);
-            if (envelope.reply.trim().length > 0) {
-                const reply = firstSentenceReply(envelope.reply);
-                setTurns((prev) => {
-                    const merged = prev.map((t) => (t.id === id ? { ...t, text: reply } : t));
-                    saveTurns(merged.slice(-TRANSCRIPT_CAP));
-                    return merged.slice(-TRANSCRIPT_CAP);
-                });
-            }
+            // Total rejection: the model reply may still teach the unapplied
+            // case, so the turn renders the honest rejection instead, never
+            // model teaching for a case that never landed.
+            const reply = honestRejectionReply(rejections);
+            setTurns((prev) => {
+                const merged = prev.map((t) => (t.id === id ? { ...t, text: reply } : t));
+                saveTurns(merged.slice(-TRANSCRIPT_CAP));
+                return merged.slice(-TRANSCRIPT_CAP);
+            });
             return;
         }
         for (const action of envelope.actions) {
@@ -937,8 +972,14 @@ export default function AgentConsole({
         }
         patch.streaming = false;
         setExtra(id, patch);
-        if (envelope.reply.trim().length > 0) {
-            const reply = envelope.reply;
+        // Total rejection override: zero applied plus zero pending with
+        // rejections renders the honest rejection instead of the model
+        // reply, even when the model ignored the one-sentence rule and
+        // taught the unapplied case. Questions with zero actions AND zero
+        // rejections keep the model reply below.
+        const totalRejection = applied.length === 0 && pending.length === 0 && rejections.length > 0;
+        if (totalRejection || envelope.reply.trim().length > 0) {
+            const reply = totalRejection ? honestRejectionReply(rejections) : envelope.reply;
             setTurns((prev) => {
                 const merged = prev.map((t) => (t.id === id ? { ...t, text: reply } : t));
                 saveTurns(merged.slice(-TRANSCRIPT_CAP));

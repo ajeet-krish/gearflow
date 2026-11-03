@@ -1,6 +1,9 @@
 # Video Script: GearFlow 3 Minute Demo (319 words spoken)
 
 ## Full Spoken Script (read verbatim, 319 words)
+
+
+
 Watch this. I told my flow solver to set up an airfoil, in English.
 I am Ajeet, a solo builder working on scientific tools. I build GearFlow, a browser lab where chat sets up aerodynamics. Solo Indie entry, pushing what chat can do for physics.
 CFD tools are powerful but setup is friction. Meshing, solvers, and plots take hours. Students guess instead of seeing. Intuition never builds because trying one angle takes too long. Engineers wait for clusters to test simple ideas.

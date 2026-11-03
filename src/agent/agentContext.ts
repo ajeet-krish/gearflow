@@ -177,7 +177,7 @@ export interface AgentSurrogateEvidence {
 }
 
 export interface AgentContext {
-    spec: { kind: string; alphaDeg: number | null; reynolds: number | null; naca: AgentNacaSnapshot | null };
+    spec: { kind: string; alphaDeg: number | null; reynolds: number | null; naca: AgentNacaSnapshot | null; radius?: number | null };
     reynolds: number | null;
     regime: string;
     bodyLabel: string;
@@ -236,6 +236,7 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
         const kind = typeof specRaw.kind === "string" ? specRaw.kind : "unknown";
         const alphaRaw = finiteOrNull(specRaw.alphaDeg);
         const reRaw = finiteOrNull(snap.reynolds);
+        const radiusRaw = finiteOrNull((specRaw as { radius?: unknown }).radius);
         const clRaw = finiteOrNull(snap.cl);
         const cpRaw = finiteOrNull(snap.cpMin);
         const statsIn = snap.lbmStats ?? null;
@@ -373,6 +374,7 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
                 alphaDeg: alphaRaw === null ? null : round4(alphaRaw),
                 reynolds: reRaw === null ? null : Math.round(reRaw),
                 naca,
+                radius: radiusRaw,
             },
             reynolds: reRaw === null ? null : Math.round(reRaw),
             regime: cleanLabel(snap.regime, LABEL_MAX, "unknown regime"),
@@ -435,7 +437,7 @@ export function buildAgentContext(snapshot: AppSnapshot | null | undefined): Age
         return ctx;
     } catch {
         return {
-            spec: { kind: "unknown", alphaDeg: null, reynolds: null, naca: null },
+            spec: { kind: "unknown", alphaDeg: null, reynolds: null, naca: null, radius: null },
             reynolds: null,
             regime: "unknown regime",
             bodyLabel: "unknown body",

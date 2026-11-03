@@ -406,10 +406,13 @@ describe("agent console run gating", () => {
         try {
             expect(counter.streams).toBe(1);
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("Airfoil case request.");
+            // Total rejection override: the model reply is replaced with the
+            // honest rejection, never model teaching for an unapplied case.
+            expect(m.text()).not.toContain("Airfoil case request.");
+            expect(m.text()).toContain("Request rejected");
             expect(m.text()).not.toContain("action-json");
             expect(m.text()).toContain("Rejected:");
-            expect(m.text()).toContain("Analytic path serves this case instead.");
+            expect(m.text()).toContain("Analytic path serves this case instead");
             expect(buttonsByLabel(m.tree(), "Confirm run")).toHaveLength(0);
             expect(m.text()).not.toContain("Applied:");
         } finally {
@@ -735,14 +738,16 @@ describe("agent console live port (no parser fast path)", () => {
         });
         // Alpha 200 misses the hard envelope: the live model answers with no
         // envelope, then the rescue gate keeps the valid subset unapplied and
-        // the model reply plus the alpha rejection render, canvas unchanged.
+        // the honest rejection override renders with canvas unchanged. The
+        // model reply never renders for the unapplied case.
         typeText(m, "Set up NACA 2412 alpha 200 Re 50000");
         submitForm(m);
         await flush();
         try {
             expect(counter.streams).toBe(1);
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("Sure, setting that up now.");
+            expect(m.text()).not.toContain("Sure, setting that up now.");
+            expect(m.text()).toContain("Request rejected");
             expect(m.text()).toContain("Rejected:");
             expect(m.text()).toContain("outside [-180, 180]");
             expect(m.text()).not.toContain("Applied:");
@@ -764,15 +769,16 @@ describe("agent console live port (no parser fast path)", () => {
             initialTurns: [],
         });
         // Re 5 misses the [100, 1000000] envelope: the live model answers,
-        // and the rescue must apply nothing while surfacing the reynolds
-        // rejection next to the model reply.
+        // and the rescue applies nothing while the honest rejection override
+        // renders instead of the model reply.
         typeText(m, "Set up NACA 2412 alpha 6 Re 5");
         submitForm(m);
         await flush();
         try {
             expect(counter.streams).toBe(1);
             expect(onAgentAction).not.toHaveBeenCalled();
-            expect(m.text()).toContain("Noted, holding the current case.");
+            expect(m.text()).not.toContain("Noted, holding the current case.");
+            expect(m.text()).toContain("Request rejected");
             expect(m.text()).toContain("Rejected:");
             expect(m.text()).toContain("outside [100, 1000000]");
             expect(m.text()).not.toContain("Applied:");

@@ -2021,7 +2021,8 @@ export default function App() {
     // the tutor before vs after table. All additive, all finite guarded
     // downstream by buildAgentContext.
     const agentSnapshot: AppSnapshot = useMemo(() => {
-        const caseKey = `${debouncedSpec.kind}|${nacaCode ?? bodySelectValue}|a${debouncedSpec.alphaDeg}|Re${Math.round(debouncedRe)}|${solverPath}|f${effectiveVariable}`;
+        const radiusPart = Number.isFinite(debouncedSpec.radius) ? `r${debouncedSpec.radius}` : "r?";
+        const caseKey = `${debouncedSpec.kind}|${nacaCode ?? bodySelectValue}|a${debouncedSpec.alphaDeg}|Re${Math.round(debouncedRe)}|${radiusPart}|${solverPath}|f${effectiveVariable}`;
         const settled = isFixture
             ? true
             : solveError !== null
