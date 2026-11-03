@@ -612,14 +612,14 @@ describe("App wiring source pins", () => {
         expect(src).toContain("shouldAnimateStreet");
     });
 
-    it("no longer names solver paths in the instrument rack, the readout owns the honest analytic note", async () => {
-        // P1 agent-first simplification: the Solver Path field is gone
-        // outright, the path is forced analytic and named once in the
-        // readout note. The agent console is the control surface.
+    it("carries no solver path note in the instrument rack, the readout stays numbers only", async () => {
+        // P3 agent-first cleanup: the Solver Path field stays gone and the
+        // analytic blurb is removed too, the readout rows carry the numbers.
+        // The agent console is the control surface.
         const src = await readFile(simPath, "utf8");
         expect(src).not.toContain("neural-v3 phase averaged, modeled");
         expect(src).not.toContain("neural-v2 predicted, not validated");
         expect(src).not.toContain("simPathCurrent");
-        expect(src).toContain("Analytic potential flow, not validated. Run controls live in the agent console.");
+        expect(src).not.toContain("Analytic potential flow, not validated. Run controls live in the agent console.");
     });
 });

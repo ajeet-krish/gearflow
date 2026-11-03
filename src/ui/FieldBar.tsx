@@ -1,6 +1,6 @@
 // FieldBar: pinned scene bar for the field layer. Quantity chips only.
-// VELOCITY (speed), PRESSURE (cp), VORTICITY (omega) plus gated TKE and
-// RECIRC. TKE and RECIRC chips enable only when the active frame carries
+// VELOCITY (speed) and PRESSURE (cp) plus gated TKE and RECIRC chips that
+// enable only when the active frame carries
 // the channel and the first LBM statistics sample exists (the worker always
 // ships the channels, all zero before sampling, so the channel alone
 // never enables them); otherwise they render disabled with a reason so
@@ -28,7 +28,6 @@ export interface FieldBarProps {
 const BASE: Array<{ value: FieldMode; label: string; title: string }> = [
     { value: "speed", label: "VELOCITY", title: "Speed, velocity magnitude" },
     { value: "cp", label: "PRESSURE", title: "Pressure coefficient" },
-    { value: "omega", label: "VORTICITY", title: "Vorticity" },
 ];
 
 /** Fallback rule: a selected mean channel without frame data drops to
@@ -88,7 +87,7 @@ export default function FieldBar({
                             className={variable === "k" ? "chip active" : "chip"}
                             aria-pressed={variable === "k"}
                             disabled={!hasTke}
-                            title={hasTke ? "Turbulent kinetic energy, time mean of velocity variance" : "Available after the first LBM statistics sample"}
+                            title={hasTke ? "Turbulent kinetic energy, time mean" : "Available after the first LBM statistics sample"}
                             onClick={() => onVariable("k")}
                         >
                             TKE

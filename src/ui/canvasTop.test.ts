@@ -79,6 +79,22 @@ describe("Phase 13 canvas top", () => {
         expect(src).toMatch(/debugPanels\s*\?\s*\[/);
     });
 
+    it("run card shows BODY, ALPHA, RE, CL, CPMIN with no GRID or REGIME rows", async () => {
+        const src = await readFile(appPath, "utf8");
+        for (const row of ["<dt>BODY</dt>", "<dt>ALPHA</dt>", "<dt>RE</dt>", "<dt>CL</dt>", "<dt>CPMIN</dt>"]) {
+            expect(src).toContain(row);
+        }
+        expect(src).not.toContain("<dt>GRID</dt>");
+        expect(src).not.toContain("<dt>REGIME</dt>");
+    });
+
+    it("unmounts the eval ledger from the analysis rail", async () => {
+        const src = await readFile(appPath, "utf8");
+        expect(src).not.toContain("<EvalLogPanel");
+        expect(src).not.toContain('id: "eval"');
+        expect(src).not.toContain("EVAL LEDGER");
+    });
+
     it("owns no terminal state: Escape only exits focus, status carries counts", async () => {
         const src = await readFile(appPath, "utf8");
         expect(src).not.toContain("terminalOpen");

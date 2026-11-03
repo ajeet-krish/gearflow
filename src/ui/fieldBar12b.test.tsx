@@ -23,11 +23,12 @@ function buttonTag(html: string, label: string): string {
 }
 
 describe("FieldBar TKE and RECIRC gating", () => {
-    it("renders VELOCITY, PRESSURE, VORTICITY, TKE, and RECIRC chips", () => {
+    it("renders VELOCITY, PRESSURE, TKE, and RECIRC chips with no VORTICITY", () => {
         const html = render();
-        for (const label of ["VELOCITY", "PRESSURE", "VORTICITY", "TKE", "RECIRC"]) {
+        for (const label of ["VELOCITY", "PRESSURE", "TKE", "RECIRC"]) {
             expect(html).toContain(label);
         }
+        expect(html).not.toContain("VORTICITY");
     });
 
     it("disables TKE without the channel and names the reason", () => {
@@ -76,11 +77,12 @@ describe("FieldBar agent-first simplification", () => {
         const html = renderToStaticMarkup(
             <FieldBar variable="speed" onVariable={noop} hasTke={false} hasRecirc={false} agentFirst={true} />,
         );
-        for (const label of ["VELOCITY", "PRESSURE", "VORTICITY"]) {
+        for (const label of ["VELOCITY", "PRESSURE"]) {
             expect(html).toContain(label);
         }
         expect(html).not.toContain("TKE");
         expect(html).not.toContain("RECIRC");
+        expect(html).not.toContain("VORTICITY");
         expect(html).not.toContain("LBM statistics sample");
     });
 
@@ -88,9 +90,10 @@ describe("FieldBar agent-first simplification", () => {
         const html = renderToStaticMarkup(
             <FieldBar variable="speed" onVariable={noop} hasTke={true} hasRecirc={true} agentFirst={false} />,
         );
-        for (const label of ["VELOCITY", "PRESSURE", "VORTICITY", "TKE", "RECIRC"]) {
+        for (const label of ["VELOCITY", "PRESSURE", "TKE", "RECIRC"]) {
             expect(html).toContain(label);
         }
+        expect(html).not.toContain("VORTICITY");
     });
 });
 

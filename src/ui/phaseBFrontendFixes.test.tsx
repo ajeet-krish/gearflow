@@ -79,7 +79,6 @@ function simProps(over: Partial<SimulationSectionViewProps> = {}): SimulationSec
         onDismissLbmNotice: noop,
         lbmFailed: null,
         onLbmRecover: noop,
-        blockageWarning: null,
         ...over,
     };
 }

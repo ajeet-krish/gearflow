@@ -79,13 +79,22 @@ describe("FIELD bar chip mapping", () => {
         }) as unknown;
     }
 
-    it("maps VELOCITY, PRESSURE, VORTICITY to speed, cp, omega", () => {
+    it("maps VELOCITY and PRESSURE to speed and cp with no VORTICITY chip", () => {
         const seen: FieldMode[] = [];
         const tree = treeWith("cp", (next) => seen.push(next));
         clickLabel(tree, "VELOCITY");
         clickLabel(tree, "PRESSURE");
-        clickLabel(tree, "VORTICITY");
-        expect(seen).toEqual(["speed", "cp", "omega"]);
+        expect(seen).toEqual(["speed", "cp"]);
+        const html = renderToStaticMarkup(
+            <FieldBar
+                variable="speed"
+                onVariable={noop}
+                hasTke={true}
+                hasRecirc={true}
+                overlays={resolveOverlays("speed", DEFAULT_DISPLAY_PREFS)}
+            />,
+        );
+        expect(html).not.toContain("VORTICITY");
     });
 
     it("fires TKE and RECIRC when the channels are enabled", () => {

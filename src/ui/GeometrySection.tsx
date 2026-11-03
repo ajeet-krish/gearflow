@@ -12,8 +12,6 @@ import type { GeometrySpec } from "@/contracts/types";
 import {
     ALPHA_HARD_MAX,
     ALPHA_HARD_MIN,
-    ALPHA_MAX,
-    ALPHA_MIN,
     ORIFICE_GAP_DEFAULT,
     ORIFICE_GAP_MAX,
     ORIFICE_GAP_MIN,
@@ -59,7 +57,6 @@ export function clampBodyDim(raw: unknown, min: number, max: number, fallback: n
 export interface GeometrySectionProps {
     spec: GeometrySpec;
     onSpec: (next: GeometrySpec) => void;
-    blockageWarning: string | null;
     orificeResolutionWarning: string | null;
 }
 
@@ -68,7 +65,7 @@ export interface GeometrySectionProps {
  * readout is the whole angle surface.
  */
 export function GeometrySectionView(props: GeometrySectionProps): JSX.Element {
-    const { spec: incoming, onSpec, blockageWarning, orificeResolutionWarning } = props;
+    const { spec: incoming, onSpec, orificeResolutionWarning } = props;
     const legacyDuct = (incoming as unknown as { kind: string }).kind === "duct";
     const spec = legacyDuct ? migrateDuctToOrifice(incoming) : incoming;
     const isNaca = spec.kind === "naca4";
@@ -271,11 +268,6 @@ export function GeometrySectionView(props: GeometrySectionProps): JSX.Element {
                     )}
                 </div>
             )}
-
-            {blockageWarning !== null && (
-                <p className="fallbackNote notice" role="status">{blockageWarning}</p>
-            )}
-            <p className="hint mono">Characterized band [{ALPHA_MIN}, {ALPHA_MAX}] deg, hard envelope [{ALPHA_HARD_MIN}, {ALPHA_HARD_MAX}] deg.</p>
         </div>
     );
 }

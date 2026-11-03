@@ -1,5 +1,8 @@
-// Settings modal: appearance, field, particles, resolution in one dialog.
-// Rendered only when open. Focus trap, Escape and backdrop close, restore.
+// Settings popover: appearance, field, particles, resolution in one small
+// panel anchored under the gear button. Rendered only when open. No
+// backdrop tint, the canvas stays visible while colormap and particles
+// adjust live. Click outside plus Escape close, focus trap kept light,
+// focus restored to the opener on close.
 
 import { useEffect, useRef, useState } from "react";
 import { COLORMAPS, type ColormapName } from "@/flow/colormap";
@@ -92,6 +95,20 @@ export default function SettingsModal({
 
     useEffect(() => {
         if (!open) return;
+        const onDown = (e: MouseEvent) => {
+            const root = dialogRef.current;
+            if (root !== null && !root.contains(e.target as Node | null)) {
+                onCloseRef.current();
+            }
+        };
+        document.addEventListener("mousedown", onDown);
+        return () => {
+            document.removeEventListener("mousedown", onDown);
+        };
+    }, [open ]);
+
+    useEffect(() => {
+        if (!open) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") {
                 e.preventDefault();
@@ -161,17 +178,12 @@ export default function SettingsModal({
     };
 
     return (
-        <div
-            className="modalBackdrop"
-            onMouseDown={(e) => {
-                if (e.target === e.currentTarget) onClose();
-            }}
-        >
+        <div className="settingsPopoverWrap">
             <div
                 ref={dialogRef}
-                className="settingsModal"
+                className="settingsPopover"
                 role="dialog"
-                aria-modal="true"
+                aria-modal="false"
                 aria-labelledby="settingsTitle"
             >
                 <div className="settingsHeader">

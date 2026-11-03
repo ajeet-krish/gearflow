@@ -91,10 +91,13 @@ describe("SettingsModal", () => {
         expect(html).toContain("Reset defaults");
     });
 
-    it("renders a labeled dialog", () => {
+    it("renders a labeled popover, not a dimmed modal", () => {
         const html = render();
         expect(html).toContain('role="dialog"');
-        expect(html).toContain('aria-modal="true"');
+        expect(html).toContain('aria-modal="false"');
+        expect(html).toContain("settingsPopoverWrap");
+        expect(html).toContain("settingsPopover");
+        expect(html).not.toContain("modalBackdrop");
     });
 
     it("renders nothing when closed", () => {

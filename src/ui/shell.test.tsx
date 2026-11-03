@@ -112,7 +112,7 @@ describe("GearFlow shell", () => {
         expect(html).not.toContain(">128<");
     });
 
-    it("field bar contains VELOCITY, PRESSURE, VORTICITY", () => {
+    it("field bar contains VELOCITY and PRESSURE with no VORTICITY", () => {
         const html = renderToStaticMarkup(
             <FieldBar
                 variable="speed"
@@ -121,7 +121,7 @@ describe("GearFlow shell", () => {
         );
         expect(html).toContain("VELOCITY");
         expect(html).toContain("PRESSURE");
-        expect(html).toContain("VORTICITY");
+        expect(html).not.toContain("VORTICITY");
     });
 
     it("field bar has no particle chips", () => {

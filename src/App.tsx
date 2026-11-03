@@ -3,7 +3,6 @@ import FlowCanvas, { type FlowCanvasHandle } from "@/render/FlowCanvas";
 import ErrorBoundary from "@/ui/ErrorBoundary";
 import ResizeHandle from "@/components/ui/ResizeHandle";
 import AgentConsole from "@/ui/AgentConsole";
-import EvalLogPanel from "@/ui/EvalLogPanel";
 import SettingsModal from "@/ui/SettingsModal";
 import IdeTitleBar from "@/ui/IdeTitleBar";
 import TopNav, { type NavId } from "@/ui/TopNav";
@@ -67,7 +66,7 @@ import { loadDemoPack, type LoadedPack } from "@/meta/fixtures";
 import { HashCache } from "@/meta/cache";
 import { MetaClient } from "@/meta/client";
 import { g_evalLog } from "@/meta/evalLog";
-import { DEFAULT_DOMAIN, DEFAULT_GRID, type EvalLogEntry, type FlowField, type GeometrySpec, type OfflineCase, type ParametricSpec, type Provenance } from "@/contracts/types";
+import { DEFAULT_DOMAIN, DEFAULT_GRID, type FlowField, type GeometrySpec, type OfflineCase, type ParametricSpec, type Provenance } from "@/contracts/types";
 import { ORIFICE_THICKNESS_DEFAULT } from "@/contracts/types";
 import { ALPHA_HARD_MAX, ALPHA_HARD_MIN, alphaOutOfBandNote } from "@/contracts/schema";
 import { commitReynoldsValue } from "@/flow/reynoldsField";
@@ -89,7 +88,7 @@ const DEBOUNCE_MS = 120;
 function regimeLabel(reynolds: number): string {
     if (reynolds < 1_000) return "creeping, viscous dominated";
     if (reynolds < 20_000) return "laminar, attached";
-    if (reynolds < 200_000) return "transitional wake";
+    if (reynolds < 200_000) return "Transitional Wake";
     return "turbulent, potential model omits separation";
 }
 
@@ -459,7 +458,6 @@ export default function App() {
         }
         return (import.meta.env.VITE_DEMO_OFFLINE as string | undefined) === "true";
     });
-    const [evalEntries, setEvalEntries] = useState<EvalLogEntry[]>(() => g_evalLog.list());
     const [posterUrl, setPosterUrl] = useState<string | null>(null);
     const [offlineCases, setOfflineCases] = useState<OfflineCase[] | null>(null);
     const [offlinePackError, setOfflinePackError] = useState<string | null>(null);
@@ -587,8 +585,6 @@ export default function App() {
             // Private mode: offline still applies to this session.
         }
     }, [offline]);
-
-    useEffect(() => g_evalLog.subscribe(setEvalEntries), []);
 
     // Zenith style stacked analysis rail. Multiple sections open at once,
     // default open GEOMETRY. The STUDIO navbar link opens geometry and
@@ -2234,8 +2230,8 @@ export default function App() {
                                 <div className="runRow"><dt>BODY</dt><dd className="mono">{bodyRowLabel}</dd></div>
                                 <div className="runRow"><dt>ALPHA</dt><dd className="mono">{spec.alphaDeg.toFixed(1)} deg</dd></div>
                                 <div className="runRow"><dt>RE</dt><dd className="mono">{Math.round(debouncedRe).toLocaleString("en-US")}</dd></div>
-                                <div className="runRow"><dt>GRID</dt><dd className="mono">{`${flow.nx} x ${flow.ny}`}</dd></div>
-                                <div className="runRow"><dt>REGIME</dt><dd className="mono">{regime}</dd></div>
+                                <div className="runRow"><dt>CL</dt><dd className="mono">{Number.isFinite(frame.cl) ? frame.cl.toFixed(3) : "n/a"}</dd></div>
+                                <div className="runRow"><dt>CPMIN</dt><dd className="mono">{Number.isFinite(frame.cpMin) ? frame.cpMin.toFixed(3) : "n/a"}</dd></div>
                             </dl>
                         </div>
                         <VerticalColorbar
@@ -2317,9 +2313,6 @@ export default function App() {
                                             onDismissLbmNotice={onLbmDismissNotice}
                                             lbmFailed={lbmFailedActive ? lbmFailed : null}
                                             onLbmRecover={onLbmRecoverRe}
-                                            blockageWarning={lbmBlockage.warning}
-                                            velocity={velocity}
-                                            onVelocity={onVelocity}
                                         />
                                     ),
                                 },
@@ -2330,7 +2323,6 @@ export default function App() {
                                         <GeometrySection
                                             spec={spec}
                                             onSpec={setSpec}
-                                            blockageWarning={lbmBlockage.warning}
                                             orificeResolutionWarning={orificeResolutionWarning}
                                         />
                                     ),
@@ -2354,11 +2346,6 @@ export default function App() {
                                         },
                                     ]
                                     : []),
-                                {
-                                    id: "eval",
-                                    label: "EVAL LEDGER",
-                                    content: <EvalLogPanel entries={evalEntries} />,
-                                },
                                 ...(debugPanels
                                     ? [
                                         {

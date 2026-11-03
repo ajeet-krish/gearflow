@@ -1056,3 +1056,47 @@ Phase tests integrate with prior phase tests (all pre-existing suites still pass
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - P3 Removals: Test Report (settings popover, SolverBar plus TelemetryBar unmount, vorticity, velocity slider, blockage plus band plus blurb plus eval ledger, runCard plus Transitional Wake)
+
+### Test Results
+npm test: 121 files, 1654 tests, all passed. Baseline before this file was 120 files, 1629 tests, all passed. Delta is src/ui/p3Removals.test.tsx (25 tests).
+npm run build: tsc noEmit plus vite build succeeded.
+
+New coverage in src/ui/p3Removals.test.tsx (25 tests):
+happy path settings popover dialog with aria-modal false and live patch on every control, solver and telemetry bars unmounted with FieldBar as the single scene bar, VELOCITY plus PRESSURE chips kept with click mapping to speed and cp, Re slider plus number entry kept, run card BODY plus ALPHA plus RE plus CL plus CPMIN with Transitional Wake in the SIMULATION REGIME row,
+edge anchored transparent wrap in styles plus outside mousedown and Escape close with focus restore, closed popover renders nothing, mean channel fallback to speed, band strip absence in both source and markup, preflight blockage line without the generic Cd row, non-finite CL plus CPMIN guarded to n/a,
+error empty plus non-numeric Re typing holds last good, terminal state tokens absent from App wiring.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| p3Removals.test.tsx (25) | PASS | Popover no tint anchored live patch, bars unmounted, vorticity gone with velocity kept, velocity slider gone with Re kept, blockage plus band plus blurb plus eval ledger gone, runCard rows plus Transitional Wake |
+| all other Node suites (1629) | PASS | No regressions, 1654 total |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+
+### Coverage Summary
+Happy path covered (popover dialog with live patch, bars unmounted with FieldBar kept, VELOCITY and PRESSURE kept, Re controls kept, run card five rows, Transitional Wake label).
+Edge cases covered (transparent anchored wrap, outside plus Escape close with focus restore, closed renders nothing, mean channel fallback, band absence, preflight without generic Cd row, non-finite guards).
+Error conditions covered (empty and non-numeric Re holds last good, terminal state tokens absent, velocity plumbing absent from section wiring).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1629 pre-existing tests still pass, 1654 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | All 25 new tests passed on the first run, full suite green | No fix needed |
+
+### Residual seams (non-blocking, tests pin the removal, copy only)
+| Finding | Suggested Fix |
+|------|---------------|
+| RailShell aria label in App.tsx still reads geometry, validation, eval ledger, export after EvalLogPanel unmount | frontend-dev: retitle the label to the mounted sections in a cleanup pass |
+| App.tsx keeps the velocity multiplier state for particle advection after the slider UI removal | Intended: display only, never physics. Document or keep; no test impact |
+
+### Verification Checklist
+- [x] All tests pass (121 files, 1654 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

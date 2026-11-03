@@ -114,7 +114,6 @@ function simProps(over: Partial<SimulationSectionViewProps> = {}): SimulationSec
         onDismissLbmNotice: noop,
         lbmFailed: null,
         onLbmRecover: noop,
-        blockageWarning: null,
         ...over,
     };
 }
@@ -123,7 +122,6 @@ function geoProps(over: Partial<GeometrySectionProps> = {}): GeometrySectionProp
     return {
         spec: NACA_SPEC,
         onSpec: noop,
-        blockageWarning: null,
         orificeResolutionWarning: null,
         ...over,
     };
@@ -139,7 +137,7 @@ describe("SIMULATION section", () => {
         expect(html).toContain("6.0 deg");
         expect(html).toContain("0.412");
         expect(html).toContain("laminar wake");
-        expect(html).toContain("Analytic potential flow, not validated. Run controls live in the agent console.");
+        expect(html).not.toContain("Analytic potential flow, not validated. Run controls live in the agent console.");
         expect(html).toContain('id="simRey"');
         expect(html).toContain('id="simReNumber"');
         expect(html).not.toContain('id="simCustomGrid"');
@@ -210,37 +208,12 @@ describe("SIMULATION section", () => {
         expect(onRePopup).toHaveBeenCalledWith(null);
     });
 
-    it("velocity slider is labeled visual only and never touches physics", () => {
-        const html = renderToStaticMarkup(SimulationSectionView(simProps({ velocity: 1 })) as never);
-        expect(html).toContain('id="simVel"');
-        expect(html).toContain('aria-label="Velocity multiplier, visual only, 0.5x to 2x"');
-        expect(html).toContain("1.00x");
-        expect(html).toContain("Visual only. Scales particle speed, never forces or provenance.");
-    });
-
-    it("velocity readout clamps outside the 0.5x to 2x band", () => {
-        const hi = renderToStaticMarkup(SimulationSectionView(simProps({ velocity: 10 })) as never);
-        expect(hi).toContain("2.00x");
-        const lo = renderToStaticMarkup(SimulationSectionView(simProps({ velocity: -3 })) as never);
-        expect(lo).toContain("0.50x");
-        const nan = renderToStaticMarkup(SimulationSectionView(simProps({ velocity: Number.NaN })) as never);
-        expect(nan).toContain("1.00x");
-        const hiTree = SimulationSectionView(simProps({ velocity: 10 })) as unknown;
-        const [hiSlider] = byId(hiTree, "simVel");
-        expect(hiSlider.props.value).toBe(2);
-        const loTree = SimulationSectionView(simProps({ velocity: -3 })) as unknown;
-        const [loSlider] = byId(loTree, "simVel");
-        expect(loSlider.props.value).toBe(0.5);
-    });
-
-    it("velocity slider forwards the numeric payload through onVelocity", () => {
-        const onVelocity = vi.fn();
-        const tree = SimulationSectionView(simProps({ velocity: 1, onVelocity })) as unknown;
-        const [slider] = byId(tree, "simVel");
-        expect(slider.props.min).toBe(0.5);
-        expect(slider.props.max).toBe(2);
-        (slider.props.onChange as (e: unknown) => void)({ target: { value: "1.75" } });
-        expect(onVelocity).toHaveBeenCalledWith(1.75);
+    it("carries no velocity slider and no velocity props: Re owns the field", () => {
+        const html = renderToStaticMarkup(SimulationSectionView(simProps()) as never);
+        expect(html).not.toContain('id="simVel"');
+        expect(html).not.toContain("Velocity multiplier, visual only");
+        expect(html).not.toContain("Scales particle speed");
+        expect(html).toContain('id="simReNumber"');
     });
 
     it("LBM Run is hard blocked by pre-flight without a worker start", () => {
@@ -276,18 +249,17 @@ describe("SIMULATION section", () => {
         expect(html).toContain("Dismiss");
     });
 
-    it("renders pre-flight warnings and the blockage warning in legacy mode", () => {
+    it("renders pre-flight warnings in legacy mode with no blockage row", () => {
         const html = renderToStaticMarkup(
             SimulationSectionView(
                 simProps({
                     agentFirst: false,
                     preflightWarnings: ["LBM pre-flight: blockage 20 percent above 13 percent"],
-                    blockageWarning: "blockage 20.0 percent exceeds 5 percent reference limit",
                 })
             ) as never
         );
         expect(html).toContain("blockage 20 percent");
-        expect(html).toContain("exceeds 5 percent reference limit");
+        expect(html).not.toContain("exceeds 5 percent reference limit");
     });
 
     it("carries no live status dot, the terminal owns status", () => {

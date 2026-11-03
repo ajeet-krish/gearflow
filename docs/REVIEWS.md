@@ -2327,3 +2327,28 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Tests inspected, not executed, in this review session (no shell tool available to the reviewer): shell.test.tsx:20-77, theoryPage.test.tsx:10-53, canvasTop.test.ts:35-44. Note recurring pattern: static markup tests pin labels, anchors, and math mount points well, while layout centering, Theory route skip link, and TOC focus behavior remain unpinned at runtime, the familiar wiring seam gap. Delegate Minor fixes to frontend-dev via orchestrator.
+
+## 2026-11-03 - P3 Ruthless Simplification Review
+
+Date: 2026-11-03
+Reviewer: code-reviewer
+Scope: P3 (SettingsModal popover with no tint, anchored, live feedback; SolverBar plus TelemetryBar unmounted from editor; FieldBar vorticity removed with velocity kept; SimulationSection velocity slider plus blurb plus blockage removed; GeometrySection band plus blockage removed; EvalLogPanel unmounted; runCard BODY/ALPHA/RE/CL/CPMIN with Transitional Wake)
+Verdict: PASS
+
+| Severity | File:Line | Issue | Fix |
+|----------|-----------|-------|-----|
+| Minor | src/ui/SimulationSection.tsx:77-81,106-109, src/App.tsx:2316-2317 | Velocity slider is removed from the rail, but the velocity and onVelocity props are still passed by App and voided in the view. Documented as agent console only, so this is dead plumbing, not behavior. | frontend-dev: drop the two props from SimulationSectionProps and the App pass in a cleanup pass, or keep with the existing dated note. Delegate via orchestrator. |
+| Minor | src/ui/FieldBar.tsx:2-3 | Header comment repeats the TKE and RECIRC phrase twice. | frontend-dev: tidy the comment in a cleanup pass. Delegate via orchestrator. |
+
+Checks detail: SettingsModal popover PASS (no tint: styles.css:1245-1251 transparent wrap with pointer-events none and SettingsModal.tsx:186 aria-modal false, test pin SettingsModal.test.tsx:94-101; anchored under the gear: styles.css:1252-1256 top 64px right 12px below the TopNav gear at TopNav.tsx:90-98; live feedback: every control fires onPatch or onGridMode immediately at SettingsModal.tsx:213,225,238,253,262,271,281,295,312,330 with no Apply button, canvas stays visible). SolverBar plus TelemetryBar unmounted PASS (no SolverBar, TelemetryBar, or EvalLogPanel import or JSX in src/App.tsx; FieldBar is the only scene bar mounted at App.tsx:2145; pinned at canvasTop.test.ts:29,48). FieldBar vorticity PASS (BASE chips are only speed VELOCITY and cp PRESSURE at FieldBar.tsx:28-31, no VORTICITY or omega chip; VELOCITY kept and active state at 71-82; pinned at displayCoupling13.test.tsx:82-97). SimulationSection PASS (no simVel slider, no velocity blurb, no blockage row under agentFirst; readout BODY, ALPHA, CL, REGIME at SimulationSection.tsx:131-134 plus the Re slider at 142-151; pinned at railPanelRework.test.tsx:211-217). GeometrySection PASS (no blockage text and no band strip in GeometrySection.tsx; body, alpha, and per body fields only). EvalLogPanel unmounted PASS (no EvalLogPanel in src/App.tsx; pinned at canvasTop.test.ts:91-96). RunCard PASS (BODY, ALPHA, RE, CL, CPMIN rows at App.tsx:2230-2234, no GRID or REGIME row, pinned at canvasTop.test.ts:82-89; regime label Transitional Wake at App.tsx:88-92 for the default Re 50000 at App.tsx:337, passed as regime at App.tsx:2296 and rendered in the SimulationSection REGIME row). No dangling imports PASS (App.tsx:1-28 imports none of SolverBar, TelemetryBar, EvalLogPanel; scoped files use every import, the only dead seam is the voided velocity props above). Conventions PASS (4-space indent, PascalCase types, camelCase locals, no em dashes in scoped files).
+
+Tests inspected, not executed (reviewer has no shell tool in this session).
+
+### Verification Checklist
+- [x] All checks passed (two Minor findings, neither blocking)
+- [x] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [x] Phase code integrates cleanly with prior phases
+
+Note recurring pattern: none new. Removed surfaces are pinned by source-reading tests (canvasTop.test.ts, railPanelRework.test.tsx, displayCoupling13.test.tsx) so the removals cannot drift back silently; the remaining seam is dead prop plumbing after a removal, the same cleanup tail flagged in earlier removal cycles.

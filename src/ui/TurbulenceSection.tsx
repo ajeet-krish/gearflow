@@ -2,7 +2,7 @@
 // rail. Renders only when the LBM provider is active. Numbers render only
 // when statsReady() is true and samples are above zero; before any samples
 // it shows a single waiting line. Copy never claims resolved turbulence:
-// k is a time mean of velocity variance at this grid.
+// k is a time mean at this grid.
 
 import type { ReactNode } from "react";
 import type { LbmStats } from "@/contracts/types";
