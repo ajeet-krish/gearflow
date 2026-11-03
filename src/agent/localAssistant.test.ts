@@ -130,7 +130,7 @@ describe("localReply setup parsing", () => {
         expect(alpha.actions).toContainEqual({ kind: "set_alpha", alphaDeg: 180 });
         expect(alpha.reply).toContain("clamped");
         const re = localReply("set reynolds to 5", makeCtx());
-        expect(re.actions).toContainEqual({ kind: "set_reynolds", reynolds: 1000 });
+        expect(re.actions).toContainEqual({ kind: "set_reynolds", reynolds: 100 });
         expect(re.reply).toContain("clamped");
     });
 

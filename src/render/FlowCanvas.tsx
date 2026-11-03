@@ -28,6 +28,7 @@ interface Props {
     fieldVisible?: boolean;
     useShader?: boolean;
     particleCount?: number;
+    showParticles?: boolean;
     particleColor?: ParticleColorMode;
     particleSize?: number;
     showContours?: boolean;
@@ -193,6 +194,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         fieldVisible = true,
         useShader = true,
         particleCount = 3000,
+        showParticles = true,
         particleColor = "white",
         particleSize = 0.018,
         showContours = false,
@@ -214,6 +216,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     const fieldVisibleRef = useRef(fieldVisible);
     const useShaderRef = useRef(useShader);
     const particleCountRef = useRef(particleCount);
+    const showParticlesRef = useRef(showParticles);
     const particleColorRef = useRef<ParticleColorMode>(particleColor);
     const particleSizeRef = useRef(particleSize);
     const showContoursRef = useRef(showContours);
@@ -229,6 +232,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
     fieldVisibleRef.current = fieldVisible;
     useShaderRef.current = useShader;
     particleCountRef.current = particleCount;
+    showParticlesRef.current = showParticles;
     particleColorRef.current = particleColor;
     particleSizeRef.current = particleSize;
     showContoursRef.current = showContours;
@@ -818,9 +822,12 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         repaintRef.current();
     }, [flow, airfoil, colormap, fieldMode, meanFields, lineColor, fieldVisible, useShader, showContours, showStreamlines, streamlineColormap]);
 
-    // Effect 3: particle density follows the display control.
+    // Effect 3: particle density follows the display control. The visible
+    // checkbox gates the effective draw without touching the stored count,
+    // so toggling back restores the slider value intact.
     useEffect(() => {
-        const next = Math.max(0, Math.min(PARTICLE_STEPS[0], Math.round(particleCount)));
+        const effective = showParticles ? particleCount : 0;
+        const next = Math.max(0, Math.min(PARTICLE_STEPS[0], Math.round(effective)));
         activeRef.current = next;
         tierRef.current = 0;
         const store = psRef.current;
@@ -829,7 +836,7 @@ const FlowCanvas = forwardRef<FlowCanvasHandle, Props>(function FlowCanvas(
         if (pg) pg.setDrawRange(0, Math.min(next, store?.x.length ?? next));
         const points = pointsRef.current;
         if (points) points.visible = next > 0;
-    }, [particleCount]);
+    }, [particleCount, showParticles]);
 
     // Effect 4: particle size follows the display control through the
     // render scale. Material only, no geometry rebuild, so the field never

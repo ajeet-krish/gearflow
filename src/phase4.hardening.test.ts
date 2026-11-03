@@ -295,7 +295,7 @@ describe("edge: presets apply", () => {
             const g = preset.spec.geometry;
             expect(g.alphaDeg).toBeGreaterThanOrEqual(-4);
             expect(g.alphaDeg).toBeLessThanOrEqual(12);
-            expect(preset.spec.reynolds).toBeGreaterThanOrEqual(1000);
+            expect(preset.spec.reynolds).toBeGreaterThanOrEqual(100);
             expect(preset.spec.reynolds).toBeLessThanOrEqual(1000000);
         }
     });
@@ -303,7 +303,7 @@ describe("edge: presets apply", () => {
 
 describe("error: schema reject", () => {
     it("rejects out of range Reynolds numbers", () => {
-        for (const reynolds of [10, 999, 1000001, Number.NaN, Number.POSITIVE_INFINITY]) {
+        for (const reynolds of [10, 99, 1000001, Number.NaN, Number.POSITIVE_INFINITY]) {
             expect(() => validateParametricSpec({ ...VALID_SPEC, reynolds })).toThrow();
         }
     });
@@ -404,9 +404,11 @@ describe("error: sam empty mask", () => {
 });
 
 describe("error: bad reynolds", () => {
-    it("rejects Reynolds numbers below 1000 and above 1000000", () => {
-        expect(() => validateParametricSpec({ ...VALID_SPEC, reynolds: 500 })).toThrow();
+    it("rejects Reynolds numbers below 100 and above 1000000", () => {
+        expect(() => validateParametricSpec({ ...VALID_SPEC, reynolds: 50 })).toThrow();
         expect(() => validateParametricSpec({ ...VALID_SPEC, reynolds: 2000000 })).toThrow();
+        expect(() => validateParametricSpec({ ...VALID_SPEC, reynolds: 100 })).not.toThrow();
+        expect(() => validateParametricSpec({ ...VALID_SPEC, reynolds: 700 })).not.toThrow();
     });
 });
 

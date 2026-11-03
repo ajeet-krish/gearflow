@@ -25,11 +25,6 @@ export interface SettingsModalProps {
     variable: FieldMode;
 }
 
-const THEMES: Array<{ value: DisplayPrefs["theme"]; label: string }> = [
-    { value: "dark", label: "Dark" },
-    { value: "light", label: "Light" },
-];
-
 /** Particle count slider commit: finite input rounds into the envelope,
  *  garbage holds the previous count. Never throws. */
 export function decideParticleCountCommit(raw: unknown, fallback: number): number {
@@ -148,11 +143,12 @@ export default function SettingsModal({
     const onReset = () => {
         onPatch({
             colormap: DEFAULT_DISPLAY_PREFS.colormap,
-            theme: DEFAULT_DISPLAY_PREFS.theme,
+            theme: "dark",
             showLegend: DEFAULT_DISPLAY_PREFS.showLegend,
             fieldVisible: DEFAULT_DISPLAY_PREFS.fieldVisible,
             contours: DEFAULT_DISPLAY_PREFS.contours,
             particleCount: DEFAULT_DISPLAY_PREFS.particleCount,
+            showParticles: DEFAULT_DISPLAY_PREFS.showParticles,
             particleColor: DEFAULT_DISPLAY_PREFS.particleColor,
             particleSize: DEFAULT_DISPLAY_PREFS.particleSize,
             showStreamlines: DEFAULT_DISPLAY_PREFS.showStreamlines,
@@ -199,22 +195,6 @@ export default function SettingsModal({
                 <div className="settingsBody">
                     <section className="settingsSection" aria-label="Appearance">
                         <h3>APPEARANCE</h3>
-                        <div className="settingsRow">
-                            <span className="settingsLabel" id="themeLabel">Theme</span>
-                            <div className="segRow" role="group" aria-labelledby="themeLabel">
-                                {THEMES.map((t) => (
-                                    <button
-                                        key={t.value}
-                                        type="button"
-                                        className={prefs.theme === t.value ? "segBtn active" : "segBtn"}
-                                        aria-pressed={prefs.theme === t.value}
-                                        onClick={() => onPatch({ theme: t.value })}
-                                    >
-                                        {t.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
                         <div className="settingsRow toggleRow">
                             <input
                                 id="settingsLegend"
@@ -274,6 +254,15 @@ export default function SettingsModal({
                     </section>
                     <section className="settingsSection" aria-label="Particles">
                         <h3>PARTICLES</h3>
+                        <div className="settingsRow toggleRow">
+                            <input
+                                id="settingsParticlesVisible"
+                                type="checkbox"
+                                checked={prefs.showParticles}
+                                onChange={(e) => onPatch({ showParticles: e.target.checked })}
+                            />
+                            <label htmlFor="settingsParticlesVisible">Particles visible</label>
+                        </div>
                         <div className="settingsRow">
                             <label className="settingsLabel" htmlFor="settingsParticles">
                                 Count <output htmlFor="settingsParticles" className="mono">{prefs.particleCount === 0 ? "Off" : prefs.particleCount.toLocaleString("en-US")}</output>

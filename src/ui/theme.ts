@@ -1,5 +1,6 @@
-// Theme loader. Dark theme default per booth decision; light is available
-// via the data-theme attribute on the document root.
+// Theme loader. Dark only: the instrument skin is fixed, no switch.
+// Kept as a thin shim so existing imports keep working; every call
+// applies dark and every load returns dark regardless of stored payload.
 
 import type { DisplayPrefs } from "@/contracts/types";
 import { loadDisplayPrefs, storeDisplayPrefs } from "./displayStore";
@@ -8,33 +9,34 @@ export type ThemeName = DisplayPrefs["theme"];
 
 export const THEME_KEY = "gearflow:display:v1";
 
-/** Load the active theme, defaulting to dark. Never throws. */
+/** Load the active theme, always dark. Never throws. */
 export function loadTheme(): ThemeName {
     try {
-        return loadDisplayPrefs().theme;
+        void loadDisplayPrefs();
+        return "dark";
     } catch {
         return "dark";
     }
 }
 
-/** Persist the theme and apply it to the document root. Never throws. */
-export function storeTheme(theme: ThemeName): void {
+/** Persist prefs with theme forced to dark, then apply dark. Never throws. */
+export function storeTheme(_theme: ThemeName): void {
     try {
         const prefs = loadDisplayPrefs();
-        storeDisplayPrefs({ ...prefs, theme });
+        storeDisplayPrefs({ ...prefs, theme: "dark" });
     } catch {
         // Private mode: theme still applies to this session via applyTheme.
     }
-    applyTheme(theme);
+    applyTheme("dark");
 }
 
-/** Set data-theme on the root element. No-op without a DOM. */
-export function applyTheme(theme: ThemeName): void {
+/** Set data-theme dark on the root element. No-op without a DOM. */
+export function applyTheme(_theme: ThemeName): void {
     try {
         if (typeof document === "undefined") return;
-        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.setAttribute("data-theme", "dark");
     } catch {
-        // Non-DOM test env: theme string still round trips via storage.
+        // Non-DOM test env: nothing to apply.
     }
 }
 

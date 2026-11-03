@@ -115,7 +115,10 @@ function numericDelta(
 /**
  * Diff two tutor snapshots into table rows. LBM CpMin cells always read
  * n/a on the LBM side, so the model cannot quote an untrusted suction
- * number. Never throws: null snapshots diff as n/a against n/a.
+ * number. Orifice Alpha cells always read n/a with a n/a delta: the
+ * plate has no angle of attack (documented choice, applied consistently
+ * on both sides so the row never names an angle). Never throws: null
+ * snapshots diff as n/a against n/a.
  */
 export function buildTutorTable(
     beforeIn: TutorSnapshotLite | null | undefined,
@@ -129,13 +132,22 @@ export function buildTutorTable(
         const lbmAfter = tutorSourceFamily(after.pathLabel) === "lbm";
         const cpBefore = lbmBefore ? null : before.cpMin;
         const cpAfter = lbmAfter ? null : after.cpMin;
+        // Orifice choice: no Alpha row numbers for the plate on either
+        // side, the gap opening carries the physics instead.
+        const orificeBefore = before.bodyLabel.toLowerCase().includes("orifice");
+        const orificeAfter = after.bodyLabel.toLowerCase().includes("orifice");
+        const alphaBefore = orificeBefore ? null : before.alpha;
+        const alphaAfter = orificeAfter ? null : after.alpha;
+        const alphaDelta = orificeBefore || orificeAfter
+            ? "n/a"
+            : numericDelta(alphaBefore, alphaAfter, sameFamily, (d) => `${d.toFixed(1)} deg`);
         return [
             { metric: "Body", before: before.bodyLabel, after: after.bodyLabel, delta: "n/a" },
             {
                 metric: "Alpha",
-                before: fmtAlpha(before.alpha),
-                after: fmtAlpha(after.alpha),
-                delta: numericDelta(before.alpha, after.alpha, sameFamily, (d) => `${d.toFixed(1)} deg`),
+                before: fmtAlpha(alphaBefore),
+                after: fmtAlpha(alphaAfter),
+                delta: alphaDelta,
             },
             {
                 metric: "Re",

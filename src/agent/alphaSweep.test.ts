@@ -95,6 +95,17 @@ describe("isAlphaSweepIntent", () => {
         expect(isAlphaSweepIntent("what is the influence of AoA on suction")).toBe(false);
         expect(isAlphaSweepIntent("why sweep alpha")).toBe(false);
         expect(isAlphaSweepIntent("why should I sweep")).toBe(false);
+        expect(isAlphaSweepIntent("explain the stall demo")).toBe(false);
+        expect(isAlphaSweepIntent("what is stall")).toBe(false);
+        expect(isAlphaSweepIntent("why does stall happen")).toBe(false);
+    });
+
+    it("runs stall demo phrasings through the same staircase", () => {
+        expect(isAlphaSweepIntent("stall demo")).toBe(true);
+        expect(isAlphaSweepIntent("run the stall demo")).toBe(true);
+        expect(isAlphaSweepIntent("stall sweep")).toBe(true);
+        expect(isAlphaSweepIntent("show stall across the band")).toBe(true);
+        expect(isAlphaSweepIntent("show stall")).toBe(true);
     });
 
     it("rejects negation guards even when sweep terms appear", () => {
@@ -105,6 +116,9 @@ describe("isAlphaSweepIntent", () => {
         expect(isAlphaSweepIntent("never sweep")).toBe(false);
         expect(isAlphaSweepIntent("no sweep please")).toBe(false);
         expect(isAlphaSweepIntent("not a sweep")).toBe(false);
+        expect(isAlphaSweepIntent("do not run the stall demo")).toBe(false);
+        expect(isAlphaSweepIntent("never show stall")).toBe(false);
+        expect(isAlphaSweepIntent("no stall sweep please")).toBe(false);
     });
 
     it("rejects plain setup and explainer text plus non strings", () => {

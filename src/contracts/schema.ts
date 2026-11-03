@@ -203,6 +203,9 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
     if (spec.kind === "orifice") {
         const w = spec.width as number | undefined;
         const h = spec.height as number | undefined;
+        if (!Number.isFinite(spec.alphaDeg) || (spec.alphaDeg as number) !== 0) {
+            throw new Error("GeometrySpec.alphaDeg must be 0 for kind orifice (the plate has no angle of attack, cite the gap opening instead)");
+        }
         if (w !== undefined && (!isFiniteNumber(w) || w < ORIFICE_THICKNESS_MIN || w > ORIFICE_THICKNESS_MAX)) {
             throw new Error(`GeometrySpec.width (orifice thickness) must be in [${ORIFICE_THICKNESS_MIN}, ${ORIFICE_THICKNESS_MAX}], got ${String(w)}`);
         }
@@ -448,8 +451,10 @@ export function validateSamPolygon(points: unknown): asserts points is Array<{ x
     }
 }
 
-/** Reynolds number envelope for Spark proposed specs. */
-export const RE_MIN = 1000;
+/** Reynolds number envelope for Spark proposed specs. Floor is 100 so the
+ *  shedding (Re 100) and wake (Re 700) presets validate on the same path
+ *  as the canvas field, matching the slider floor of 100. */
+export const RE_MIN = 100;
 export const RE_MAX = 1000000;
 
 export function validateParametricSpec(p: unknown): asserts p is ParametricSpec {

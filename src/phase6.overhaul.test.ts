@@ -108,12 +108,12 @@ describe("phase6 display prefs and theme", () => {
     });
 
     it("defaults to viridis, speed, dark, legend on", () => {
-        expect(DEFAULT_DISPLAY_PREFS).toEqual({ colormap: "viridis", variable: "speed", theme: "dark", showLegend: true, fieldVisible: true, contours: false, particleCount: 3000, particleColor: "white", showStreamlines: false, meanFields: false, particleSize: 0.018, overlayPinned: false, overlayPinnedField: null });
+        expect(DEFAULT_DISPLAY_PREFS).toEqual({ colormap: "viridis", variable: "speed", theme: "dark", showLegend: true, fieldVisible: true, contours: false, particleCount: 3000, showParticles: true, particleColor: "white", showStreamlines: false, meanFields: false, particleSize: 0.018, overlayPinned: false, overlayPinnedField: null });
         expect(loadDisplayPrefs()).toEqual(DEFAULT_DISPLAY_PREFS);
     });
 
     it("round trips prefs and sanitizes bad values", () => {
-        storeDisplayPrefs({ ...DEFAULT_DISPLAY_PREFS, colormap: "turbo", variable: "cp", theme: "light", showLegend: false });
+        storeDisplayPrefs({ ...DEFAULT_DISPLAY_PREFS, colormap: "turbo", variable: "cp", showLegend: false });
         expect(loadDisplayPrefs().colormap).toBe("turbo");
         localStorage.setItem("gearflow:display:v1", JSON.stringify({ version: 1, prefs: { colormap: "nope", variable: "nope", theme: "nope" } }));
         const prefs = loadDisplayPrefs();
@@ -125,7 +125,6 @@ describe("phase6 display prefs and theme", () => {
     it("loads dark by default and applies without a DOM", () => {
         expect(loadTheme()).toBe("dark");
         expect(() => applyTheme("dark")).not.toThrow();
-        expect(() => applyTheme("light")).not.toThrow();
     });
 });
 

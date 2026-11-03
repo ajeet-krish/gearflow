@@ -86,6 +86,10 @@ export function applyBodyPreset(spec: GeometrySpec, value: string): GeometrySpec
             return {
                 ...spec,
                 kind: value,
+                // The orifice plate has no angle of attack: switching to it
+                // always resets alpha to 0 so a stale airfoil alpha can
+                // never ride along into the orifice spec.
+                alphaDeg: 0,
                 center: spec.center ?? { x: 0.5, y: 0 },
                 width: clampOrificeThickness(spec.width),
                 height: clampOrificeGap(spec.height),

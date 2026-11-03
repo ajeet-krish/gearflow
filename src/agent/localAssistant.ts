@@ -186,6 +186,7 @@ function unknownNacaHere(code: string | null, bodyTok: string | null): string | 
 
 function findField(lower: string): string | null {
     if (/\bvorticity\b/.test(lower)) return "omega";
+    if (/\bvelocity\b/.test(lower)) return "speed";
     for (const name of FIELD_NAMES) {
         if (new RegExp(`\\b${name}\\b`).test(lower)) return name;
     }
@@ -212,7 +213,10 @@ function buildExplainer(ctx: AgentContext | null): string {
     const clText = cl === null ? "Cl pending a clean solve" : `Cl ${cl.toFixed(3)}`;
     const cpText = cp === null ? "CpMin pending a clean solve" : `CpMin ${cp.toFixed(3)}`;
     const reText = re === null ? "Re unset" : `Re ${Math.round(re)}`;
-    const alphaText = alpha === null ? "alpha unset" : `alpha ${alpha.toFixed(1)} deg`;
+    // The orifice plate has no angle of attack, so its explainer never
+    // names one: the gap opening carries the physics instead.
+    const isOrifice = /orifice/.test(body.toLowerCase());
+    const alphaText = isOrifice ? "no angle (plate has no angle of attack, gap opening sets the physics)" : (alpha === null ? "alpha unset" : `alpha ${alpha.toFixed(1)} deg`);
     const agentFirst = resolveAgentFirst((ctx as unknown as { agentFirst?: unknown } | null)?.agentFirst);
     let suggestion: string;
     if (alpha !== null && alpha < ALPHA_MAX) {
@@ -360,7 +364,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         }
         if (CANNOT_COMPRESSIBLE_RE.test(lower)) {
             return {
-                reply: "Cannot do compressible or supersonic flow: the solver is incompressible analytic plus low speed LBM. Stay subsonic and set an Re in [1000, 1000000] instead. Canvas unchanged.",
+                reply: "Cannot do compressible or supersonic flow: the solver is incompressible analytic plus low speed LBM. Stay subsonic and set an Re in [100, 1000000] instead. Canvas unchanged.",
                 actions: [],
                 rejections: [],
             };

@@ -171,10 +171,12 @@ describe("envelope alias plus canonical fraction normalization", () => {
 });
 
 describe("trusted preset setup actions", () => {
-    it("accepts setup_shedding at Re 100 through the preset path while the bare Re floor rejects it", () => {
-        const bare = validateAgentAction({ kind: "set_reynolds", reynolds: 100 }, ANALYTIC);
+    it("accepts setup_shedding at Re 100 on the same path the bare Re floor accepts", () => {
+        const bare = validateAgentAction({ kind: "set_reynolds", reynolds: 99 }, ANALYTIC);
         expect(bare.ok).toBe(false);
-        expect(bare.reason ?? "").toContain("1000");
+        expect(bare.reason ?? "").toContain("100");
+        expect(validateAgentAction({ kind: "set_reynolds", reynolds: 100 }, ANALYTIC).ok).toBe(true);
+        expect(validateAgentAction({ kind: "set_reynolds", reynolds: 700 }, ANALYTIC).ok).toBe(true);
         const trusted = validateAgentAction({ kind: "setup_shedding" }, ANALYTIC);
         expect(trusted.ok).toBe(true);
         expect(trusted.action).toEqual({ kind: "setup_shedding" });

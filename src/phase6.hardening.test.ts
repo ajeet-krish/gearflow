@@ -511,27 +511,22 @@ describe("phase6 hardening theme preference", () => {
     installMemoryStorage();
   });
 
-  it("defaults to dark and round trips a light choice", () => {
+  it("defaults to dark and stays dark with no light option", () => {
     expect(DEFAULT_DISPLAY_PREFS.theme).toBe("dark");
     expect(loadTheme()).toBe("dark");
-    storeTheme("light");
-    expect(loadTheme()).toBe("light");
     storeTheme("dark");
     expect(loadTheme()).toBe("dark");
   });
 
   it("applies without a DOM and never throws in private mode", () => {
     expect(() => applyTheme("dark")).not.toThrow();
-    expect(() => applyTheme("light")).not.toThrow();
-    expect(() => storeTheme("light")).not.toThrow();
+    expect(() => storeTheme("dark")).not.toThrow();
   });
 
-  it("computes the settings theme next label the way the settings dialog does", () => {
-    const nextFor = (theme: "dark" | "light"): "dark" | "light" => (theme === "dark" ? "light" : "dark");
-    expect(nextFor("dark")).toBe("light");
-    expect(nextFor("light")).toBe("dark");
-    storeTheme(nextFor(loadTheme()));
-    expect(loadTheme()).toBe("light");
+  it("forces dark even when a legacy light payload is stored", () => {
+    storeDisplayPrefs({ ...DEFAULT_DISPLAY_PREFS, theme: "light" as never });
+    expect(loadDisplayPrefs().theme).toBe("dark");
+    expect(loadTheme()).toBe("dark");
   });
 
   it("keeps quota errors local to the session", () => {
@@ -547,7 +542,7 @@ describe("phase6 hardening theme preference", () => {
         return 0;
       },
     };
-    expect(() => storeTheme("light")).not.toThrow();
+    expect(() => storeTheme("dark")).not.toThrow();
     expect(() => storeDisplayPrefs({ ...DEFAULT_DISPLAY_PREFS, colormap: "turbo" })).not.toThrow();
   });
 });

@@ -246,12 +246,12 @@ describe("Settings Reset defaults", () => {
     it("restores the contract defaults and keeps the grid at 512", () => {
         const pinned: DisplayPrefs = {
             ...DEFAULT_DISPLAY_PREFS,
-            theme: "light",
             contours: true,
             showStreamlines: true,
             overlayPinned: true,
             overlayPinnedField: "speed",
             particleCount: 1200,
+            showParticles: false,
         };
         const patched: Array<Partial<DisplayPrefs>> = [];
         const gridModes: GridMode[] = [];
@@ -272,6 +272,7 @@ describe("Settings Reset defaults", () => {
             fieldVisible: DEFAULT_DISPLAY_PREFS.fieldVisible,
             contours: DEFAULT_DISPLAY_PREFS.contours,
             particleCount: DEFAULT_DISPLAY_PREFS.particleCount,
+            showParticles: DEFAULT_DISPLAY_PREFS.showParticles,
             particleColor: DEFAULT_DISPLAY_PREFS.particleColor,
             particleSize: DEFAULT_DISPLAY_PREFS.particleSize,
             showStreamlines: DEFAULT_DISPLAY_PREFS.showStreamlines,

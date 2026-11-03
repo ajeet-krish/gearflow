@@ -50,11 +50,13 @@ export function defaultSweepYield(): Promise<void> {
  *  Bare impact on flow and generic how-do affect without an alpha or AoA
  *  mention never fire, so Reynolds, temperature, and drag questions fall
  *  through to teaching. Question guards (what is, why, explain, compare,
- *  vs) and negation guards (do not, never, no sweep) return false,
+ *  vs) and negation guards (do not, never, no sweep, no stall, not a
+ *  sweep, not a stall) return false,
  *  mirroring blockIntent, so definitional or declined sweeps fall through
  *  to teaching. */
 const SWEEP_QUESTION_RE = /\bwhat\s+is\b|\bwhat'?s\b|\bwhy\b|\bexplain\b|\bcompar\w*|\bversus\b|\bvs\.?(?!\w)/i;
-const SWEEP_NEGATION_RE = /\bdo\s+not\b|\bdon'?t\b|\bnever\b|\bno\s+sweep\b|\bnot\s+a\s+sweep\b/i;
+const SWEEP_NEGATION_RE = /\bdo\s+not\b|\bdon'?t\b|\bnever\b|\bno\s+sweep\b|\bnot\s+a\s+sweep\b|\bno\s+stall\b|\bnot\s+a\s+stall\b/i;
+const SWEEP_STALL_NEGATION_RE = /\bdo\s+not\b.*\bstall\b|\bdon'?t\b.*\bstall\b|\bnever\b.*\bstall\b/i;
 const SWEEP_RE = /\bsweep\b/;
 const WHAT_IF_ALPHA_RE = /what\s*if.*alpha|alpha.*what\s*if/;
 const STAIRCASE_RE = /staircase|alpha ladder|alpha staircase/;
@@ -65,6 +67,11 @@ const SWEEP_THROUGH_RE = /sweep\s+through/;
 const IMPACT_ALPHA_RE = /impact\s+of\s+(alpha|aoa)|(alpha|aoa).*impact|impact.*(alpha|aoa)/;
 const HOW_DOES_RE = /how\s+does\s+(alpha|aoa)\b/;
 const HOW_DO_AFFECT_RE = /how\s+do\b.*(alpha|aoa).*affect\b|how\s+does\b.*(alpha|aoa).*affect\b|how\s+do\b.*(alpha|aoa).*effect\b|how\s+does\b.*(alpha|aoa).*impact\b|how\s+do\b.*affect\b.*(alpha|aoa)|how\s+does\b.*affect\b.*(alpha|aoa)|how\s+do\b.*effect\b.*(alpha|aoa)|how\s+does\b.*impact\b.*(alpha|aoa)/;
+/** Stall demo phrasings run the same staircase: stall demo, stall sweep,
+ *  and show stall. Still blocked by the question and negation guards
+ *  above, so definitional or declined stall talk falls through to
+ *  teaching, mirroring blockIntent. */
+const STALL_SWEEP_RE = /stall\s*demo|stall\s*sweep|show\s+stall/i;
 
 /** True when the text asks for the live alpha staircase. Never throws. */
 export function isAlphaSweepIntent(text: unknown): boolean {
@@ -73,7 +80,8 @@ export function isAlphaSweepIntent(text: unknown): boolean {
         const lower = text.toLowerCase();
         if (SWEEP_QUESTION_RE.test(lower)) return false;
         if (SWEEP_NEGATION_RE.test(lower)) return false;
-        return SWEEP_RE.test(lower) || WHAT_IF_ALPHA_RE.test(lower) || STAIRCASE_RE.test(lower) || INFLUENCE_RE.test(lower) || EFFECT_RE.test(lower) || ACROSS_ALPHA_RE.test(lower) || SWEEP_THROUGH_RE.test(lower) || IMPACT_ALPHA_RE.test(lower) || HOW_DOES_RE.test(lower) || HOW_DO_AFFECT_RE.test(lower);
+        if (SWEEP_STALL_NEGATION_RE.test(lower)) return false;
+        return SWEEP_RE.test(lower) || WHAT_IF_ALPHA_RE.test(lower) || STAIRCASE_RE.test(lower) || INFLUENCE_RE.test(lower) || EFFECT_RE.test(lower) || ACROSS_ALPHA_RE.test(lower) || SWEEP_THROUGH_RE.test(lower) || IMPACT_ALPHA_RE.test(lower) || HOW_DOES_RE.test(lower) || HOW_DO_AFFECT_RE.test(lower) || STALL_SWEEP_RE.test(lower);
     } catch {
         return false;
     }

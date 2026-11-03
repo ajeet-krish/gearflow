@@ -23,11 +23,12 @@ function render(prefs = DEFAULT_DISPLAY_PREFS) {
 }
 
 describe("SettingsModal", () => {
-    it("renders the theme control", () => {
+    it("renders dark only with no theme switch", () => {
         const html = render();
-        expect(html).toContain("Theme");
-        expect(html).toContain("Dark");
-        expect(html).toContain("Light");
+        expect(html).toContain("APPEARANCE");
+        expect(html).not.toContain("Theme");
+        expect(html).not.toContain(">Light<");
+        expect(html).not.toContain('aria-labelledby="themeLabel"');
     });
 
     it("renders the colormap control", () => {
@@ -50,7 +51,7 @@ describe("SettingsModal", () => {
         expect(html).not.toContain("Surrogate and fixture stay at 128.");
     });
 
-    it("renders particle count and color swatches with no Auto option", () => {
+    it("renders particle visibility plus count and color swatches with no Auto option", () => {
         const html = render();
         expect(html).toContain("PARTICLES");
         expect(html).toContain("Particle color");

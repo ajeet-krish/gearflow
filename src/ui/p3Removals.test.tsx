@@ -178,9 +178,9 @@ describe("P3 settings popover: no tint, anchored, live patch", () => {
         const src = await readFile(settingsPath, "utf8");
         expect(src).not.toContain("Apply");
         for (const token of [
-            "onPatch({ theme:",
             "onPatch({ colormap:",
             "onPatch({ particleCount:",
+            "onPatch({ showParticles:",
             "onPatch({ particleColor:",
             "manualPatchForToggle",
             "onPatch({ fieldVisible:",
@@ -189,10 +189,11 @@ describe("P3 settings popover: no tint, anchored, live patch", () => {
             expect(src).toContain(token);
         }
         expect(src).not.toContain("onPatch({ particleSize:");
+        expect(src).not.toContain("onPatch({ theme:");
         expect(src).not.toContain('id="settingsParticleSize"');
         const html = renderSettings();
         expect(html).not.toContain("Apply");
-        expect(html).toContain("Theme");
+        expect(html).toContain("Particles visible");
         expect(html).toContain("Colormap");
     });
 

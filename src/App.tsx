@@ -44,7 +44,7 @@ import { useResolution } from "@/flow/gridController";
 import { useDisplayPrefs } from "@/ui/displayStore";
 import { useLayoutPrefs, shellVisibility } from "@/ui/layoutStore";
 import { RailShell, SceneBars, resolveShellShortcut } from "@/ui/shellRegions";
-import { applyTheme, storeTheme } from "@/ui/theme";
+import { applyTheme } from "@/ui/theme";
 import type { ValidationSummary } from "@/ui/ValidationPanel";
 import { asFixtureExport, capTutorCaption, type ExportData } from "@/export/exportReport";
 import { localTutorReply } from "@/agent/tutorPolicy";
@@ -409,8 +409,8 @@ export default function App() {
     if (frameCacheRef.current === null) frameCacheRef.current = new CaseFrameCache<SolvedFrame>();
 
     useEffect(() => {
-        applyTheme(prefs.theme);
-    }, [prefs.theme]);
+        applyTheme("dark");
+    }, []);
 
     // Unified engine: LBM is armed by ?engine=lbm, every other flag is auto.
     // Legacy ?engine=wasm and ?wasm=1 map to auto (analytic). Fixture debug
@@ -1704,8 +1704,7 @@ export default function App() {
     // field default and clears any pin, so stale manual flags never leak
     // across fields.
     const onVariable = (next: typeof prefs.variable) => patch(overlayPatchForFieldChange(next));
-    const handlePatch = useCallback((next: Partial<typeof prefs>) => {        if (next.theme !== undefined) storeTheme(next.theme);
-        patch(next);
+    const handlePatch = useCallback((next: Partial<typeof prefs>) => {        patch({ ...next, theme: "dark" });
     }, [patch]);
     const handleCloseSettings = useCallback(() => {
         setSettingsOpen(false);
@@ -2172,6 +2171,7 @@ export default function App() {
                                 meanFields={prefs.meanFields}
                                 fieldVisible={prefs.fieldVisible}
                                 particleCount={prefs.particleCount}
+                                showParticles={prefs.showParticles}
                                 particleColor={prefs.particleColor}
                                 particleSize={prefs.particleSize}
                                 showContours={effectiveOverlays.contours}

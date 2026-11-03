@@ -133,6 +133,7 @@ export function buildTutorMessages(input: BuildTutorMessagesInput): ModalMessage
                 "What changed uses only the table numbers below, never invent numbers. When a value reads n/a or loading, call it pending. Tie lift coefficient (Cl) and minimum pressure coefficient numbers to the table cells only.",
                 "Why is one cause and effect in grade 8 to 10 language.",
                 "Try next is one physics-only thought experiment: nudge angle of attack (alpha) by 1 deg and compare, or change Reynolds number (Re) and reason about the effect. Never a field switch, never a view change, never a run.",
+                "When the body is the orifice plate, never mention angle of attack (alpha): the plate has no angle, cite the gap opening instead. Try next for the orifice varies the gap opening or Reynolds number (Re), never angle of attack (alpha).",
                 "Physics note only when the idea needs it, one line: the potential flow picture omits separation and stall.",
                 "For any generated airfoil, add one line relating it to a real-world equivalent or why the shape cannot exist as drawn.",
                 "Never list valid bodies or canvas limits in replies; keep nearest alternatives purely physical, like a venturi narrowing speeds the flow, never this-canvas-can-build talk.",

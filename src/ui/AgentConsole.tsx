@@ -25,6 +25,7 @@ import { detectConcept, fieldForConcept, type TutorConcept, type TutorFieldSugge
 import { buildTutorMessages } from "@/agent/tutorPrompt";
 import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/agent/airfoilIntent";
 import { buildBlockEnvelope, parseBlockIntent } from "@/agent/blockIntent";
+import { buildOrificeEnvelope, parseOrificeIntent } from "@/agent/orificeIntent";
 import { expandCasePreset } from "@/agent/casePresets";
 import { isAlphaSweepIntent, runAlphaSweep, sweepToTutorRows, SWEEP_ALPHAS, defaultSweepYield } from "@/agent/alphaSweep";
 import { SESSION_SPEND_CAP_USD, addSpend, isSoftStopped } from "@/agent/sessionSpend";
@@ -137,6 +138,10 @@ export interface TurnExtra {
     pendingRuns: AgentAction[];
     /** Live sweep per-point samples for Apply chips on the summary turn. */
     sweepPoints?: Array<{ alphaDeg: number; cl: number | null; cpMin: number | null }>;
+    /** Suggested setup prompts on no-action explain turns. Each renders
+     *  as a confirm-style chip that submits as a new user turn, never an
+     *  auto apply. */
+    suggestedPrompts?: string[];
     /** True when the sweep summary ended early via Stop. */
     sweepCancelled?: boolean;
     /** Live sweep progress marker on the running turn. */
@@ -200,7 +205,10 @@ export function snapshotLiteFor(ctx: AgentContext | null | undefined): TutorSnap
             return t.length > 0 ? t : fallback;
         };
         const kind = typeof spec.kind === "string" ? spec.kind : "unknown";
-        const alpha = num(c.alphaDeg ?? spec.alphaDeg);
+        // The orifice plate has no angle of attack: its lite snapshot
+        // carries a null alpha so tutor tables read n/a consistently.
+        const rawAlpha = num(c.alphaDeg ?? spec.alphaDeg);
+        const alpha = kind === "orifice" ? null : rawAlpha;
         const reynolds = num(c.reynolds);
         const fieldVar = (() => {
             const f = (c.field ?? {}) as { variable?: unknown; effective?: unknown };
@@ -243,6 +251,23 @@ export function snapshotLiteFor(ctx: AgentContext | null | undefined): TutorSnap
             pathLabel: "n/a",
             strouhal: null,
         };
+    }
+}
+
+/** Suggested setup prompts for no-action explain turns. When a reply
+ *  discusses a setup (orifice constriction or airfoil) but applied
+ *  nothing, the turn carries these prompts as confirm-style chips that
+ *  submit as new user turns, never auto applies. Never throws. */
+export function suggestedPromptsFor(reply: unknown): string[] {
+    try {
+        if (typeof reply !== "string") return [];
+        const lower = reply.toLowerCase();
+        const out: string[] = [];
+        if (/orifice|constriction|venturi|throat|\btunnel\b/.test(lower)) out.push("Set up the orifice");
+        if (/\bairfoil\b|\bnaca\b/.test(lower)) out.push("Set up NACA 2412 alpha 6");
+        return out.slice(0, 2);
+    } catch {
+        return [];
     }
 }
 
@@ -411,22 +436,27 @@ export function buildModalMessages(
         "```action-json",
         '{"kind":"set_spec","spec":{"geometry":{"kind":"naca4","naca":{"code":"2415","m":0.02,"p":0.4,"t":0.15},"chord":1,"alphaDeg":6,"nPoints":120},"reynolds":200000,"rationale":"Agent setup NACA 2415 alpha 6."}}',
         "```",
-        `Valid actions: adjust angle of attack (alpha), adjust Reynolds number (Re), apply a body setup preset, or ask for an alpha sweep summary.`,
+        `Valid actions: adjust angle of attack (alpha), adjust Reynolds number (Re), apply any body including the orifice plate (fourth body tab), apply a body setup preset, show or plot a field, or ask for an alpha sweep summary.`,
         `The exact Reynolds number (Re) action kind is "set_reynolds".`,
-        `Constriction, tunnel, venturi, throat, or orifice language means the orifice body (plate thickness 0.08, gap opening 0.4); explain it as a narrower gap speeding the flow like a venturi, never canvas limits.`,
+        `Plot requests set the field: show or plot pressure or Cp emits set_field cp (contours coupling follows), show or plot velocity or speed emits set_field speed.`,
+        `Constriction, tunnel, venturi, throat, or orifice language means the orifice body and it IS appliable like any body (fourth body tab): emit set_body orifice or one set_spec with the orifice plate thickness 0.08, gap opening (height) 0.4, alphaDeg always 0. Explain it as a narrower gap speeding the flow like a venturi, never canvas limits. Example fence:`,
+        "```action-json",
+        '{"kind":"set_spec","spec":{"geometry":{"kind":"orifice","chord":1,"alphaDeg":0,"nPoints":120,"width":0.08,"height":0.4,"center":{"x":0.5,"y":0}},"reynolds":1000,"rationale":"Agent setup Orifice gap 0.4 plate 0.08."}}',
+        "```",
+        `Never mention angle of attack (alpha) for the orifice plate: it has no angle, cite the gap opening instead. Orifice specs always carry alphaDeg 0.`,
         `Setup presets expand atomically: ${presetLines.live}.`,
         presetLines.retired,
         'Any 4-digit NACA rides one set_spec with the full parametric geometry plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup NACA 2415 alpha 6.").',
         "NACA validity: thickness (t) in [0.02, 1.0], camber (m) in [0, 0.15], when camber (m) is above 0 camber position (p) in (0, 1); clamp or pick the nearest valid value and say so.",
-        "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [1000, 1000000].",
+        "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [100, 1000000]. Orifice alpha is always 0, never outside that single value.",
         "On rejection the turn states what was rejected, why (naming the bound), and the nearest valid alternative, with the canvas unchanged. No teaching prose for unapplied cases. Keep nearest alternatives purely physical, like a venturi narrowing speeds the flow, never list valid bodies or canvas limits.",
         `To open the companion page, append one fence with at most one nav action: {"kind":"open_theory","topic":"cl-vs-alpha"}. Valid topics name a Theory page anchor: ${topicList}.`,
         'A square, rectangle, or rectangular section rides one set_spec with kind block plus chord 1 plus width plus height in [0.1, 3] plus a finite center plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup Rectangle 0.5 by 0.5."). Example fence:',
         "```action-json",
         '{"kind":"set_spec","spec":{"geometry":{"kind":"block","chord":1,"alphaDeg":0,"nPoints":120,"width":0.5,"height":0.5,"center":{"x":0.5,"y":0}},"reynolds":200000,"rationale":"Agent setup Rectangle 0.5 by 0.5."}}',
         "```",
-        "Angle of attack (alpha) influence: when the user asks to see angle of attack (alpha) influence or effect, answer with no action fence and name the live analytic staircase (-4 to 12 step 2, 9 points) that the agent runs now with Stop plus per-point Apply chips, never just describe it and never promise a run the agent did not take.",
-        "Reply with one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas) plus the fence only, never duplicate What changed, Why, or Try next in the model reply; then the validated apply follows and the tutor turn teaches the result with a before versus after table plus Why plus Try next. Questions with no actions answer fully.",
+        "Angle of attack (alpha) influence, stall demo, stall sweep, or show stall: when the user asks to see angle of attack (alpha) influence or effect, or names a stall demo, stall sweep, or show stall, answer with no action fence and name the live analytic staircase (-4 to 12 step 2, 9 points) that the agent runs now with Stop plus per-point Apply chips, never just describe it and never promise a run the agent did not take. Sweep replies carry NO fence: never emit alpha_sweep_summary or any action-json fence on a sweep reply, the agent runs the staircase.",
+        "Reply with exactly one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas) plus the fence only, never two sentences, never duplicate What changed, Why, or Try next in the model reply, never teaching sections, never tables; then the validated apply follows and the tutor upsert owns all teaching on the same turn with a before versus after table plus Why plus Try next. Questions with no actions answer fully.",
         "Try next is a physics thought experiment only: nudge angle of attack by 1 deg or change Reynolds number and reason about the effect. Never a field switch, never a view change, never a run.",
         "No solver or tech stack talk: teach flow physics only, no solver names, no statistics, no spinning-flow copy, no field views. Physics note only when the idea needs it: the potential flow picture omits separation and stall.",
     ];
@@ -763,6 +793,12 @@ export default function AgentConsole({
         if (rejections.length > 0) patch.rejections = rejections;
         if (pending.length > 0) patch.pendingRuns = pending;
         if (navTopics.length > 0) patch.navTopics = navTopics;
+        // Explain turns that discuss a setup but applied nothing offer
+        // follow-ups as confirm-style chips, never auto applies.
+        if (appliedActions.length === 0 && pending.length === 0) {
+            const suggested = suggestedPromptsFor(envelope.reply);
+            if (suggested.length > 0) patch.suggestedPrompts = suggested;
+        }
         patch.streaming = false;
         setExtra(id, patch);
         if (envelope.reply.trim().length > 0) {
@@ -837,13 +873,29 @@ export default function AgentConsole({
         return { reply: built.reply, actions, rejections };
     }
 
-    function settleEnvelope(id: string, rawText: string, userText?: string): void {
+    async function settleEnvelope(id: string, rawText: string, userText?: string): Promise<void> {
+        // Sweep from chat always executes: a sweep-like kind in the model
+        // reply (alpha_sweep_summary etc) maps to the sweep runner instead
+        // of rejecting. Model sweep replies carry no fence by contract, so
+        // this only fires on a stray sweep-like fence the model invented.
+        try {
+            if (typeof rawText === "string" && /alpha_sweep_summary|["']kind["']\s*:\s*["'][^"']*sweep[^"']*["']/i.test(rawText)) {
+                const parsedSweep = parseAgentEnvelope(rawText, validationCtx);
+                const reply = parsedSweep.reply.trim().length > 0 ? parsedSweep.reply : "Running the live alpha staircase now.";
+                settleParsedEnvelope(id, { reply, actions: [], rejections: [] }, userText);
+                await runSweepFlow(typeof userText === "string" && userText.length > 0 ? userText : rawText);
+                return;
+            }
+        } catch {
+            // Sweep mapping faults fall through to the normal envelope.
+        }
         const parsed = parseAgentEnvelope(rawText, validationCtx);
         // Post-rescue: the model answered with no actionable envelope, but
         // the original request parses high confidence. Settle the parser
         // envelope on the same path instead of leaving the canvas stale.
-        // Airfoil rescue runs first, block rescue second; both stay on the
-        // post-model path only, never a pre-submit fast path.
+        // Airfoil rescue runs first, block rescue second, orifice rescue
+        // third; all stay on the post-model path only, never a pre-submit
+        // fast path.
         if (parsed.actions.length === 0 && typeof userText === "string" && userText.length > 0) {
             let intent: ReturnType<typeof parseAirfoilIntent> = null;
             try {
@@ -900,6 +952,39 @@ export default function AgentConsole({
                 }
             } catch {
                 // Block rescue faults fall through to the model envelope.
+            }
+            // Orifice rescue beside the block rescue. Constriction,
+            // venturi, throat, tunnel, or orifice language maps to one
+            // validated orifice set_spec (gap plus plate defaults, alpha
+            // always 0), rechecked through the shared validator.
+            try {
+                const orificeApply = parseOrificeIntent(userText, {
+                    reynolds: agentContext?.reynolds ?? null,
+                });
+                if (orificeApply !== null && orificeApply.confidence >= PARSER_APPLY_CONFIDENCE) {
+                    const built = buildOrificeEnvelope(orificeApply, {
+                        reynolds: agentContext?.reynolds ?? null,
+                    });
+                    const actions: AgentAction[] = [];
+                    const rejections = [...parsed.rejections];
+                    for (const candidate of built.candidates) {
+                        const checked = validateAgentAction(candidate, validationCtx);
+                        if (checked.ok && checked.action !== null) actions.push(checked.action);
+                        else rejections.push(checked.reason ?? "parser orifice action rejected");
+                    }
+                    if (actions.length > 0 && rejections.length === parsed.rejections.length) {
+                        const reply = parsed.reply.trim().length > 0 ? parsed.reply : built.reply;
+                        settleParsedEnvelope(id, { reply, actions, rejections: [] }, userText);
+                        return;
+                    }
+                    if (rejections.length > parsed.rejections.length) {
+                        const reply = parsed.reply.trim().length > 0 ? parsed.reply : built.reply;
+                        settleParsedEnvelope(id, { reply, actions: [], rejections }, userText);
+                        return;
+                    }
+                }
+            } catch {
+                // Orifice rescue faults fall through to the model envelope.
             }
         }
         settleParsedEnvelope(id, parsed, userText);
@@ -1446,7 +1531,7 @@ export default function AgentConsole({
         } else {
             setExtra(id, { streaming: false });
         }
-        settleEnvelope(id, fullText, userText);
+        await settleEnvelope(id, fullText, userText);
     }
 
     /** P3 live what-if sweep. Analytic only, always runs the staircase:
@@ -1953,6 +2038,18 @@ export default function AgentConsole({
                                     aria-label={run.kind === "run_lbm" ? "Confirm run" : "Cancel run"}
                                 >
                                     {run.kind === "run_lbm" ? "Confirm run" : "Cancel run"}
+                                </button>
+                            ))}
+                            {(extra?.suggestedPrompts ?? []).map((prompt, i) => (
+                                <button
+                                    key={`suggest-${i}`}
+                                    type="button"
+                                    className="mBtn mApply"
+                                    onClick={() => void onSubmit(prompt)}
+                                    disabled={busy}
+                                    aria-label={`Ask: ${prompt}`}
+                                >
+                                    {prompt}
                                 </button>
                             ))}
                             {t.tutor !== undefined && t.tutor !== null && (

@@ -1,6 +1,6 @@
 /* GearFlow instrument room: Zenith style dark instrument skin around a live
    tunnel window. Dracula tokens, JetBrains Mono stack, 10px tracked labels,
-   hairline borders, purple accents. Light theme is a neutral instrument skin. */
+   hairline borders, purple accents. Dark is the only skin. */
 
 :root {
   --void: #0a0a0f;
@@ -21,27 +21,6 @@
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --alert-bg: rgba(255, 85, 85, 0.12);
   --alert-ink: #ffb4a2;
-}
-
-/* Light theme: neutral light instrument skin, still readable. Dark is default. */
-:root[data-theme="light"] {
-  --void: #eef0f4;
-  --deep: #e4e7ed;
-  --nebula: #d3d8e0;
-  --card: #ffffff;
-  --dust: #b9c0cc;
-  --comment: #5b6b8c;
-  --label: #3d4a6b;
-  --text: #16161d;
-  --purple: #7a3fd1;
-  --cyan: #0b6e8c;
-  --green: #157a4c;
-  --pink: #b8336a;
-  --orange: #9a5f14;
-  --red: #b33a22;
-  --yellow: #7a6a00;
-  --alert-bg: #fbe3da;
-  --alert-ink: #7a2413;
 }
 
 * { box-sizing: border-box; }

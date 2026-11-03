@@ -345,17 +345,21 @@ export const ORIFICE_THICKNESS_MAX = 0.2;
 export const ORIFICE_THICKNESS_DEFAULT = 0.08;
 export const ORIFICE_WALL_HALF = 1.5;
 
-/** User controlled display preferences, persisted to localStorage. */
+/** User controlled display preferences, persisted to localStorage.
+ *  Dark only: no theme switch, the tunnel instrument skin is fixed. */
 export type ParticleColorMode = "white" | "black" | "cyan" | "magenta" | "orange";
 
 export interface DisplayPrefs {
     colormap: ColormapName;
     variable: FieldMode;
-    theme: "dark" | "light";
+    theme: "dark";
     showLegend: boolean;
     fieldVisible: boolean;
     contours: boolean;
     particleCount: number;
+    /** Particle layer visibility. The count slider value is preserved while
+     *  this is false, so toggling back restores the previous density. */
+    showParticles: boolean;
     particleColor: ParticleColorMode;
     showStreamlines: boolean;
     meanFields: boolean;
@@ -377,7 +381,7 @@ export const PARTICLE_COUNT_MIN = 0;
 export const PARTICLE_COUNT_MAX = 8000;
 export const PARTICLE_COUNT_STEP = 100;
 
-/** Default Phase 6 display preferences. Dark is the default; the theme toggle also offers light. */
+/** Default Phase 6 display preferences. Dark is the fixed skin, particles on. */
 export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
     colormap: "viridis",
     variable: "speed",
@@ -386,6 +390,7 @@ export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
     fieldVisible: true,
     contours: false,
     particleCount: 3000,
+    showParticles: true,
     particleColor: "white",
     showStreamlines: false,
     meanFields: false,

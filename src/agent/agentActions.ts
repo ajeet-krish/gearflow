@@ -335,7 +335,7 @@ export function agentFirstRejectionFor(action: AgentAction): string | null {
 /**
  * Validate one action against the live context. Envelopes accept the hard
  * alpha envelope [-180, 180] with the characterized band flagged downstream,
- * and reynolds in [1000, 1000000]. Trusted setup_* preset actions bypass
+ * and reynolds in [100, 1000000]. Trusted setup_* preset actions bypass
  * that Re floor on the preset path (shedding carries its own validated Re
  * 100, high_re_wake Re 700, airfoil Re 1200). Gated k and recirc fields need
  * the channel plus the first stats sample. run_lbm needs the LBM engine

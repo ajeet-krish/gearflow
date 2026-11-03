@@ -7,8 +7,8 @@
 //
 // Trusted application contract: the setup_* agent actions (setup_shedding,
 // setup_high_re_wake, setup_airfoil) carry their own validated Re and
-// bypass the per-action envelope Re floor (shedding uses Re 100, below the
-// envelope validator floor of 1000). validateAgentAction accepts those
+// bypass the per-action envelope Re floor (shedding carries Re 100 and
+// high_re_wake Re 700, both inside the envelope validator floor of 100). validateAgentAction accepts those
 // setup_* kinds on this preset path. The App executor must expand them via
 // expandCasePreset and apply the returned primitives directly through the
 // App executor (applyAgentAction primitives or applyParametric), never by

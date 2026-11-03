@@ -39,11 +39,11 @@ describe("display store phase 9", () => {
         expect(DISPLAY_STORAGE_KEY).toBe("gearflow:display:v1");
     });
 
-    it("bumps the payload version to 6", () => {
-        expect(DISPLAY_VERSION).toBe(6);
+    it("bumps the payload version to 7", () => {
+        expect(DISPLAY_VERSION).toBe(7);
     });
 
-    it("fills v1 payloads with new defaults", () => {
+    it("fills v1 payloads with new defaults and forces dark", () => {
         localStorage.setItem(
             DISPLAY_STORAGE_KEY,
             JSON.stringify({
@@ -54,7 +54,8 @@ describe("display store phase 9", () => {
         const prefs = loadDisplayPrefs();
         expect(prefs.colormap).toBe("turbo");
         expect(prefs.variable).toBe("cp");
-        expect(prefs.theme).toBe("light");
+        expect(prefs.theme).toBe("dark");
+        expect(prefs.showParticles).toBe(true);
         expect(prefs.showLegend).toBe(false);
         expect(prefs.fieldVisible).toBe(true);
         expect(prefs.contours).toBe(false);
@@ -191,6 +192,8 @@ describe("display store v3/v4 particleSize and overlay pin", () => {
             }),
         );
         const prefs = loadDisplayPrefs();
+        expect(prefs.theme).toBe("dark");
+        expect(prefs.showParticles).toBe(true);
         expect(prefs.particleSize).toBe(DEFAULT_DISPLAY_PREFS.particleSize);
         expect(prefs.overlayPinned).toBe(false);
         expect(prefs.overlayPinnedField).toBeNull();

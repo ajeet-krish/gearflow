@@ -416,6 +416,7 @@ describe("Settings fixed grid", () => {
         fieldVisible: true,
         contours: false,
         particleCount: 3000,
+        showParticles: true,
         particleColor: "white",
         showStreamlines: false,
         meanFields: false,

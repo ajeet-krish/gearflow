@@ -1,5 +1,5 @@
 // Display preferences store. Persisted to localStorage, version guarded,
-// try/catch throughout so private mode never throws. Dark theme default.
+// try/catch throughout so private mode never throws. Dark only, no theme switch.
 
 import { useCallback, useState } from "react";
 import { DEFAULT_DISPLAY_PREFS, PARTICLE_COUNT_MAX, PARTICLE_COUNT_MIN, PARTICLE_SIZE_DEFAULT, PARTICLE_SIZE_MAX, PARTICLE_SIZE_MIN, type DisplayPrefs, type ParticleColorMode } from "@/contracts/types";
@@ -7,9 +7,9 @@ import type { ColormapName } from "@/flow/colormap";
 import type { FieldMode } from "@/contracts/types";
 
 // Renaming this key would orphan deployed payloads, so the v1 string stays
-// even though DISPLAY_VERSION is now 5.
+// even though DISPLAY_VERSION is now 7.
 export const DISPLAY_STORAGE_KEY = "gearflow:display:v1";
-export const DISPLAY_VERSION = 6;
+export const DISPLAY_VERSION = 7;
 
 const COLORMAPS: ColormapName[] = [
     "viridis", "turbo", "plasma", "inferno", "magma", "cividis", "jet", "rdbu", "coolwarm", "grayscale",
@@ -27,12 +27,13 @@ function sanitize(raw: unknown): DisplayPrefs {
     const variable: FieldMode = VARIABLES.includes(r.variable as FieldMode)
         ? (r.variable as FieldMode)
         : DEFAULT_DISPLAY_PREFS.variable;
-    const theme: DisplayPrefs["theme"] = r.theme === "light" || r.theme === "dark" ? r.theme : "dark";
+    const theme: DisplayPrefs["theme"] = "dark";
     const showLegend = typeof r.showLegend === "boolean" ? r.showLegend : true;
     const fieldVisible = typeof r.fieldVisible === "boolean" ? r.fieldVisible : DEFAULT_DISPLAY_PREFS.fieldVisible;
     const contours = typeof r.contours === "boolean" ? r.contours : DEFAULT_DISPLAY_PREFS.contours;
     const showStreamlines = typeof r.showStreamlines === "boolean" ? r.showStreamlines : DEFAULT_DISPLAY_PREFS.showStreamlines;
     const meanFields = typeof r.meanFields === "boolean" ? r.meanFields : DEFAULT_DISPLAY_PREFS.meanFields;
+    const showParticles = typeof r.showParticles === "boolean" ? r.showParticles : DEFAULT_DISPLAY_PREFS.showParticles;
     const particleCountRaw = r.particleCount;
     const particleCount = typeof particleCountRaw === "number" && Number.isFinite(particleCountRaw)
         ? Math.min(PARTICLE_COUNT_MAX, Math.max(PARTICLE_COUNT_MIN, Math.round(particleCountRaw)))
@@ -54,17 +55,17 @@ function sanitize(raw: unknown): DisplayPrefs {
             : VARIABLES.includes(r.overlayPinnedField as FieldMode)
                 ? (r.overlayPinnedField as FieldMode)
                 : null;
-    return { colormap, variable, theme, showLegend, fieldVisible, contours, particleCount, particleColor, showStreamlines, meanFields, particleSize, overlayPinned, overlayPinnedField };
+    return { colormap, variable, theme, showLegend, fieldVisible, contours, particleCount, showParticles, particleColor, showStreamlines, meanFields, particleSize, overlayPinned, overlayPinnedField };
 }
 
-/** Load persisted display prefs, defaulting to viridis, speed, dark, legend on. */
+/** Load persisted display prefs, defaulting to viridis, speed, dark fixed, legend on. */
 export function loadDisplayPrefs(): DisplayPrefs {
     try {
         if (typeof localStorage === "undefined") return { ...DEFAULT_DISPLAY_PREFS };
         const raw = localStorage.getItem(DISPLAY_STORAGE_KEY);
         if (raw === null) return { ...DEFAULT_DISPLAY_PREFS };
         const parsed = JSON.parse(raw) as { version?: unknown; prefs?: unknown };
-        if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5 && parsed.version !== 6) return { ...DEFAULT_DISPLAY_PREFS };
+        if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5 && parsed.version !== 6 && parsed.version !== 7) return { ...DEFAULT_DISPLAY_PREFS };
         return sanitize(parsed.prefs);
     } catch {
         return { ...DEFAULT_DISPLAY_PREFS };

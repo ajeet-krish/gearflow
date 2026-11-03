@@ -114,11 +114,20 @@ function cellOf(rows: TutorTableRow[], metric: string): string {
     return cell === "n/a" ? "pending" : cell;
 }
 
-function explanationFor(concept: TutorConcept, rows: TutorTableRow[]): string {
+function explanationFor(concept: TutorConcept, rows: TutorTableRow[], bodyLabel = ""): string {
     const cl = cellOf(rows, "Cl");
     const cp = cellOf(rows, "CpMin");
     const alpha = cellOf(rows, "Alpha");
     const re = cellOf(rows, "Re");
+    // The orifice plate has no angle of attack: its explanations cite the
+    // gap opening instead and never name an angle.
+    const orifice = bodyLabel.toLowerCase().includes("orifice");
+    if (orifice) {
+        if (concept === "stagnation") {
+            return `Stagnation, meaning flow stopped at the plate face, shows as high pressure with lift coefficient (Cl) ${cl} at Reynolds number (Re) ${re}. A narrower gap speeds the flow like a venturi.`;
+        }
+        return `The orifice plate constricts the passage with lift coefficient (Cl) ${cl} and minimum pressure coefficient ${cp} at Reynolds number (Re) ${re}. A narrower gap speeds the flow like a venturi.`;
+    }
     if (concept === "attached-lift") {
         return `The wing stays attached, meaning flow follows the surface, with lift coefficient (Cl) ${cl} at angle of attack (alpha) ${alpha} and Reynolds number (Re) ${re}.`;
     }
@@ -142,8 +151,13 @@ function explanationFor(concept: TutorConcept, rows: TutorTableRow[]): string {
 
 /** One Try next thought experiment for a concept. Physics only, never a
  *  field switch and never a run: every branch names an angle of attack
- *  nudge or a Reynolds number thought experiment. Never throws. */
-export function experimentFor(concept: TutorConcept): string {
+ *  nudge or a Reynolds number thought experiment, except the orifice
+ *  plate, which varies the gap opening or Reynolds number and never
+ *  names an angle. Never throws. */
+export function experimentFor(concept: TutorConcept, bodyLabel = ""): string {
+    if (bodyLabel.toLowerCase().includes("orifice")) {
+        return "Reason about the same plate with a narrower gap opening at the same Reynolds number (Re) and how the jet speed shifts minimum pressure coefficient.";
+    }
     if (concept === "attached-lift") return "Nudge angle of attack (alpha) by 1 deg and compare lift coefficient (Cl) and minimum pressure coefficient.";
     if (concept === "suction-peak") return "Nudge angle of attack (alpha) by 1 deg and watch the suction peak deepen as minimum pressure coefficient falls.";
     if (concept === "stall-separation") return "Nudge angle of attack (alpha) by 1 deg and note the potential flow picture omits separation and stall, so past the band the lift reading is a proxy, not a separated wake.";
@@ -195,8 +209,8 @@ export function localTutorReply(
             strouhal: focus?.strouhal ?? null,
             cpMin: focus?.cpMin ?? null,
         });
-        const explanation = explanationFor(concept, rows);
-        const experiment = experimentFor(concept);
+        const explanation = explanationFor(concept, rows, typeof focus?.bodyLabel === "string" ? focus.bodyLabel : "");
+        const experiment = experimentFor(concept, typeof focus?.bodyLabel === "string" ? focus.bodyLabel : "");
         const note = physicsNoteFor(concept);
         void caveatFor(typeof focus?.pathLabel === "string" ? focus.pathLabel : "");
         void fieldFromCaseKey(typeof focus?.caseKey === "string" ? focus.caseKey : "");
