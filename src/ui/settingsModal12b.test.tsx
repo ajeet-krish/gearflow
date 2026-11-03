@@ -21,8 +21,8 @@ function render(
             onClose={noop}
             prefs={{ ...DEFAULT_DISPLAY_PREFS, meanFields }}
             onPatch={noop}
-            gridMode="auto"
-            activeGrid={256}
+            gridMode="512"
+            activeGrid={512}
             onGridMode={noop}
             variable="speed"
             {...extra}
@@ -89,8 +89,8 @@ describe("SettingsModal effective overlays", () => {
                 onClose={noop}
                 prefs={pinned}
                 onPatch={noop}
-                gridMode="auto"
-                activeGrid={256}
+                gridMode="512"
+                activeGrid={512}
                 onGridMode={noop}
                 variable="speed"
             />,
@@ -105,8 +105,8 @@ describe("SettingsModal effective overlays", () => {
                 onClose={noop}
                 prefs={{ ...DEFAULT_DISPLAY_PREFS, particleSize: 0.024 }}
                 onPatch={noop}
-                gridMode="auto"
-                activeGrid={256}
+                gridMode="512"
+                activeGrid={512}
                 onGridMode={noop}
                 variable="speed"
             />,

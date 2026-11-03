@@ -1,5 +1,5 @@
-// Resolution controller tests: 512 default, auto fallback after two
-// consecutive slow solves, pinned modes never fall back.
+// Resolution controller tests: fixed single grid option 512x512. No
+// pinned alternatives, no auto fallback, no slow streak.
 
 import { describe, expect, it, beforeEach } from "vitest";
 import {
@@ -9,72 +9,63 @@ import {
     setGridMode,
     SLOW_SOLVE_MS,
 } from "./gridController";
-import { GRID_1024, GRID_256, GRID_512 } from "@/contracts/types";
+import { GRID_512 } from "@/contracts/types";
 
 describe("gridController", () => {
     beforeEach(() => {
         try {
             localStorage.removeItem("gearflow:gridMode");
         } catch {
-            // Node env: readMode falls back to auto.
+            // Node env: fixed state needs no storage.
         }
     });
 
-    it("defaults to auto with a 512 active grid", () => {
+    it("is fixed at mode 512 with a 512 active grid", () => {
         const state = initialResolution();
-        expect(state.mode).toBe("auto");
+        expect(state.mode).toBe("512");
         expect(resolveGridSize(state)).toBe(GRID_512);
+        expect(resolveGridSize(state)).toBe(512);
         expect(state.autoDropped).toBe(false);
+        expect(state.notice).toBeNull();
+        expect(state.slowStreak).toBe(0);
     });
 
-    it("falls back to 256 after two consecutive solves over budget", () => {
-        let state = initialResolution("auto");
+    it("never falls back on slow solves", () => {
+        let state = initialResolution();
         const first = recordSolve(state, SLOW_SOLVE_MS + 50);
         expect(first.fellBack).toBe(false);
         expect(resolveGridSize(first.state)).toBe(GRID_512);
         state = first.state;
         const second = recordSolve(state, SLOW_SOLVE_MS + 50);
-        expect(second.fellBack).toBe(true);
-        expect(resolveGridSize(second.state)).toBe(GRID_256);
-        expect(second.state.autoDropped).toBe(true);
-        expect(second.state.notice).toContain("256");
+        expect(second.fellBack).toBe(false);
+        expect(resolveGridSize(second.state)).toBe(GRID_512);
+        expect(second.state.autoDropped).toBe(false);
+        expect(second.state.notice).toBeNull();
     });
 
-    it("resets the slow streak on a fast solve", () => {
-        let state = initialResolution("auto");
+    it("ignores fast, slow, and non-finite timings alike", () => {
+        let state = initialResolution();
         state = recordSolve(state, SLOW_SOLVE_MS + 1).state;
         state = recordSolve(state, 10).state;
         expect(state.slowStreak).toBe(0);
         const next = recordSolve(state, SLOW_SOLVE_MS + 1);
         expect(next.fellBack).toBe(false);
         expect(resolveGridSize(next.state)).toBe(GRID_512);
+        const nan = recordSolve(state, Number.NaN);
+        expect(nan.fellBack).toBe(false);
+        expect(resolveGridSize(nan.state)).toBe(GRID_512);
     });
 
-    it("never falls back when pinned to 256", () => {
-        let state = setGridMode(initialResolution("auto"), "256");
-        for (let i = 0; i < 4; i++) {
-            const next = recordSolve(state, SLOW_SOLVE_MS + 400);
+    it("coerces legacy modes to the fixed 512 state", () => {
+        for (const mode of ["auto", "256", "512", "1024", "custom"] as const) {
+            const state = setGridMode(initialResolution(), mode, 256);
+            expect(state.mode).toBe("512");
+            expect(resolveGridSize(state)).toBe(GRID_512);
+            expect(state.autoDropped).toBe(false);
+            expect(state.notice).toBeNull();
+            const next = recordSolve(state, SLOW_SOLVE_MS + 900);
             expect(next.fellBack).toBe(false);
-            state = next.state;
+            expect(resolveGridSize(next.state)).toBe(GRID_512);
         }
-        expect(resolveGridSize(state)).toBe(GRID_256);
-    });
-
-    it("pins 1024 directly with no notice", () => {
-        const state = setGridMode(initialResolution("auto"), "1024");
-        expect(resolveGridSize(state)).toBe(GRID_1024);
-        expect(state.notice).toBeNull();
-        const next = recordSolve(state, SLOW_SOLVE_MS + 900);
-        expect(next.fellBack).toBe(false);
-    });
-
-    it("pinning 256 clears a prior auto drop", () => {
-        let state = initialResolution("auto");
-        state = recordSolve(state, SLOW_SOLVE_MS + 1).state;
-        state = recordSolve(state, SLOW_SOLVE_MS + 1).state;
-        expect(state.autoDropped).toBe(true);
-        state = setGridMode(state, "256");
-        expect(resolveGridSize(state)).toBe(GRID_256);
-        expect(state.autoDropped).toBe(false);
     });
 });

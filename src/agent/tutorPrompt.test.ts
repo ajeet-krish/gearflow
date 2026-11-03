@@ -88,6 +88,21 @@ describe("buildTutorMessages", () => {
         expect(system).not.toContain("Strouhal");
     });
 
+    it("pins the never-promise-a-run and rejection rules", () => {
+        const messages = buildTutorMessages({
+            after: null,
+            rows: rows(),
+            concept: "attached-lift",
+            suggestion: { primary: "speed", secondary: "cp" },
+            history: [],
+        });
+        const system = messages[0].content;
+        expect(system).toContain("Never promise a future run or sweep the console did not take");
+        expect(system).toContain("teach no table for the unapplied case");
+        expect(system).toContain("naming the bound");
+        expect(system).toContain("nearest valid alternative");
+    });
+
     it("carries the table numbers and the concept into the user message", () => {
         const messages = buildTutorMessages({
             after: null,

@@ -407,7 +407,7 @@ describe("GEOMETRY section", () => {
     });
 });
 
-describe("Settings grid extension", () => {
+describe("Settings fixed grid", () => {
     const prefs = {
         colormap: "viridis",
         variable: "speed",
@@ -431,8 +431,8 @@ describe("Settings grid extension", () => {
                 onClose={noop}
                 prefs={{ ...prefs }}
                 onPatch={noop}
-                gridMode="auto"
-                activeGrid={256}
+                gridMode="512"
+                activeGrid={512}
                 onGridMode={noop}
                 variable="speed"
                 {...over}
@@ -440,28 +440,29 @@ describe("Settings grid extension", () => {
         );
     }
 
-    it("offers 1024 and Custom beyond auto, 512, and 256", () => {
+    it("renders the fixed 512 label with no pinned or custom options", () => {
         const html = renderSettings();
-        for (const label of ["Auto (512, fallback to 256)", "1024 x 1024 pinned", "512 x 512 pinned", "256 x 256 pinned", "Custom square"]) {
-            expect(html).toContain(label);
+        expect(html).toContain("Fixed grid");
+        expect(html).toContain("512 x 512");
+        for (const label of ["Auto (512, fallback to 256)", "1024 x 1024 pinned", "512 x 512 pinned", "256 x 256 pinned", "Custom square", "Grid mode"]) {
+            expect(html).not.toContain(label);
         }
     });
 
-    it("shows the Custom input while Custom is active", () => {
-        const html = renderSettings({ gridMode: "custom", customSize: 256 });
-        expect(html).toContain('id="settingsCustomGrid"');
-        expect(html).toContain('value="256"');
+    it("shows no Custom input on the fixed grid", () => {
+        const html = renderSettings({ gridMode: "512", customSize: 512 });
+        expect(html).not.toContain('id="settingsCustomGrid"');
     });
 
-    it("Custom invalid keeps the last good size", () => {
-        expect(decideSettingsCustomCommit("abc", 256)).toEqual({
+    it("keeps the fixture parser on the 128 to 1024 caps", () => {
+        expect(decideSettingsCustomCommit("abc", 512)).toEqual({
             fire: false,
-            size: 256,
+            size: 512,
             message: expect.stringContaining("128"),
         });
-        expect(decideSettingsCustomCommit("", 256).fire).toBe(false);
+        expect(decideSettingsCustomCommit("", 512).fire).toBe(false);
         expect(decideSettingsCustomCommit("256", 512)).toEqual({ fire: true, size: 256, message: null });
-        expect(decideSettingsCustomCommit(1025, 256).fire).toBe(false);
+        expect(decideSettingsCustomCommit(1025, 512).fire).toBe(false);
     });
 });
 

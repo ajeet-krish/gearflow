@@ -14,7 +14,7 @@ function render(prefs = DEFAULT_DISPLAY_PREFS) {
             onClose={noop}
             prefs={prefs}
             onPatch={noop}
-            gridMode="auto"
+            gridMode="512"
             activeGrid={512}
             onGridMode={noop}
             variable="speed"
@@ -36,10 +36,16 @@ describe("SettingsModal", () => {
         expect(html).toContain("Viridis");
     });
 
-    it("renders the resolution control with the active grid hint", () => {
+    it("renders the fixed 512 resolution with no mode picker", () => {
         const html = render();
         expect(html).toContain("RESOLUTION");
+        expect(html).toContain("Fixed grid");
         expect(html).toContain("512 x 512");
+        expect(html).toContain("512 only");
+        expect(html).not.toContain("Grid mode");
+        expect(html).not.toContain("Custom square");
+        expect(html).not.toContain('id="settingsGrid"');
+        expect(html).not.toContain('id="settingsCustomGrid"');
         expect(html).not.toContain("Surrogate and fixture stay at 128.");
     });
 
@@ -66,7 +72,7 @@ describe("SettingsModal", () => {
                 onClose={noop}
                 prefs={{ ...DEFAULT_DISPLAY_PREFS, particleCount: 0 }}
                 onPatch={noop}
-                gridMode="auto"
+                gridMode="512"
                 activeGrid={512}
                 onGridMode={noop}
                 variable="speed"
@@ -129,7 +135,7 @@ describe("SettingsModal", () => {
                 onClose={noop}
                 prefs={DEFAULT_DISPLAY_PREFS}
                 onPatch={noop}
-                gridMode="auto"
+                gridMode="512"
                 activeGrid={512}
                 onGridMode={noop}
                 variable="speed"

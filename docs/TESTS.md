@@ -1266,3 +1266,42 @@ Phase tests integrate with prior phase tests (all 1688 pre-existing tests still 
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - Fixed 512 plus narration plus sweep guards: Test Report (verification only, no production changes)
+
+### Test Results
+npm test: 128 files, 1724 tests, all passed. Baseline before this verification was 127 files, 1706 tests. Delta is src/verify.fixed512.sweepguard.test.tsx (16 tests).
+npm run build: tsc plus vite build succeeded. dist index 766.00 kB plus three 465.13 kB plus ort 537.92 kB plus wasm asset 194.74 kB (chunk size warning only, pre-existing pattern).
+Targeted: npx vitest run src/verify.fixed512.sweepguard.test.tsx, 16 passed.
+
+New coverage in src/verify.fixed512.sweepguard.test.tsx (16 tests):
+happy path only 512 reachable with no picker (GRID_512 is 512 with mode 512 and resolve 512 plus legacy modes coerce plus slow solves never fall back plus SettingsModal Fixed grid 512 only plus sources name the fixed 512 contract), NACA p rule plus rejection turns plus block chord in prompt (camber above 0 with 0.2 to 0.8 range plus nearest valid with No teaching prose for unapplied cases and canvas unchanged plus chord 1 with center JSON plus influence line with no fence and never promise a run), sweep fires on show plus run plus influence (show and run and staircase and sweep through plus influence and effect and across and what if, 9 point staircase shape),
+edge sweep blocked on explain plus what plus why plus negation and bare setup text,
+error rejected setups never teach unapplied tables (tutor system rejected setup rule with canvas unchanged and teach no table, sweep narration from table numbers only with stall caveat and empty rows on empty sweep).
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| verify.fixed512.sweepguard.test.tsx (16) | PASS | Fixed 512 no picker, p rule plus rejection plus chord in prompt, sweep fire on show run influence, block on explain what why negation, rejected setups teach no table |
+| all other Node suites (1708) | PASS | No regressions, 1724 total across 128 files |
+| npm run build | PASS | tsc plus vite, chunk size warning only |
+
+### Coverage Summary
+Happy path covered (fixed 512 reachable only with no picker, prompt teaches p bound plus rejection turns plus block chord, sweep fires on show plus run plus influence with 9 point shape).
+Edge cases covered (legacy mode coercion, slow solve never falls back, sweep blocked on explain plus what plus why plus negation plus bare setup text).
+Error conditions covered (rejected setups state the bound with nearest valid plus canvas unchanged and teach no table for the unapplied case, empty sweep yields no rows with pending safe narration).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (all 1708 pre-existing tests still pass, 1724 total).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| verify file first draft (before run) | Wrote the JSX assertion file with a .ts extension, so esbuild failed to parse the SettingsModal markup | Rename to .tsx via cp plus rm, reran targeted file, 16 passed with no production impact |
+
+### Verification Checklist
+- [x] All tests pass (128 files, 1724 tests)
+- [x] Happy path covered
+- [x] Edge cases covered
+- [x] Error conditions covered
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests

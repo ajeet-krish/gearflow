@@ -42,17 +42,30 @@ export function defaultSweepYield(): Promise<void> {
     });
 }
 
-/** Sweep intent patterns: sweep, what if alpha, alpha staircase. */
+/** Sweep intent patterns: sweep, what if alpha, alpha staircase, plus
+ *  influence and effect phrasings (how AoA influences, influence of
+ *  alpha/AoA, effect of alpha, across alpha, sweep through alpha).
+ *  Question guards (what is, why, explain, compare, vs) and negation
+ *  guards (do not, never, no sweep) return false, mirroring blockIntent,
+ *  so definitional or declined sweeps fall through to teaching. */
+const SWEEP_QUESTION_RE = /\bwhat\s+is\b|\bwhat'?s\b|\bwhy\b|\bexplain\b|\bcompar\w*|\bversus\b|\bvs\.?(?!\w)/i;
+const SWEEP_NEGATION_RE = /\bdo\s+not\b|\bdon'?t\b|\bnever\b|\bno\s+sweep\b|\bnot\s+a\s+sweep\b/i;
 const SWEEP_RE = /\bsweep\b/;
 const WHAT_IF_ALPHA_RE = /what\s*if.*alpha|alpha.*what\s*if/;
 const STAIRCASE_RE = /staircase|alpha ladder|alpha staircase/;
+const INFLUENCE_RE = /influence\s+of\s+(alpha|aoa)|how\s+(alpha|aoa)\s+influences?|(alpha|aoa)\s+influence/;
+const EFFECT_RE = /effect\s+of\s+(alpha|aoa)/;
+const ACROSS_ALPHA_RE = /across\s+(alpha|aoa)/;
+const SWEEP_THROUGH_RE = /sweep\s+through/;
 
 /** True when the text asks for the live alpha staircase. Never throws. */
 export function isAlphaSweepIntent(text: unknown): boolean {
     try {
         if (typeof text !== "string") return false;
         const lower = text.toLowerCase();
-        return SWEEP_RE.test(lower) || WHAT_IF_ALPHA_RE.test(lower) || STAIRCASE_RE.test(lower);
+        if (SWEEP_QUESTION_RE.test(lower)) return false;
+        if (SWEEP_NEGATION_RE.test(lower)) return false;
+        return SWEEP_RE.test(lower) || WHAT_IF_ALPHA_RE.test(lower) || STAIRCASE_RE.test(lower) || INFLUENCE_RE.test(lower) || EFFECT_RE.test(lower) || ACROSS_ALPHA_RE.test(lower) || SWEEP_THROUGH_RE.test(lower);
     } catch {
         return false;
     }

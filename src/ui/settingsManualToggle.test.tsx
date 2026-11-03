@@ -86,8 +86,8 @@ function modalProps(over: {
         onClose: () => {},
         prefs: over.prefs ?? DEFAULT_DISPLAY_PREFS,
         onPatch: over.onPatch ?? (() => {}),
-        gridMode: "auto",
-        activeGrid: 256,
+        gridMode: "512",
+        activeGrid: 512,
         onGridMode: over.onGridMode ?? (() => {}),
         variable: over.variable ?? "speed",
     };
@@ -243,7 +243,7 @@ describe("Settings rendered manual toggles", () => {
 });
 
 describe("Settings Reset defaults", () => {
-    it("restores the contract defaults and returns the grid to auto", () => {
+    it("restores the contract defaults and keeps the grid at 512", () => {
         const pinned: DisplayPrefs = {
             ...DEFAULT_DISPLAY_PREFS,
             theme: "light",
@@ -279,7 +279,7 @@ describe("Settings Reset defaults", () => {
             overlayPinned: DEFAULT_DISPLAY_PREFS.overlayPinned,
             overlayPinnedField: DEFAULT_DISPLAY_PREFS.overlayPinnedField,
         });
-        expect(gridModes).toEqual(["auto"]);
+        expect(gridModes).toEqual(["512"]);
     });
 
     it("clears a pinned manual pair back to the auto source on the next resolve", () => {

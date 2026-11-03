@@ -15,8 +15,6 @@ import {
   CUSTOM_GRID_MAX,
   CUSTOM_GRID_MIN,
   DEFAULT_DISPLAY_PREFS,
-  GRID_1024,
-  GRID_256,
   GRID_512,
   GRID_OPTIONS,
   PARTICLE_COUNT_MAX,
@@ -25,7 +23,7 @@ import {
   DEFAULT_DOMAIN,
 } from "@/contracts/types";
 import { LBM_MAX_CELLS, LBM_MAX_NX, LBM_MAX_NY, lbmGridFor } from "@/flow/engineMode";
-import { initialResolution, parseCustomGrid, setGridMode } from "@/flow/gridController";
+import { initialResolution, parseCustomGrid, resolveGridSize, setGridMode } from "@/flow/gridController";
 import { isLbmMainMessage, isLbmWorkerMessage } from "@/flow/lbmProtocol";
 import SettingsModal, { decideParticleCountCommit } from "@/ui/SettingsModal";
 import EditorTabs from "@/ui/EditorTabs";
@@ -134,15 +132,13 @@ describe("grid ceiling: LBM constructor rejects over 512", () => {
   });
 });
 
-describe("grid presets plus custom envelope", () => {
-  it("offers exactly the 256, 512, and 1024 presets", () => {
-    expect(GRID_256).toBe(256);
+describe("fixed grid 512 plus fixture envelope", () => {
+  it("fixes the live grid at 512 while the schema presets stay for fixtures", () => {
     expect(GRID_512).toBe(512);
-    expect(GRID_1024).toBe(1024);
     expect(GRID_OPTIONS).toEqual([256, 512, 1024]);
   });
 
-  it("custom squares span 128 to 1024 inclusive", () => {
+  it("fixture squares still span 128 to 1024 inclusive", () => {
     expect(CUSTOM_GRID_MIN).toBe(128);
     expect(CUSTOM_GRID_MAX).toBe(1024);
     expect(parseCustomGrid(128).ok).toBe(true);
@@ -151,9 +147,10 @@ describe("grid presets plus custom envelope", () => {
     expect(parseCustomGrid(1025).ok).toBe(false);
   });
 
-  it("pins 1024 directly and parses a custom 128", () => {
-    expect(setGridMode(initialResolution("auto"), "1024").active).toBe(1024);
-    expect(setGridMode(initialResolution("auto"), "custom", 128).active).toBe(128);
+  it("coerces legacy pins to the fixed 512 state", () => {
+    expect(setGridMode(initialResolution("auto"), "1024").active).toBe(512);
+    expect(setGridMode(initialResolution("auto"), "custom", 128).active).toBe(512);
+    expect(resolveGridSize(initialResolution())).toBe(512);
   });
 });
 
@@ -239,8 +236,8 @@ describe("particle count 0 to 8000 plus size max 0.12", () => {
         onClose={noop}
         prefs={{ ...DEFAULT_DISPLAY_PREFS }}
         onPatch={noop}
-        gridMode="auto"
-        activeGrid={256}
+        gridMode="512"
+        activeGrid={512}
         onGridMode={noop}
         variable="speed"
       />,
@@ -259,8 +256,8 @@ describe("particle count 0 to 8000 plus size max 0.12", () => {
         onClose={noop}
         prefs={{ ...DEFAULT_DISPLAY_PREFS, particleCount: 0 }}
         onPatch={noop}
-        gridMode="auto"
-        activeGrid={256}
+        gridMode="512"
+        activeGrid={512}
         onGridMode={noop}
         variable="speed"
       />,
@@ -278,8 +275,8 @@ describe("mean toggle gone", () => {
           onClose={noop}
           prefs={{ ...DEFAULT_DISPLAY_PREFS, meanFields: mean }}
           onPatch={noop}
-          gridMode="auto"
-          activeGrid={256}
+          gridMode="512"
+          activeGrid={512}
           onGridMode={noop}
           variable="speed"
         />,

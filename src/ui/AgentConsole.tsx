@@ -416,10 +416,15 @@ export function buildModalMessages(
         `Setup presets expand atomically: ${presetLines.live}.`,
         presetLines.retired,
         'Any 4-digit NACA rides one set_spec with the full parametric geometry plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup NACA 2415 alpha 6.").',
+        "NACA validity: when camber (m) is above 0, camber position (p) must be within 0.2 to 0.8; clamp or pick the nearest valid value and say so.",
         "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [1000, 1000000].",
+        "On rejection the turn states what was rejected, why (naming the bound), and the nearest valid alternative, with the canvas unchanged. No teaching prose for unapplied cases.",
         `To open the companion page, append one fence with at most one nav action: {"kind":"open_theory","topic":"cl-vs-alpha"}. Valid topics name a Theory page anchor: ${topicList}.`,
-        'A square, rectangle, or block body rides one set_spec with kind block plus width plus height in [0.1, 3] plus center plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup block 0.5 by 0.5.").',
-        "Alpha sweep: when the user asks for an alpha sweep, staircase, or what if across alpha, answer with no action fence and name the sweep (-4 to 12 step 2, 9 points), the console runs it locally with Stop plus per-point Apply chips.",
+        'A square, rectangle, or block body rides one set_spec with kind block plus chord 1 plus width plus height in [0.1, 3] plus a finite center plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup block 0.5 by 0.5."). Example fence:',
+        "```action-json",
+        '{"kind":"set_spec","spec":{"geometry":{"kind":"block","chord":1,"alphaDeg":0,"nPoints":120,"width":0.5,"height":0.5,"center":{"x":0.5,"y":0}},"reynolds":200000,"rationale":"Agent setup block 0.5 by 0.5."}}',
+        "```",
+        "Angle of attack (alpha) influence: when the user asks to see angle of attack (alpha) influence or effect, answer with no action fence and name the live analytic staircase (-4 to 12 step 2, 9 points) that the console runs locally with Stop plus per-point Apply chips, never just describe it and never promise a run the console did not take.",
         "Reply with one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas), then the validated apply follows and the tutor turn teaches the result with a before versus after table plus Why plus Try next.",
         "Try next is a physics thought experiment only: nudge angle of attack by 1 deg or change Reynolds number and reason about the effect. Never a field switch, never a view change, never a run.",
         "No solver or tech stack talk: teach flow physics only, no solver names, no statistics, no spinning-flow copy, no field views. Physics note only when the idea needs it: the potential flow picture omits separation and stall.",
@@ -766,6 +771,11 @@ export default function AgentConsole({
         }
         // Phase 2 tutor capture: run-only envelopes stay on the confirm
         // chip with zero tutor, auto applied envelopes arm the pending hook.
+        // Rejected setups never arm the hook: with zero applied actions no
+        // capture is taken, so a rejected turn can never render a taught
+        // before vs after table of the unapplied case. The rejection turn
+        // states what was rejected, why (naming the bound), and the nearest
+        // valid alternative, with the canvas unchanged.
         // Applied plus rejection lines stay on this action turn, the tutor
         // teaching appends to the same turn in place (single agent
         // response, never a second tutor turn). P3 sweep gate: while the

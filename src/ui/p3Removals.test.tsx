@@ -83,8 +83,8 @@ function renderSettings() {
             onClose={noop}
             prefs={DEFAULT_DISPLAY_PREFS}
             onPatch={noop}
-            gridMode="auto"
-            activeGrid={256}
+            gridMode="512"
+            activeGrid={512}
             onGridMode={noop}
             variable="speed"
         />,
@@ -202,8 +202,8 @@ describe("P3 settings popover: no tint, anchored, live patch", () => {
                 onClose={noop}
                 prefs={DEFAULT_DISPLAY_PREFS}
                 onPatch={noop}
-                gridMode="auto"
-                activeGrid={256}
+                gridMode="512"
+                activeGrid={512}
                 onGridMode={noop}
                 variable="speed"
             />,

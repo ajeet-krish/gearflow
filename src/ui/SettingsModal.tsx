@@ -4,7 +4,7 @@
 // adjust live. Click outside plus Escape close, focus trap kept light,
 // focus restored to the opener on close.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { COLORMAPS, type ColormapName } from "@/flow/colormap";
 import { DEFAULT_DISPLAY_PREFS, PARTICLE_COUNT_MAX, PARTICLE_COUNT_MIN, PARTICLE_COUNT_STEP, PARTICLE_SIZE_MAX, PARTICLE_SIZE_MIN, type DisplayPrefs, type FieldMode, type ParticleColorMode } from "@/contracts/types";
 import { PARTICLE_COLOR_OPTIONS } from "@/render/particleColor";
@@ -69,20 +69,15 @@ export default function SettingsModal({
     onGridMode,
     variable,
 }: SettingsModalProps) {
+    void gridMode;
+    void customSize;
+    void gridNotice;
+    void onGridMode;
     const dialogRef = useRef<HTMLDivElement>(null);
     const closeRef = useRef<HTMLButtonElement>(null);
     const prevFocusRef = useRef<Element | null>(null);
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
-    const [customText, setCustomText] = useState(String(customSize));
-    const [customError, setCustomError] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (open) {
-            setCustomText(String(customSize));
-            setCustomError(null);
-        }
-    }, [open, customSize]);
 
     useEffect(() => {
         if (!open) return;
@@ -164,7 +159,7 @@ export default function SettingsModal({
             overlayPinned: DEFAULT_DISPLAY_PREFS.overlayPinned,
             overlayPinnedField: DEFAULT_DISPLAY_PREFS.overlayPinnedField,
         });
-        onGridMode("auto");
+        onGridMode("512");
     };
 
     // Effective overlays for the active field: the checkboxes below reflect
@@ -341,66 +336,7 @@ export default function SettingsModal({
                     </section>
                     <section className="settingsSection" aria-label="Resolution">
                         <h3>RESOLUTION</h3>
-                        <div className="settingsRow">
-                            <label className="settingsLabel" htmlFor="settingsGrid">Grid mode</label>
-                            <select
-                                id="settingsGrid"
-                                className="barSelect"
-                                value={gridMode}
-                                onChange={(e) => {
-                                    const next = e.target.value as GridMode;
-                                    if (next === "custom") onGridMode("custom", customSize);
-                                    else onGridMode(next);
-                                }}
-                                aria-label="Solve resolution"
-                                aria-describedby="settingsGridHint"
-                            >
-                                <option value="auto">Auto (512, fallback to 256)</option>
-                                <option value="1024">1024 x 1024 pinned</option>
-                                <option value="512">512 x 512 pinned</option>
-                                <option value="256">256 x 256 pinned</option>
-                                <option value="custom">Custom square</option>
-                            </select>
-                        </div>
-                        {gridMode === "custom" && (
-                            <div className="settingsRow">
-                                <label className="settingsLabel" htmlFor="settingsCustomGrid">Custom square side, 128 to 1024</label>
-                                <input
-                                    id="settingsCustomGrid"
-                                    className="barSelect"
-                                    type="number"
-                                    min={128}
-                                    max={1024}
-                                    step={1}
-                                    value={customText}
-                                    onChange={(e) => setCustomText(e.target.value)}
-                                    onBlur={() => {
-                                        const decision = decideSettingsCustomCommit(customText, customSize);
-                                        if (decision.fire) {
-                                            setCustomError(null);
-                                            onGridMode("custom", decision.size);
-                                        } else {
-                                            setCustomError(decision.message);
-                                        }
-                                    }}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                                        else if (e.key === "Escape") {
-                                            setCustomText(String(customSize));
-                                            setCustomError(null);
-                                        }
-                                    }}
-                                    aria-label="Custom square grid side, 128 to 1024"
-                                />
-                                {customError !== null && (
-                                    <p className="mError" role="alert">{customError}</p>
-                                )}
-                            </div>
-                        )}
-                        <p className="hint mono" id="settingsGridHint">Active grid {activeGrid} x {activeGrid}.</p>
-                        {gridNotice !== null && (
-                            <p className="hint mono" role="status">{gridNotice}</p>
-                        )}
+                        <p className="hint mono" id="settingsGridHint">Fixed grid {activeGrid} x {activeGrid}, 512 only.</p>
                     </section>
                 </div>
                 <div className="settingsFooter">

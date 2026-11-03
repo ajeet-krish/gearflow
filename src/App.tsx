@@ -272,8 +272,7 @@ export function shouldRetryNeuralPredict(retriedKey: string | null, failedKey: s
  * GearFlow Phase 6 shell. Agent console on the left, tunnel canvas center,
  * instrument rack on the right. Analytic path computes locally with zero
  * fetch on the critical path. Neural v2 overlays the analytic frame when
- * the router selects it, analytic may run 512
- * with automatic fallback to 256 after repeated slow solves.
+ * the router selects it, analytic always runs the fixed 512 grid.
  */
 export interface RunLogEntry {
     step: number;
@@ -671,8 +670,8 @@ export default function App() {
             .finally(() => setPackLoading(false));
     }, [fixtureDebug, pack, packLoading]);
 
-    // Effective solve grid. Analytic follows the resolution controller
-    // (512 default, auto fallback to 256). Neural v2 stays at its canonical
+    // Effective solve grid. Analytic follows the fixed 512 resolution
+    // controller. Neural v2 stays at its canonical
     // 128 inside the adapter, fixture debug renders its baked field as is.
     const activeGrid = gridState.active;
     const solveGrid = useMemo(
@@ -839,7 +838,7 @@ export default function App() {
             const cells = thickness / dx;
             if (!Number.isFinite(cells)) return null;
             if (cells < 3) {
-                return `Orifice plate spans about ${cells.toFixed(1)} cells at ${activeGrid}, below 3 cells the gap reads wide. Refine the grid or thicken the plate.`;
+                return `Orifice plate spans about ${cells.toFixed(1)} cells at ${activeGrid}, below 3 cells the gap reads wide. Thicken the plate or widen the gap.`;
             }
         } catch {
             return null;
@@ -1277,8 +1276,8 @@ export default function App() {
         }
     }, [debouncedSpec, debouncedRe, solveGrid, fastDecision.reason]);
 
-    // Resolution bookkeeping: record each fresh solve once. Two consecutive
-    // analytic solves over budget at 512 drop to 256 automatically.
+    // Resolution bookkeeping: record each fresh solve once. The grid is
+    // fixed at 512, so this never falls back and only keeps timing honest.
     const recordedSolveRef = useRef("");
     useEffect(() => {
         if (solved.error !== null) return;

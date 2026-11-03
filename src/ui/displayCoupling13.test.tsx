@@ -187,8 +187,8 @@ describe("Settings effective rows and slider", () => {
                 onClose={noop}
                 prefs={prefs}
                 onPatch={noop}
-                gridMode="auto"
-                activeGrid={256}
+                gridMode="512"
+                activeGrid={512}
                 onGridMode={noop}
                 variable={variable}
             />,

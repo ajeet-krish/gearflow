@@ -2434,3 +2434,39 @@ Verdict: PASS
 - [x] Phase code integrates cleanly with prior phases
 
 Tests were inspected, not executed, in this review session (no shell tool available to the reviewer).
+
+## 2026-11-03 - Fixed 512 Grid, Narration Gating, Sweep Intent Review
+
+Date: 2026-11-03
+Reviewer: code-reviewer
+Scope: Fixed 512 grid plus narration gating plus sweep intent (src/flow/gridController.ts, src/ui/SettingsModal.tsx static label, src/agent/alphaSweep.ts intent broadening, src/ui/AgentConsole.tsx prompt rules and sweep flow, src/agent/tutorPrompt.ts guards, src/agent/blockIntent.ts chord)
+Verdict: FAIL
+
+### Check Results
+| Check | Verdict | Details |
+|-------|---------|---------|
+| Fixed 512 only, no other grid reachable | PASS | GridMode is only "512" at src/flow/gridController.ts:12, fixedState, resolveGridSize, recordSolve, and setGridMode all coerce to GRID_512 at lines 30 to 99, App derives solveGrid from gridState.active at src/App.tsx:673 to 680, and SettingsModal renders only the static Fixed grid label at src/ui/SettingsModal.tsx:337 to 340 with no picker or custom input. Retained parseCustomGrid, GRID_OPTIONS, and decideSettingsCustomCommit are not rendered or called by the live modal path. |
+| SettingsModal static label | PASS | src/ui/SettingsModal.tsx:339 names the active grid and 512 only; reset still calls onGridMode("512") at line 162, and the modal voids unused grid props at lines 72 to 75. |
+| Sweep intent broadening | FAIL | src/agent/alphaSweep.ts:48 to 61 broadens to influence, effect, across, and sweep through phrasings, but has no explain, question, or negation guard. Explain the effect of alpha, what is a sweep, and do not sweep therefore intercept at src/ui/AgentConsole.tsx:1610 before the Modal path and morph the canvas instead of answering or refusing. Tests at src/agent/alphaSweep.test.ts:70 to 76 pin only explain this run and set alpha 6 as negatives. |
+| Narration gating during sweep | PASS | sweepingRef suppresses tutor capture at src/ui/AgentConsole.tsx:784, fireTutor at lines 979 to 983, and the settle effect at lines 1210 to 1212; the sweep clears pending tutor at lines 1485 to 1491, lands one local summary at lines 1554 to 1578, and resets the gate in finally at lines 1592 to 1596. Per point Apply chips after the run route through settleParsedEnvelope at lines 1672 to 1688, so they can arm the tutor normally. |
+| AgentConsole prompt rules | PASS | NACA camber position rule at src/ui/AgentConsole.tsx:419, rejection rule at line 421, block chord 1 fence at lines 423 to 426, and sweep line at line 427 match the schema rule at src/contracts/schema.ts:150 to 152 and the block envelope chord at src/agent/blockIntent.ts:171 to 183 and 229 to 246. |
+| Rejection turns never teach unapplied cases | PASS | settleParsedEnvelope arms the tutor only when appliedActions is non empty at src/ui/AgentConsole.tsx:784, pure rejections render reason text only at lines 1857 to 1858, the main prompt requires no teaching prose for unapplied cases at line 421, and the tutor prompt repeats the rejection rule at src/agent/tutorPrompt.ts:166 to 167. |
+| tutorPrompt guards | PASS | src/agent/tutorPrompt.ts:157 to 169 keeps reasoning in reasoning_content, table only numbers, physics only Try next, no promise of an untaken run or sweep, rejection handling, word cap, and no action fence. |
+| blockIntent chord | PASS | parseBlockIntent validates a chord 1 block spec at src/agent/blockIntent.ts:170 to 186, buildBlockEnvelope emits one chord 1 set_spec at lines 229 to 246, and question plus negation guards remain at lines 35 to 36 and 68 to 69. |
+| Modal only intact | PASS | src/ui/AgentConsole.tsx imports no localAssistant or localReply path; non sweep live turns go through the Modal port at lines 1631 to 1644, failures land honest error turns with zero canvas writes at lines 1330 to 1347, and the sweep is the documented zero network local exception at lines 1465 to 1470. |
+| Conventions | PASS | Scoped files use 4 space indent, PascalCase types, SCREAMING_SNAKE constants where applicable, no em dashes, no eval or exec. Tests were inspected, not executed, in this reviewer session (no shell tool available to the reviewer). |
+
+### Findings (FAIL items only)
+| Severity | File:Line | Issue | Suggested Fix |
+|----------|-----------|-------|---------------|
+| Major | src/agent/alphaSweep.ts:48-61, src/ui/AgentConsole.tsx:1610-1621 | Sweep intent over fires on explain, definition, and negated text: isAlphaSweepIntent has no question or negation guard, so explain the effect of alpha, what is a sweep, why sweep, and do not sweep all run the live staircase and morph the canvas before any Modal explanation can happen. This is broader than the intended influence and effect demonstration triggers. | backend-dev: add explain, what, why, and negation guards to isAlphaSweepIntent mirroring blockIntent QUESTION_RE and NEGATION_RE at src/agent/blockIntent.ts:35-36, keeping show, run, how does AoA influence, and effect demonstrations firing; tester: pin explain the effect of alpha, explain how AoA influences lift, what is a sweep, and do not sweep as false, plus the existing positive influence and effect cases. Delegate via orchestrator. |
+| Minor | src/ui/SettingsModal.tsx:46-58, src/flow/gridController.ts:41-71 | Retained custom grid helpers (decideSettingsCustomCommit returns fire true for 256, parseCustomGrid accepts 128 to 1024) are dead in the rendered modal but read as a reachable custom path to future callers. They are fixture and schema parser retention per src/flow/gridController.ts:4-7, not a live option today. | frontend-dev/backend-dev: keep only if fixture callers need them, otherwise mark decideSettingsCustomCommit test only or remove it in a cleanup; do not rewire it into SettingsModal. Delegate via orchestrator. |
+
+### Verification Checklist
+- [ ] All checks passed
+- [ ] No critical issues found
+- [x] Code follows project conventions
+- [x] No em dashes, double hyphens, or dash equivalents; use proper punctuation
+- [ ] Phase code integrates cleanly with prior phases
+
+Note recurring pattern: intent broadening landed at the pure regex layer without the question and negation guards that blockIntent already carries, so integration at the console intercept turns explain questions into canvas actions, the same guard at one layer not reused at the next pattern flagged in earlier phases.

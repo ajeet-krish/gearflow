@@ -45,7 +45,7 @@ import {
 } from "@/render/fieldShader";
 import { loadDisplayPrefs, storeDisplayPrefs } from "@/ui/displayStore";
 import { loadTheme, storeTheme, applyTheme } from "@/ui/theme";
-import { GRID_256, GRID_512, GRID_1024, DEFAULT_DISPLAY_PREFS } from "@/contracts/types";
+import { GRID_512, DEFAULT_DISPLAY_PREFS } from "@/contracts/types";
 import type { ChatTurn, FlowField } from "@/contracts/types";
 
 function installMemoryStorage(): Map<string, string> {
@@ -170,7 +170,7 @@ describe("phase6 hardening chat store edge and error", () => {
     expect(() => saveTurns([turn("a", "x")])).not.toThrow();
     expect(() => clearTurns()).not.toThrow();
     expect(loadDisplayPrefs().colormap).toBe("viridis");
-    expect(initialResolution().mode).toBe("auto");
+    expect(initialResolution().mode).toBe("512");
   });
 
   it("returns [] on corrupt chat JSON, wrong version, and non array turns", () => {
@@ -220,32 +220,32 @@ describe("phase6 hardening intent routing", () => {
   });
 });
 
-describe("phase6 hardening grid controller fallback", () => {
+describe("phase6 hardening fixed grid 512", () => {
   beforeEach(() => {
     installMemoryStorage();
   });
 
-  it("defaults to auto 512 and resolves the active size", () => {
-    const state = initialResolution("auto");
-    expect(state.mode).toBe("auto");
+  it("is fixed at 512 and resolves the active size", () => {
+    const state = initialResolution();
+    expect(state.mode).toBe("512");
     expect(resolveGridSize(state)).toBe(GRID_512);
-    expect(resolveGridSize(initialResolution("1024"))).toBe(GRID_1024);
+    expect(resolveGridSize(initialResolution("512"))).toBe(GRID_512);
   });
 
-  it("falls back after two consecutive slow solves only in auto", () => {
-    let state = initialResolution("auto");
+  it("never falls back on consecutive slow solves", () => {
+    const state = initialResolution();
     const first = recordSolve(state, SLOW_SOLVE_MS + 50);
     expect(first.fellBack).toBe(false);
     expect(resolveGridSize(first.state)).toBe(GRID_512);
     const second = recordSolve(first.state, SLOW_SOLVE_MS + 50);
-    expect(second.fellBack).toBe(true);
-    expect(resolveGridSize(second.state)).toBe(GRID_256);
-    expect(second.state.autoDropped).toBe(true);
-    expect(second.state.notice).toContain("256");
+    expect(second.fellBack).toBe(false);
+    expect(resolveGridSize(second.state)).toBe(GRID_512);
+    expect(second.state.autoDropped).toBe(false);
+    expect(second.state.notice).toBeNull();
   });
 
-  it("resets the streak on a fast solve and ignores non finite timings", () => {
-    let state = recordSolve(initialResolution("auto"), SLOW_SOLVE_MS + 10).state;
+  it("ignores the streak on a fast solve and on non finite timings", () => {
+    let state = recordSolve(initialResolution(), SLOW_SOLVE_MS + 10).state;
     state = recordSolve(state, 12).state;
     expect(state.slowStreak).toBe(0);
     const nan = recordSolve(state, Number.NaN);
@@ -253,30 +253,17 @@ describe("phase6 hardening grid controller fallback", () => {
     expect(nan.state.slowStreak).toBe(0);
   });
 
-  it("never falls back when pinned and pinning clears an auto drop", () => {
-    let pinned = setGridMode(initialResolution("auto"), "256");
-    for (let i = 0; i < 3; i++) {
-      const next = recordSolve(pinned, SLOW_SOLVE_MS + 500);
-      expect(next.fellBack).toBe(false);
-      pinned = next.state;
+  it("coerces legacy pins to 512 with no fallback", () => {
+    for (const mode of ["256", "1024", "auto"] as const) {
+      let pinned = setGridMode(initialResolution(), mode);
+      expect(pinned.mode).toBe("512");
+      for (let i = 0; i < 3; i++) {
+        const next = recordSolve(pinned, SLOW_SOLVE_MS + 500);
+        expect(next.fellBack).toBe(false);
+        pinned = next.state;
+      }
+      expect(resolveGridSize(pinned)).toBe(GRID_512);
     }
-    expect(resolveGridSize(pinned)).toBe(GRID_256);
-    let dropped = initialResolution("auto");
-    dropped = recordSolve(dropped, SLOW_SOLVE_MS + 1).state;
-    dropped = recordSolve(dropped, SLOW_SOLVE_MS + 1).state;
-    expect(dropped.autoDropped).toBe(true);
-    const repinned = setGridMode(dropped, "256");
-    expect(resolveGridSize(repinned)).toBe(GRID_256);
-    expect(repinned.autoDropped).toBe(false);
-    expect(repinned.notice).toBeNull();
-  });
-
-  it("pins 1024 directly and ignores further slow solves", () => {
-    const state = setGridMode(initialResolution("auto"), "1024");
-    expect(resolveGridSize(state)).toBe(GRID_1024);
-    const next = recordSolve(state, SLOW_SOLVE_MS + 900);
-    expect(next.fellBack).toBe(false);
-    expect(resolveGridSize(next.state)).toBe(GRID_1024);
   });
 });
 
@@ -618,8 +605,7 @@ describe("phase6 hardening shader fallback", () => {
     }
   });
 
-  it("pins grid constants for the resolution controller", () => {
-    expect(GRID_1024).toBe(1024);
-    expect(GRID_256).toBe(256);
+  it("pins the fixed 512 grid constant for the resolution controller", () => {
+    expect(GRID_512).toBe(512);
   });
 });

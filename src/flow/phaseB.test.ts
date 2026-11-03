@@ -95,8 +95,8 @@ describe("alpha band", () => {
     });
 });
 
-describe("grid presets plus custom", () => {
-    it("parses the 1024 preset and square custom sides from 128 to 1024", () => {
+describe("fixed grid 512 plus fixture parser", () => {
+    it("keeps the 128 to 1024 fixture caps and parses square sides", () => {
         expect(CUSTOM_GRID_MIN).toBe(128);
         expect(CUSTOM_GRID_MAX).toBe(1024);
         expect(parseCustomGrid(1024).ok).toBe(true);
@@ -105,12 +105,14 @@ describe("grid presets plus custom", () => {
         expect(parseCustomGrid(1025).ok).toBe(false);
         expect(parseCustomGrid("abc").ok).toBe(false);
         expect(parseCustomGrid("").ok).toBe(false);
-        const pinned = setGridMode(initialResolution("auto"), "1024");
-        expect(pinned.active).toBe(1024);
-        const custom = setGridMode(initialResolution("auto"), "custom", 256);
-        expect(custom.active).toBe(256);
-        const badCustom = setGridMode(initialResolution("auto"), "custom", 7);
-        expect(badCustom.notice).toContain("128");
+    });
+
+    it("resolves every legacy mode to the fixed 512 grid", () => {
+        for (const mode of ["auto", "512", "1024", "custom"] as const) {
+            const state = setGridMode(initialResolution(mode), mode, 256);
+            expect(state.mode).toBe("512");
+            expect(state.active).toBe(512);
+        }
     });
 });
 

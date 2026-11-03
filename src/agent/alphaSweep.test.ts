@@ -57,6 +57,37 @@ describe("isAlphaSweepIntent", () => {
         expect(isAlphaSweepIntent("show me a sweep")).toBe(true);
     });
 
+    it("matches influence and effect phrasings for AoA", () => {
+        expect(isAlphaSweepIntent("how does AoA influence lift")).toBe(true);
+        expect(isAlphaSweepIntent("show the influence of alpha")).toBe(true);
+        expect(isAlphaSweepIntent("show the effect of alpha")).toBe(true);
+        expect(isAlphaSweepIntent("effect of AoA across the band")).toBe(true);
+        expect(isAlphaSweepIntent("sweep through alpha")).toBe(true);
+        expect(isAlphaSweepIntent("Cl across alpha")).toBe(true);
+        expect(isAlphaSweepIntent("run a sweep")).toBe(true);
+        expect(isAlphaSweepIntent("demonstrate the alpha sweep")).toBe(true);
+    });
+
+    it("rejects question guards even when sweep terms appear", () => {
+        expect(isAlphaSweepIntent("explain the effect of alpha")).toBe(false);
+        expect(isAlphaSweepIntent("explain how alpha influences lift")).toBe(false);
+        expect(isAlphaSweepIntent("what is a sweep")).toBe(false);
+        expect(isAlphaSweepIntent("what's a sweep")).toBe(false);
+        expect(isAlphaSweepIntent("what is the influence of AoA on suction")).toBe(false);
+        expect(isAlphaSweepIntent("why sweep alpha")).toBe(false);
+        expect(isAlphaSweepIntent("why should I sweep")).toBe(false);
+    });
+
+    it("rejects negation guards even when sweep terms appear", () => {
+        expect(isAlphaSweepIntent("do not sweep")).toBe(false);
+        expect(isAlphaSweepIntent("do not run a sweep")).toBe(false);
+        expect(isAlphaSweepIntent("don't sweep")).toBe(false);
+        expect(isAlphaSweepIntent("dont sweep")).toBe(false);
+        expect(isAlphaSweepIntent("never sweep")).toBe(false);
+        expect(isAlphaSweepIntent("no sweep please")).toBe(false);
+        expect(isAlphaSweepIntent("not a sweep")).toBe(false);
+    });
+
     it("rejects plain setup and explainer text plus non strings", () => {
         expect(isAlphaSweepIntent("explain this run")).toBe(false);
         expect(isAlphaSweepIntent("set alpha 6")).toBe(false);
@@ -215,7 +246,7 @@ describe("sweepToTutorRows", () => {
 
 describe("localAssistant sweep intent", () => {
     it("answers sweep phrasings locally with zero actions", () => {
-        for (const text of ["sweep alpha -4 to 12", "what if alpha were higher", "run the alpha staircase"]) {
+        for (const text of ["sweep alpha -4 to 12", "what if alpha were higher", "run the alpha staircase", "how does AoA influence lift", "show the effect of alpha"]) {
             const out = localReply(text, makeCtx());
             expect(out.actions).toEqual([]);
             expect(out.reply).toContain("staircase");
