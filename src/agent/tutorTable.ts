@@ -9,7 +9,8 @@
 export type TutorSourceFamily = "lbm" | "neural" | "analytic" | "unknown";
 
 /** Minimal snapshot the tutor table can diff. Numbers may be null when the
- *  run has no clean value yet, labels fall back to n/a in the cells. */
+ *  run has no clean value yet, labels fall back to n/a in the cells. Radius
+ *  rides along for the cylinder body cell only; the table keeps six rows. */
 export interface TutorSnapshotLite {
     caseKey: string;
     bodyLabel: string;
@@ -20,6 +21,9 @@ export interface TutorSnapshotLite {
     regime: string;
     pathLabel: string;
     strouhal: number | null;
+    /** Cylinder radius, folded into the Body cell only. Optional so older
+     *  snapshots without a size keep compiling; absent reads as no suffix. */
+    radius?: number | null;
 }
 
 /** One table row: metric name plus the before, after, and delta cells. */
@@ -77,6 +81,7 @@ function safeLite(v: TutorSnapshotLite | null | undefined): TutorSnapshotLite {
         regime: cleanText(raw.regime),
         pathLabel: cleanText(raw.pathLabel),
         strouhal: finiteOrNull(raw.strouhal),
+        radius: finiteOrNull((raw as { radius?: unknown }).radius),
     };
 }
 
@@ -112,13 +117,27 @@ function numericDelta(
     return signed;
 }
 
+/** Cylinder body cell with its radius folded in, physics-only copy.
+ *  Non-cylinder bodies and missing radii pass through unchanged. */
+function withRadius(bodyLabel: string, radius: number | null): string {
+    try {
+        if (radius === null || !Number.isFinite(radius)) return bodyLabel;
+        if (!/cylinder/i.test(bodyLabel)) return bodyLabel;
+        if (/radius/i.test(bodyLabel)) return bodyLabel;
+        return capCell(`${bodyLabel} radius ${radius}`);
+    } catch {
+        return bodyLabel;
+    }
+}
+
 /**
  * Diff two tutor snapshots into table rows. LBM CpMin cells always read
  * n/a on the LBM side, so the model cannot quote an untrusted suction
  * number. Orifice Alpha cells always read n/a with a n/a delta: the
  * plate has no angle of attack (documented choice, applied consistently
- * on both sides so the row never names an angle). Never throws: null
- * snapshots diff as n/a against n/a.
+ * on both sides so the row never names an angle). Cylinder radius folds
+ * into the Body cell (Cylinder radius 0.25) so the table keeps six rows.
+ * Never throws: null snapshots diff as n/a against n/a.
  */
 export function buildTutorTable(
     beforeIn: TutorSnapshotLite | null | undefined,
@@ -141,8 +160,12 @@ export function buildTutorTable(
         const alphaDelta = orificeBefore || orificeAfter
             ? "n/a"
             : numericDelta(alphaBefore, alphaAfter, sameFamily, (d) => `${d.toFixed(1)} deg`);
+        // Cylinder radius folds into the Body cell so the six-row shape
+        // holds: "Cylinder radius 0.25" names the size in physics terms.
+        const bodyBefore = withRadius(before.bodyLabel, before.radius ?? null);
+        const bodyAfter = withRadius(after.bodyLabel, after.radius ?? null);
         return [
-            { metric: "Body", before: before.bodyLabel, after: after.bodyLabel, delta: "n/a" },
+            { metric: "Body", before: bodyBefore, after: bodyAfter, delta: "n/a" },
             {
                 metric: "Alpha",
                 before: fmtAlpha(alphaBefore),

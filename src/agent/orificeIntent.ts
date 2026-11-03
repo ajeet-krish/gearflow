@@ -199,7 +199,7 @@ export function buildOrificeEnvelope(
         if (apply.reynolds !== null) parts.push(`Re ${apply.reynolds}`);
         else parts.push(`Re ${reynolds}`);
         const tail = notes.length > 0 ? ` ${notes.join(" ")}` : "";
-        const reply = `Applying ${parts.join(", ")}. A narrower gap speeds the flow like a venturi. Canvas updates on apply.${tail}`;
+        const reply = `Applying ${parts.join(", ")}, a narrower gap speeds the flow like a venturi and the canvas updates on apply.${tail}`;
         return { reply, candidates, corrections, notes };
     } catch {
         return { reply: "Parser orifice envelope unreadable, canvas unchanged.", candidates: [], corrections: [], notes: [] };

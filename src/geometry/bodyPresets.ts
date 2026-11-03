@@ -12,7 +12,7 @@ import {
     ORIFICE_THICKNESS_MAX,
     ORIFICE_THICKNESS_MIN,
 } from "@/contracts/types";
-import { EXTENT_MAX } from "@/contracts/schema";
+import { CYLINDER_RADIUS_DEFAULT, CYLINDER_RADIUS_MAX, CYLINDER_RADIUS_MIN, EXTENT_MAX } from "@/contracts/schema";
 import { migrateDuctToOrifice } from "@/geometry/parametric";
 
 /** Token shown by the BODY select for a spec. Any valid 4-digit NACA code
@@ -58,6 +58,13 @@ function clampOrificeGap(v: unknown): number {
     return v;
 }
 
+/** Cylinder radius keeps the schema envelope, else the default. */
+function clampCylinderRadius(v: unknown): number {
+    if (typeof v !== "number" || !Number.isFinite(v)) return CYLINDER_RADIUS_DEFAULT;
+    if (v < CYLINDER_RADIUS_MIN || v > CYLINDER_RADIUS_MAX) return CYLINDER_RADIUS_DEFAULT;
+    return v;
+}
+
 /** Block extents keep any finite positive value within the schema cap, else the fallback. */
 function keepBlockExtent(v: unknown, fallback: number): number {
     if (typeof v !== "number" || !Number.isFinite(v) || v <= 0 || v > EXTENT_MAX) return fallback;
@@ -79,7 +86,7 @@ export function applyBodyPreset(spec: GeometrySpec, value: string): GeometrySpec
         return { ...spec, kind: "naca4", naca: { code: "4412", m: 0.04, p: 0.4, t: 0.12 } };
     }
     if (value === "cylinder") {
-        return { ...spec, kind: "cylinder", radius: spec.radius ?? 0.25, center: spec.center ?? { x: 0.5, y: 0 } };
+        return { ...spec, kind: "cylinder", radius: clampCylinderRadius(spec.radius), center: spec.center ?? { x: 0.5, y: 0 } };
     }
     if (value === "orifice" || value === "block") {
         if (value === "orifice") {

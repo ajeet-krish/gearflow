@@ -398,10 +398,10 @@ export function buildAirfoilEnvelope(
             candidates.push({ kind: "set_reynolds", reynolds: reHere });
             parts.push(`Re ${reHere}`);
         }
-        const head = parts.length > 0 ? `Applying ${parts.join(", ")}.` : "Applying the parsed airfoil edit.";
+        const head = parts.length > 0 ? `Applying ${parts.join(", ")}, the canvas updates on apply.` : "Applying the parsed airfoil edit, the canvas updates on apply.";
         const tail = notes.length > 0 ? ` ${notes.join(" ")}` : "";
         const typo = corrections.length > 0 ? ` Note: ${corrections.join("; ")}.` : "";
-        const reply = `${head} Canvas updates on apply.${tail}${typo}`;
+        const reply = `${head}${tail}${typo}`;
         return { reply, candidates, corrections, notes };
     } catch {
         return { reply: "Parser envelope unreadable, canvas unchanged.", candidates: [], corrections: [], notes: [] };

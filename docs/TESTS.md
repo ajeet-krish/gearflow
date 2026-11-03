@@ -1477,3 +1477,42 @@ Phase tests integrate with prior phase tests (all 1770 prior tests still pass al
 - [x] Error conditions covered
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
+
+## 2026-11-03 - Fidelity Fixes Verification: Test Report (NODE TESTS ONLY, Rust wasm skipped per owner)
+
+### Test Results
+npm test: 134 files, 1793 tests, all passed. Baseline at the prior entry was 133 files, 1781 tests. Delta is plus 1 file plus 12 tests: new src/agent/cylinderIntent.test.ts (5) plus growth in reviewFailsRound (11 to 17) and neighboring fidelity suites.
+Scope per owner: vitest only. cargo test NOT run (Rust wasm is not part of the deliverable). Modal network suites NOT run.
+Targeted fidelity rerun: 12 files, 123 tests, all passed (cylinderIntent 5, reviewFailsRound 17, tutorTable 10, casePresets 16, alphaSweep 19, actionContract 11, orificeIntent 6, fixed512 sweepguard 16, orificeSweep 2, sweepPaintWiring 4, agentConsoleSweep 5, p4.grid512 12). stderr noise only (modal-upstream secret scrub pins, ORT wasm backend fallback, localStorage warnings in Node), no failures.
+
+### Per-Test Results
+| Test | Verdict | Notes |
+|------|---------|-------|
+| cylinderIntent.test.ts (5) | PASS | New, cylinder setup routing with honest fault copy on unapplied paths |
+| reviewFailsRound.test.ts (17) | PASS | Strict aliases, custom tab null, sweep dwell, pressure negation zero-apply, definitional guard |
+| tutorTable.test.ts (10) | PASS | Replies built from applied values only, rejected setups teach no table |
+| casePresets.test.ts (16) | PASS | set_preset contract, presets resolve to valid specs inside the envelope |
+| actionContract.test.ts (11) | PASS | set_re alias plus envelope validation, bare unknown kinds reject |
+| orificeIntent.test.ts (6) | PASS | Orifice apply with alpha always 0, gap mapping, Re floor respected |
+| agentConsoleOrificeSweep.test.tsx (2) | PASS | Orifice stall gate, zero stepper, alpha 0 unchanged, gap teaching copy |
+| alphaSweep.test.ts (19) | PASS | Sweep fires on alpha phrasings, blocked on negation and bare setup |
+| agentConsoleSweep.test.tsx (5) | PASS | Staircase paints with fence handling, offline failure stays physics-only |
+| sweepPaintWiring.test.ts (4) | PASS | Sweep always runs with guards, live stepping wiring green |
+| verify.fixed512.sweepguard.test.tsx (16) | PASS | Single 512 grid, sweep fence on explain/what/why/negation |
+| p4.grid512.test.ts (12) | PASS | Fixed 512 contract, slow solves never fall back |
+| all other Node suites (1670) | PASS | No regressions, 1793 total across 134 files |
+| cargo test gearflow-wasm | NOT RUN | Skipped per owner, Rust wasm not part of the deliverable |
+| Modal network suites | NOT RUN | Excluded per scope, need live Baseten access |
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full Node suite green on this run, 1793 passed with zero failures | No fix needed |
+
+### Verification Checklist
+- [x] All tests pass (134 files, 1793 tests)
+- [x] Happy path covered (negation zero-apply, explain radius kept, atomic setup settle, set_preset contract, replies from applied values, orifice apply alpha 0, Re floor 100, pressure field mapping, follow-up chips, single 512 grid)
+- [x] Edge cases covered (sweep fence handling on explain/what/why/negation, orifice classification fallbacks, custom tab null)
+- [x] Error conditions covered (rejected setups teach no unapplied table, honest fault copy, oversize grid rejected, offline pack failures)
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests (all 1781 prior tests still pass plus 12 new, 1793 total)

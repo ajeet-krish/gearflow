@@ -15,6 +15,7 @@ function lite(over: Partial<TutorSnapshotLite> = {}): TutorSnapshotLite {
         regime: "laminar, attached",
         pathLabel: "analytic potential flow, not validated",
         strouhal: null,
+        radius: null,
         ...over,
     };
 }
@@ -95,6 +96,16 @@ describe("buildTutorTable", () => {
         expect(rows.length).toBeGreaterThan(0);
         expect(tutorRowsText(rows)).toContain("n/a");
         expect(tutorRowsText([])).toContain("pending");
+    });
+
+    it("folds cylinder radius into the Body cell and keeps six rows", () => {
+        const rows = buildTutorTable(
+            lite({ bodyLabel: "Cylinder", radius: 0.25 }),
+            lite({ bodyLabel: "Cylinder", radius: 0.35 }),
+        );
+        expect(rows).toHaveLength(6);
+        expect(cell(rows, "Body", "before")).toContain("radius 0.25");
+        expect(cell(rows, "Body", "after")).toContain("radius 0.35");
     });
 
     it("caps oversized text cells at 80 chars", () => {

@@ -110,6 +110,10 @@ const GLOSSARY_Q_RE = /\bwhat\s+(is|are|does|do)\b|\bwhat's\b|\bdefine\b|\bmeani
 /** Negation guard for phenomenological rescues: declined pressure talk
  *  never stages a preset, it falls through to teaching with zero actions. */
 const PRESSURE_NEGATION_RE = /\bdo\s+not\b|\bdon'?t\b|\bnever\b|\bnot\b/i;
+/** Declined requests never apply: a negation word anywhere blocks every
+ *  setup, engine, field, and run stage, so declined bare or explain talk
+ *  settles with zero actions and teaching only. */
+const DECLINED_RE = /\bdo\s+not\b|\bdon'?t\b|\bnever\b|\bnot\b/i;
 /** Embedded definitional clause: what a/the cylinder (block, orifice,
  *  airfoil) is never stages a body, even with an action verb present. */
 const DEFINITIONAL_CLAUSE_RE = /\bwhat\s+(a|an|the)\b[\s\S]*\bis\b/i;
@@ -354,6 +358,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         const vctx = validationFor(safe);
         const raw = typeof text === "string" ? text : "";
         const lower = raw.toLowerCase();
+        const isDeclined = DECLINED_RE.test(lower);
         const bodyLabel = safe === null ? "current body" : cleanText(safe.bodyLabel, "current body");
         if (lower.trim().length === 0) {
             return { reply: buildGeneric(vctx.agentFirst === true), actions: [], rejections: [] };
@@ -454,7 +459,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             if (explicitFieldHere !== null) return;
             accept({ kind: "set_field", field: "speed" });
         };
-        if (SHEDDING_RE.test(lower)) {
+        if (!isDeclined && SHEDDING_RE.test(lower)) {
             presetHandled = true;
             const staged = accept({ kind: "setup_shedding" });
             sections.push(
@@ -462,7 +467,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     ? "Local setup note, no network. Applying the vortex shedding case (cylinder, alpha 0, Re 100, speed field). Canvas updates on apply."
                     : `Local setup note, no network. Staying on ${bodyLabel}; the shedding case is outside the serving envelope. Canvas unchanged.`
             );
-        } else if (HIGH_PRESSURE_PHENOM_RE.test(lower) && !PRESSURE_NEGATION_RE.test(lower)) {
+        } else if (!isDeclined && HIGH_PRESSURE_PHENOM_RE.test(lower) && !PRESSURE_NEGATION_RE.test(lower)) {
             presetHandled = true;
             if (lower.includes("cylinder")) {
                 suppressFieldStage = true;
@@ -481,7 +486,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                         : `Local setup note, no network. Staying on ${bodyLabel}; the high pressure case is outside the serving envelope. Nearest alternative: the high Re wake case (cylinder, alpha 0, Re 700). Canvas unchanged.`
                 );
             }
-        } else if (AIRFOIL_WORD_RE.test(lower)) {
+        } else if (!isDeclined && AIRFOIL_WORD_RE.test(lower)) {
             presetHandled = true;
             const parsed = parseNacaLoose(raw);
             const alphaHere = parseAlphaDeg(raw);
@@ -659,7 +664,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
         const reVal = presetHandled ? null : (applyIntent?.reynolds ?? null);
         const tutorNote = applyIntent !== null && applyIntent.notes.length > 0 ? applyIntent.notes.join(" ") : null;
         const typoNotes = applyIntent !== null && applyIntent.corrections.length > 0 ? applyIntent.corrections.join("; ") : null;
-        const hasSetupValues = !clarified && (bodyTok !== null || unknownNaca !== null || alphaVal !== null || reVal !== null);
+        const hasSetupValues = !clarified && !isDeclined && (bodyTok !== null || unknownNaca !== null || alphaVal !== null || reVal !== null);
         if (hasSetupValues) {
             const applied: string[] = [];
             const notices: string[] = [];
@@ -730,9 +735,25 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                     `a rectangular section narrows the passage like a venturi and a thicker airfoil deepens suction.`
                 );
             }
-            if (notices.length > 0) sections.push(notices.join(" "));
-            if (tutorNote !== null) sections.push(tutorNote);
-            if (typoNotes !== null) sections.push(`Note: ${typoNotes}.`);
+            // Parser Note tails fold into the same single sentence with
+            // semicolons, so settled setup replies never render two
+            // sentences. Applied values above already carry the clamped
+            // alphaVal and live Re.
+            if (applied.length > 0) {
+                const tails: string[] = [];
+                for (const n of notices) tails.push(n.replace(/^Note:\s*/i, "").replace(/\.+$/, ""));
+                if (tutorNote !== null) tails.push(tutorNote.replace(/\.+$/, ""));
+                if (typoNotes !== null) tails.push(`note: ${typoNotes.replace(/\.+$/, "")}`);
+                if (tails.length > 0) {
+                    const last = sections.pop() ?? "";
+                    const head = last.replace(/\.+$/, "");
+                    sections.push(`${head} (${tails.join("; ")}).`);
+                }
+            } else {
+                if (notices.length > 0) sections.push(notices.join(" "));
+                if (tutorNote !== null) sections.push(tutorNote);
+                if (typoNotes !== null) sections.push(`Note: ${typoNotes}.`);
+            }
             if (bodyTok === null && !carriedBySpec && applied.length > 0) {
                 sections.push(
                     `Staying on ${bodyLabel} with ${applied.join(", ")}.`
@@ -754,7 +775,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             }
         }
         const engineMatch = lower.match(ENGINE_RE);
-        if (engineMatch !== null && ENGINE_VERB_RE.test(lower)) {
+        if (!isDeclined && engineMatch !== null && ENGINE_VERB_RE.test(lower)) {
             const token = engineMatch[1];
             const staged = accept({ kind: "set_engine", engine: token as AgentAction extends { kind: "set_engine"; engine: infer E } ? E : never });
             sections.push(
@@ -764,7 +785,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             );
         }
         const fieldName = findField(lower);
-        if (!suppressFieldStage && fieldName !== null && (FIELD_TRIGGER_RE.test(lower) || lower.includes(`field ${fieldName}`))) {
+        if (!isDeclined && !suppressFieldStage && fieldName !== null && (FIELD_TRIGGER_RE.test(lower) || lower.includes(`field ${fieldName}`))) {
             accept({
                 kind: "set_field",
                 field: fieldName as AgentAction extends { kind: "set_field"; field: infer F } ? F : never,
@@ -780,7 +801,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
             );
         }
         const runKind = detectRun(lower);
-        if (runKind !== null) {
+        if (!isDeclined && runKind !== null) {
             accept(runKind === "run_lbm" ? { kind: "run_lbm" } : { kind: "cancel_lbm" });
             const staged = actions.some((a) => a.kind === "run_lbm" || a.kind === "cancel_lbm");
             const gatedRunCopy = vctx.agentFirst === true

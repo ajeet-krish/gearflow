@@ -4,7 +4,7 @@
 * Purpose: win Demo 25 plus support Meta Tooling 25, Impact 30, Technical Depth 20 in one memorable story.
 * Primary audience: hackathon judges scanning 20,000 entries for a working frontier leap.
 * Secondary audience: LinkedIn engineering audience watching sound off, judging craft and honesty.
-* Success: viewer can repeat the idea in one line (chat sets up and runs flow sims) and remembers the live sweep.
+* Success: viewer can repeat the idea in one line (chat sets up and runs flow sims) and remembers the airfoil reshape.
 
 ## Ranked Format Concepts
 * Option 1, chosen: deck plus face cam plus full screen demo. Slides for intro, problem, solution, close. Face cam in bottom corner throughout. Full screen screen recording for 1:10 to 2:30 demo.
@@ -26,13 +26,13 @@
 * Type: tracked uppercase labels, monospace for all data captions (Cl, CpMin, ms, grid, cache TTL).
 * Captions: burned in captions for muted viewing on LinkedIn and judging scans.
 * Lower thirds: name models honestly. Example: Chat powered by Meta text model. Image and audio inputs are future work.
-* Music: low bed, minus 24 dB under voice, duck fully under sweep moment, no lyrics.
+* Music: low bed, minus 24 dB under voice, duck fully under the reshape moment, no lyrics.
 * Pacing: cold open fast, problem crisp, demo slow enough to read numbers, close calm. No slide longer than 15 seconds except demo.
 
 ## Stand Out Strategy For A 20,000 Entry Field
-* First 5 seconds: cold open on live sweep footage already stepping. No title slide at 0:00. Typed prompt visible plus burned in caption.
+* First 5 seconds: cold open on the airfoil canvas already morphing. No title slide at 0:00. Typed prompt visible plus burned in caption.
 * Thumbnail concept: CHAT RUNS CFD in bold mono over flow field still plus small face. Purple suction, cyan wake, RUN card visible.
-* Gifable wow loop: 9 point alpha sweep morphing plus progress text Sweep X of 9. Silent loopable, readable at small size.
+* Gifable wow loop: airfoil setup-to-reshape morph, chat turn sent, canvas morphs 2415 to a thinner higher-camber section. Silent loopable, readable at small size.
 * Honesty as differentiator: show provenance labels on camera. Served by analytic preview, potential flow estimate, not validated. Judges remember candor.
 * End on artifact: final flow still with Before versus After tutor table plus end card (name, project, hackathon, repo).
 
@@ -40,11 +40,11 @@
 * OBS: 1440p canvas, 60 fps, screen plus webcam bottom corner, separate mic track, record to MKV then remux.
 * Environment: do not disturb on, notifications off, browser zoom 100 percent, only GearFlow tab plus slides.
 * Warm up: hit the live endpoint once, pretype camera safe prompts in chat drafts, keep Tutorials dropdown ready.
-* Sweep trigger: Tutorials dropdown chip Stall demo is primary. Typed Run the alpha sweep from minus 4 to 12 deg is backup only, never mix both in one take. Setup via Example prompts dropdown chip Set up NACA 2412 at angle of attack (alpha) 6, which sends Set up NACA 2412 alpha 6. Typed setup backups: show me vortex shedding behind the cylinder, karman street please, set up the airfoil at alpha 8, airfoil naca 4412 alpha 2.
-* Directing: speed ramps on waits, zoom keyframes at 125 percent on chat enter and RUN card, hold 1 sec on Cl 0.9750 and CpMin minus 2.4880.
+* Camera-safe prompts, type verbatim. Case 1: set up airfoil naca 2415 at angle of attack 6, then set NACA 3412 at alpha 6, then set alpha to 10. Case 2: set body to cylinder at Reynolds number 1000 (never say shedding or karman here, the preset collision drops Re to 100), then set cylinder radius to 0.5. Case 3: show me flow around a square, then set block width to 1.2, height to 0.5, alpha to 10. Case 4: set up the orifice constriction (constriction, never constricted, never say high pressure), then how does this affect pressure, then set orifice gap to 0.8.
+* Directing: speed ramps on waits, zoom keyframes at 125 percent on chat enter and RUN card, hold 1 sec on the RUN card and read actuals live, never invent numbers.
 * Audio: voice to minus 16 LUFS, test on phone speaker, test full video sound off.
 * Never show: Validation panel, WASM badge, SAM overlay, poster generation, offline toggle, Export JSON button, misconception card.
-* Offline needs no toggle: the sweep staircase runs with or without the endpoint, stepping the same canvas. If the endpoint is down, the same chip gives an honest offline summary. Never show error turns on camera.
+* Offline fallback: if the endpoint is down, setup prompts land an honest offline reply with the canvas unchanged. Re-paste on the live endpoint and re-record the turn. Never show error turns on camera.
 
 ## Upload And Submission Logistics
 * Edit to exactly 180 seconds. Export 1440p, H264, 20 Mbps target.
@@ -53,7 +53,7 @@
 * Upload morning of Nov 4, at least 3 plus hours before 9PM ET Nov 4 deadline (02:00 UTC Nov 5).
 * Submission form needs: live demo URL, repo URL, YouTube link, short writeup (problem, users, Meta tooling, architecture, next steps), third party asset notes.
 * Writeup mitigation for Tooling 25: the video shows the Meta text model path honestly. The README plus submission writeup document the full orchestration (Meta client, per call cache with 24h Spark TTL, eval ledger with cost, fallback chain with honest error plus Retry) to support the multi model Tooling criterion.
-* YouTube chapters to paste: 0:00 Cold open, chat steps the flow live. 0:07 Intro. 0:20 The problem with CFD setup. 0:42 GearFlow, chat runs the solver. 1:10 Live demo. 2:14 Honest labels and limits. 2:32 Next steps and close.
+* YouTube chapters to paste: 0:00 Cold open, chat sets up an airfoil. 0:07 Intro. 0:20 The problem with CFD setup. 0:40 GearFlow, chat runs the solver. 1:06 Live demo, four cases. 2:28 Honest labels and limits. 2:40 Next steps and close.
 * Captions: export SRT from the editor and upload it, in addition to burned in captions, for judging accessibility.
 * Slide files in order: slides/01-intro.png, slides/02-problem-friction.png, slides/03-problem-intuition.png, slides/04-solution-harness.png, slides/05-constraints.png, slides/06-next-steps.png, slides/07-end-card.png.
 * Go or no go 30 min before recording: hit the live endpoint once, confirm a tutor summary lands, confirm warm cache.

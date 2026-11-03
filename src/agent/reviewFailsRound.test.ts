@@ -1,11 +1,21 @@
-// Review FAIL fixes: alias strictness, custom tab, sweep dwell, pressure
-// rescue, bare rescue. One test per item, pure and deterministic.
+// Review FAIL round fixes, one contract per item, pure and deterministic.
+// Contract note for set_preset: the parser keeps unambiguous bare body
+// aliases (cylinder or shedding or karman or vortex maps to setup_shedding,
+// high Re wake maps to setup_high_re_wake, NACA or airfoil maps to
+// setup_airfoil, high pressure maps to retired setup_high_pressure) and
+// strictly rejects conflicting or unknown presets (bare wake, high
+// resistance, cylinder airfoil together, block or rectangle or orifice
+// presets) with an unknown action kind rejection and zero actions. The
+// prompt, the normalizePresetAlias parser, and these tests pin that same
+// contract; the console settle never applies a set_preset fence directly.
 
 import { describe, expect, it } from "vitest";
 import { MAX_ENVELOPE_ACTIONS, parseAgentEnvelope, type AgentValidationContext } from "./agentActions";
 import { bodyTabIdForSpec } from "@/ui/caseTabs";
 import { describeSweepResult, runAlphaSweep, SWEEP_ALPHAS } from "./alphaSweep";
 import { localReply } from "./localAssistant";
+import { buildCylinderEnvelope, parseCylinderIntent } from "./cylinderIntent";
+import { atomicSetupActions, collapseToOneSentence, executorFaultCopy, firstSentenceReply } from "@/ui/AgentConsole";
 import type { AgentContext } from "./agentContext";
 
 const ANALYTIC: AgentValidationContext = { lbmEffective: false, statsReady: false, hasTke: false, hasRecirc: false, agentFirst: false };
@@ -132,5 +142,71 @@ describe("review fix 5: bare rescue definitional guard", () => {
             const out = localReply(text, makeCtx());
             expect(out.actions).toEqual([]);
         }
+    });
+});
+
+describe("review fix 6: declined bare and explain negation settles zero actions", () => {
+    it("leaves declined cylinder, airfoil, and orifice talk untouched", () => {
+        for (const text of [
+            "do not show me a cylinder",
+            "never set up an airfoil",
+            "do not set up the orifice",
+            "do not show the block",
+            "never run the lbm solve",
+            "do not set alpha 6",
+            "do not explain the cylinder",
+            "never explain the shedding case",
+        ]) {
+            const out = localReply(text, makeCtx());
+            expect(out.actions).toEqual([]);
+        }
+    });
+});
+
+describe("review fix 7: explain-tolerant cylinder radius keeps size end to end", () => {
+    it("parses explain cylinder radius 0.5 with the radius intact", () => {
+        const apply = parseCylinderIntent("explain the cylinder with radius 0.5", { reynolds: 50000 });
+        expect(apply).not.toBeNull();
+        expect(apply?.radius).toBeCloseTo(0.5, 9);
+        const built = buildCylinderEnvelope(apply!, { reynolds: 50000 });
+        expect(built.candidates.length).toBe(1);
+        expect(built.candidates[0].kind).toBe("set_spec");
+        expect(collapseToOneSentence(built.reply).split(".").filter(Boolean).length).toBeLessThanOrEqual(1 + 1);
+        expect(built.reply).toContain("0.5");
+    });
+});
+
+describe("review fix 8: setup envelopes settle atomically with honest fault copy", () => {
+    it("settles zero actions when a setup envelope carries rejections", () => {
+        expect(atomicSetupActions([{ kind: "setup_shedding" }], ["preset setup rejected"])).toEqual([]);
+        expect(atomicSetupActions([{ kind: "setup_shedding" }], [])).toEqual([{ kind: "setup_shedding" }]);
+        expect(atomicSetupActions([{ kind: "set_alpha", alphaDeg: 6 }], ["set_alpha rejected"])).toEqual([
+            { kind: "set_alpha", alphaDeg: 6 },
+        ]);
+    });
+
+    it("claims unchanged only when nothing applied yet", () => {
+        expect(executorFaultCopy("setup_shedding", 0)).toContain("canvas unchanged");
+        expect(executorFaultCopy("setup_shedding", 2)).not.toContain("canvas unchanged");
+        expect(executorFaultCopy("setup_shedding", 2)).toContain("after 2 applied");
+    });
+});
+
+describe("review fix 9: set_preset contract pins alias mapping plus strict rejection", () => {
+    it("strictly rejects unknown or conflicting set_preset fences", () => {
+        for (const preset of ["wake", "high resistance", "cylinder airfoil", "block", "orifice", "rectangle"]) {
+            const out = parseAgentEnvelope(fence({ kind: "set_preset", preset }), ANALYTIC);
+            expect(out.actions).toEqual([]);
+            expect(out.rejections.join(" ")).toContain("unknown action kind");
+        }
+    });
+});
+
+describe("review fix 10: settled replies stay one sentence with applied values", () => {
+    it("sanitizes multi-sentence model replies to one sentence", () => {
+        expect(firstSentenceReply("Applying the cylinder. Teaching follows.")).toBe("Applying the cylinder.");
+        expect(collapseToOneSentence("Applying the cylinder. Note: radius kept.")).toBe(
+            "Applying the cylinder; note: radius kept."
+        );
     });
 });

@@ -1,43 +1,41 @@
-# Video Script: GearFlow 3 Minute Demo (384 words spoken)
+# Video Script: GearFlow 3 Minute Demo (319 words spoken)
 
-## Full Spoken Script (read verbatim, 384 words)
-
-What if you could setup computational fluid dynamics simulations in seconds without spending hours lost in menus.
-
-My name is Ajeet and I built GearFlow, an interactive wind tunnel simulator controlled through natural language. Describe a case to a live agent and watch them set up the simulation and explain the physics. 
-
-CFD tools are extremely powerful, but setting up meshes, solvers, and plots can take hours. Students can ask questions about aerodynamics concepts and get instant feedback and visual response. Teachers can run instant parameter sweeps, like an angle of attack comparison, without spending hours building simulators and extracting plots. Engineers can test simple ideas without wasting compute resources.
-
-GearFlow fixes that. Type a case in chat and the agent builds it. It runs on Meta Spark Open model for reasoning, served through Modal.
-
-Let us set up NACA 2412 at angle of attack alpha 6. The agent parses airfoil, angle, and field. In 2 milliseconds we get a potential flow estimate.
-Here is the RUN card. Lift coefficient 0.9750, minimum pressure minus 2.4880. Purple suction on top, cyan recovery below. The vertical colorbar is the only legend. Everything stays readable with sound off. I toggle field to pressure, then velocity.
-Now the wow moment. I click the Stall demo tutorial. Watch nine points step live with progress and Stop control. Then the tutor explains what changed, why, and what to try next, with a Before versus After table. Cylinder shedding is one phrase away. Show me vortex shedding behind the cylinder.
-Note the label. Served by analytic preview, potential flow estimate, not validated. That honesty matters. Spark cache lives 24 hours, spend capped at 5 dollars. If the network drops, calls fail honest with Retry, and the sweep still steps the canvas live.
-Today is a 2D inviscid preview, not viscous CFD. Next, the same agent will drive a full solver end to end for real simulations. Image plus audio inputs come after that. If you care about intuition through interaction, follow along. I am Ajeet, this is GearFlow for the Meta Global Hackathon.
+## Full Spoken Script (read verbatim, 319 words)
+Watch this. I told my flow solver to set up an airfoil, in English.
+I am Ajeet, a solo builder working on scientific tools. I build GearFlow, a browser lab where chat sets up aerodynamics. Solo Indie entry, pushing what chat can do for physics.
+CFD tools are powerful but setup is friction. Meshing, solvers, and plots take hours. Students guess instead of seeing. Intuition never builds because trying one angle takes too long. Engineers wait for clusters to test simple ideas.
+GearFlow fixes that. Type a case in chat and the agent builds it. It runs on a Meta text model for reasoning, with cached responses and an eval ledger for every call. You see metaClient, modalGate, cache, and evalLog here. Today chat is text only, and every result carries an honest label.
+Case one, airfoil. Set up airfoil NACA 2415 at angle of attack 6. The agent builds it: milliseconds, 512 grid. Now reshape it. Set NACA 3412, more camber, thinner section. Then set alpha to 10. Watch the suction peak grow.
+Case two, cylinder. Set body to cylinder at Reynolds number 1000. Now set cylinder radius to 0.5. The wake widens with the body.
+Case three, square. Show me flow around a square. Now stretch it: set block width to 1.2, height to 0.5, alpha to 10.
+Case four, constriction. Set up the orifice constriction. How does this affect pressure? The field switches to Cp. Now widen it: set orifice gap to 0.8.
+Every run carries its label: analytic preview, potential flow estimate, not validated. Spark cache lives 24 hours, spend capped at 5 dollars. If the network drops, calls fail honest with Retry.
+Today is a 2D inviscid preview, not viscous CFD. Next, the same agent will drive a full solver end to end for real simulations. Image plus audio inputs come after that. I am Ajeet, this is GearFlow for the Meta Global Hackathon.
 
 ## Beat Sheet (time, visual, spoken, action)
-* 0:00 to 0:07 cold open. Visual: full screen flow canvas already morphing, no face, no slide. Spoken: Watch this. I picked the Stall demo tutorial, and the flow field is stepping live. Action: Tutorials dropdown chip Stall demo clicked just before rolling, sweep already stepping, progress line Sweep X of 9 alpha Y deg canvas stepping live visible, burned in caption on. Cold open clip may be lifted from the demo C take.
+* 0:00 to 0:07 cold open. Visual: full screen flow canvas morphing to the airfoil, no face, no slide. Spoken: Watch this. I told my flow solver to set up an airfoil, in English. Action: typed set up airfoil naca 2415 at angle of attack 6 sent just before rolling, canvas morphing, burned in caption on. Cold open clip may be lifted from the demo A take.
 * 0:07 to 0:20 intro. Visual: slide plus face cam bottom corner, name and solo Indie entry. Spoken: I am Ajeet, a solo builder working on scientific tools. I build GearFlow, a browser lab where chat sets up aerodynamics. Solo Indie entry, pushing what chat can do for physics. Action: face cam on, lower third with name.
-* 0:20 to 0:42 problem. Visual: 2 slides, CFD setup friction then intuition gap. Spoken: CFD tools are powerful but setup is friction. Meshing, solvers, and plots take hours. Students guess instead of seeing. Intuition never builds because trying one angle takes too long. Teachers cannot demo stall live in class. Engineers wait for clusters to test simple ideas. Action: click through 2 slides, hold each 11 sec.
-* 0:42 to 1:10 solution. Visual: slide plus code B roll of src/meta/metaClient.ts, src/agent/modalGate.ts, src/meta/cache.ts, src/meta/evalLog.ts. Spoken: GearFlow fixes that. Type a case in chat and the agent builds it. It runs on a Meta text model for reasoning, with cached responses and an eval ledger for every call. You see metaClient, modalGate, cache, and evalLog here. That is the harness. Image and audio inputs are future work. Today chat is text only, and every result carries an honest label. Action: scroll code slowly, highlight file names, lower third Chat powered by Meta text model.
-* 1:10 to 1:33 demo A setup. Visual: full screen app, left rail chat. Spoken: Let us set up NACA 2412 at alpha 6. I pick the Example prompts chip, Set up NACA 2412 at angle of attack alpha 6. The agent parses airfoil, angle, and field. In 2 milliseconds we get a potential flow estimate on a 512 grid with 118 panels. Action: click Example prompts chip Set up NACA 2412 at angle of attack (alpha) 6, which sends Set up NACA 2412 alpha 6, zoom 125 percent on chat enter.
-* 1:33 to 1:52 demo B tour. Visual: full screen field plus RUN card plus vertical colorbar. Spoken: Here is the RUN card. Lift coefficient 0.9750, minimum pressure minus 2.4880. Purple suction on top, cyan recovery below. The vertical colorbar is the only legend. Everything stays readable with sound off. I toggle field to pressure, then velocity. Action: hover RUN card, toggle FIELD pressure then velocity, zoom 125 percent on RUN card.
-* 1:52 to 2:14 demo C hero sweep. Visual: full screen sweep stepping plus tutor summary. Spoken: Now the wow moment. I click the Stall demo tutorial. Watch nine points step live with progress and Stop control. Then the tutor explains what changed, why, and what to try next, with a Before versus After table. Cylinder shedding is one phrase away. Show me vortex shedding behind the cylinder. Action: click Tutorials dropdown chip Stall demo (typed Run the alpha sweep from minus 4 to 12 deg is backup only, never mix both in one take), show Stop plus per point Apply chips, then tutor What changed Why Try next plus Before versus After table. The Before versus After tutor table is camera safe and distinct from the unmounted misconception path.
-* 2:14 to 2:32 demo D honesty. Visual: close on provenance label. Spoken: Note the label. Served by analytic preview, potential flow estimate, not validated. That honesty matters. Spark cache lives 24 hours, spend capped at 5 dollars. If the network drops, calls fail honest with Retry, and the sweep still steps the canvas live. Action: hold on case note served by analytic preview (potential flow estimate, agent first mode) plus engine token ANALYTIC.
-* 2:32 to 3:00 close. Visual: 2 slides constraints then next steps plus end card. Spoken: Today is a 2D inviscid preview, not viscous CFD. Next, the same agent will drive a full solver end to end for real simulations. Image plus audio inputs come after that. If you care about intuition through interaction, follow along. I am Ajeet, this is GearFlow for the Meta Global Hackathon. Action: show end card name project hackathon repo, hold 4 sec.
+* 0:20 to 0:40 problem. Visual: 2 slides, CFD setup friction then intuition gap. Spoken: CFD tools are powerful but setup is friction. Meshing, solvers, and plots take hours. Students guess instead of seeing. Intuition never builds because trying one angle takes too long. Engineers wait for clusters to test simple ideas. Action: click through 2 slides, hold each 10 sec.
+* 0:40 to 1:06 solution. Visual: slide plus code B roll of src/meta/metaClient.ts, src/agent/modalGate.ts, src/meta/cache.ts, src/meta/evalLog.ts. Spoken: GearFlow fixes that. Type a case in chat and the agent builds it. It runs on a Meta text model for reasoning, with cached responses and an eval ledger for every call. You see metaClient, modalGate, cache, and evalLog here. Today chat is text only, and every result carries an honest label. Action: scroll code slowly, highlight file names, lower third Chat powered by Meta text model.
+* 1:06 to 1:36 demo A airfoil. Visual: full screen app, left rail chat. Spoken: Case one, airfoil. Set up airfoil NACA 2415 at angle of attack 6. The agent builds it: milliseconds, 512 grid. Now reshape it. Set NACA 3412, more camber, thinner section. Then set alpha to 10. Watch the suction peak grow. Action: type set up airfoil naca 2415 at angle of attack 6, then type set NACA 3412 at alpha 6, then type set alpha to 10. Zoom 125 percent on chat enter. Read RUN card actuals live, never invent numbers.
+* 1:36 to 1:52 demo B cylinder. Visual: full screen app, cylinder wake. Spoken: Case two, cylinder. Set body to cylinder at Reynolds number 1000. Now set cylinder radius to 0.5. The wake widens with the body. Action: type set body to cylinder at Reynolds number 1000 (never say shedding or karman on this turn, the preset collision would drop Re to 100), then type set cylinder radius to 0.5.
+* 1:52 to 2:08 demo C square. Visual: full screen app, block field. Spoken: Case three, square. Show me flow around a square. Now stretch it: set block width to 1.2, height to 0.5, alpha to 10. Action: type show me flow around a square, then type set block width to 1.2, height to 0.5, alpha to 10.
+* 2:08 to 2:28 demo D constriction. Visual: full screen app, orifice field then Cp. Spoken: Case four, constriction. Set up the orifice constriction. How does this affect pressure? The field switches to Cp. Now widen it: set orifice gap to 0.8. Action: type set up the orifice constriction (constriction, never constricted, never say high pressure), then type how does this affect pressure and confirm the field switches to Cp, then type set orifice gap to 0.8.
+* 2:28 to 2:40 honesty. Visual: close on provenance label. Spoken: Every run carries its label: analytic preview, potential flow estimate, not validated. Spark cache lives 24 hours, spend capped at 5 dollars. If the network drops, calls fail honest with Retry. Action: hold on case note served by analytic preview (potential flow estimate, agent first mode) plus engine token ANALYTIC.
+* 2:40 to 3:00 close. Visual: 2 slides constraints then next steps plus end card. Spoken: Today is a 2D inviscid preview, not viscous CFD. Next, the same agent will drive a full solver end to end for real simulations. Image plus audio inputs come after that. I am Ajeet, this is GearFlow for the Meta Global Hackathon. Action: show end card name project hackathon repo, hold 4 sec.
 
 ## Rehearsal Checklist
-* Rehearse twice with timer, time each beat, trim ad libs to protect the sweep.
-* Prewarm endpoint, keep pinned phrases ready, keep dropdown as primary to avoid fence misses.
-* Primary sweep trigger is the Tutorials Stall demo chip click. The typed sweep string is backup only. Never mix both in one take.
-* Go or no go 30 min before recording: hit the live endpoint once, confirm a tutor summary lands, confirm warm cache.
-* Backup phrases if a prompt misbehaves: use set up the airfoil at alpha 8, or airfoil naca 4412 alpha 2, or karman street please.
-* Speak at calm demo pace, pause 1 beat on numbers, smile on wow moment.
-* Test suite note for Q and A only: 130 files, 1750 tests, all pass, build green with tsc plus vite.
+* Rehearse twice with timer, time each beat, keep turns brisk to protect all four cases.
+* Prewarm endpoint. Pre-type every follow-up in a scratch pad, paste and send live to save seconds.
+* Absolute numbers only for follow-ups (3412, alpha 10, radius 0.5, width 1.2, gap 0.8). Relative words like increase, widen, or a bit have no parser rescue.
+* Never say shedding or karman on the cylinder turn, never say constricted, never say high pressure. Use constriction, orifice, gap.
+* Go or no go 30 min before recording: hit the live endpoint once with each of the 4 setup prompts, confirm the canvas changes, confirm warm cache.
+* Speak at calm demo pace, pause 1 beat on numbers, smile when the reshape lands.
+* Test suite note for Q and A only: re-run npm test on recording morning and quote the fresh numbers.
 
 ## Fallback Plan
-* If endpoint fails mid recording, cut camera, keep rolling screen capture. No toggle to touch: the same Stall demo chip still steps the canvas live with an honest offline summary. Restart narration from demo A.
-* Never show an error turn on camera. Pause voice, restart from demo A chip.
-* If tutor summary is missing, narrate What changed and Why live, then retry once.
+* If endpoint fails mid recording, cut camera, keep rolling screen capture. Restart narration from the current case setup prompt.
+* Never show an error turn on camera. Pause voice, re-paste the prompt, retry once, then move on.
+* If a follow-up fence misfires (canvas unchanged), narrate the intent live and keep rolling; fix in the next take.
 * Never cut to Validation panel, SAM overlay, poster, or Export JSON. Those are unmounted or blocked.
+* If running long, drop the 2a radius turn or the 4a pressure turn in the edit; cases 1 and 3 carry the story.

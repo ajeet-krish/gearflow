@@ -40,6 +40,11 @@ export const ANALYTIC_MAX_CELLS = 1048576;
 /** Chord normalized envelope: chord is always 1, magnitudes stay bounded. */
 export const CHORD_VALUE = 1;
 export const RADIUS_MAX = 1;
+/** Cylinder radius envelope: the rail slider spans 0.05 to 1 and the
+ *  analytic solver plus SDF carry any radius inside it. */
+export const CYLINDER_RADIUS_MIN = 0.05;
+export const CYLINDER_RADIUS_MAX = 1;
+export const CYLINDER_RADIUS_DEFAULT = 0.25;
 export const EXTENT_MAX = 3;
 export const CENTER_X_MIN = -1;
 export const CENTER_X_MAX = 3;
@@ -175,11 +180,8 @@ export function validateGeometrySpec(g: unknown): asserts g is GeometrySpec {
         }
     }
     if (spec.kind === "cylinder") {
-        if (!isFiniteNumber(spec.radius) || (spec.radius as number) <= 0) {
-            throw new Error("GeometrySpec.radius must be a positive finite number for kind cylinder");
-        }
-        if ((spec.radius as number) > RADIUS_MAX) {
-            throw new Error(`GeometrySpec.radius must be <= ${RADIUS_MAX}, got ${spec.radius as number}`);
+        if (!isFiniteNumber(spec.radius) || !(spec.radius as number >= CYLINDER_RADIUS_MIN && spec.radius as number <= CYLINDER_RADIUS_MAX)) {
+            throw new Error(`GeometrySpec.radius (cylinder) must be finite in [${CYLINDER_RADIUS_MIN}, ${CYLINDER_RADIUS_MAX}], got ${String(spec.radius)}`);
         }
     }
     if (spec.kind === "block") {

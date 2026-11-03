@@ -259,7 +259,7 @@ export function buildBlockEnvelope(
         if (apply.alphaDeg !== null) parts.push(`alpha ${apply.alphaDeg}`);
         if (apply.reynolds !== null) parts.push(`Re ${apply.reynolds}`);
         const tail = notes.length > 0 ? ` ${notes.join(" ")}` : "";
-        const reply = `Applying ${parts.join(", ")}. Canvas updates on apply.${tail}`;
+        const reply = `Applying ${parts.join(", ")}, the canvas updates on apply.${tail}`;
         return { reply, candidates, corrections, notes };
     } catch {
         return { reply: "Parser rectangular section envelope unreadable, canvas unchanged.", candidates: [], corrections: [], notes: [] };

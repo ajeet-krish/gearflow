@@ -23,8 +23,9 @@ import { actionContractSummary, MAX_ENVELOPE_ACTIONS, parseAgentEnvelope, valida
 import { buildTutorTable, tutorRowsText, type TutorSnapshotLite, type TutorTableRow } from "@/agent/tutorTable";
 import { detectConcept, fieldForConcept, type TutorConcept, type TutorFieldSuggestion } from "@/agent/tutorPolicy";
 import { buildTutorMessages } from "@/agent/tutorPrompt";
-import { buildAirfoilEnvelope, parseAirfoilIntent, type AirfoilApply } from "@/agent/airfoilIntent";
+import { buildAirfoilEnvelope, parseAirfoilIntent, parseReynolds, type AirfoilApply } from "@/agent/airfoilIntent";
 import { buildBlockEnvelope, parseBlockIntent } from "@/agent/blockIntent";
+import { buildCylinderEnvelope, parseCylinderIntent } from "@/agent/cylinderIntent";
 import { isSchemaValidCode } from "@/agent/nacaParse";
 import { buildOrificeEnvelope, parseOrificeIntent } from "@/agent/orificeIntent";
 import { expandCasePreset } from "@/agent/casePresets";
@@ -229,6 +230,7 @@ export function snapshotLiteFor(ctx: AgentContext | null | undefined): TutorSnap
             ? text(c.provenanceLabel, "analytic")
             : text(c.neural?.path, "analytic");
         const strouhal = c.surrogate?.strouhal ?? c.lbm?.stats?.strouhal ?? null;
+        const specRadius = (spec as { radius?: unknown }).radius;
         return {
             caseKey: keyWithField,
             bodyLabel: text(c.bodyLabel, "unknown body"),
@@ -239,6 +241,7 @@ export function snapshotLiteFor(ctx: AgentContext | null | undefined): TutorSnap
             regime: text(c.regime, "unknown regime"),
             pathLabel,
             strouhal: num(strouhal),
+            radius: typeof specRadius === "number" && Number.isFinite(specRadius) ? specRadius : null,
         };
     } catch {
         return {
@@ -251,6 +254,7 @@ export function snapshotLiteFor(ctx: AgentContext | null | undefined): TutorSnap
             regime: "n/a",
             pathLabel: "n/a",
             strouhal: null,
+            radius: null,
         };
     }
 }
@@ -448,7 +452,10 @@ export function buildModalMessages(
         `Never mention angle of attack (alpha) for the orifice plate: it has no angle, cite the gap opening instead. Orifice specs always carry alphaDeg 0.`,
         `Setup presets expand atomically: ${presetLines.live}.`,
         presetLines.retired,
-        `Bare body requests apply a setup, never an unknown set_preset fence: show me a cylinder (or vortex shedding, karman) means setup_shedding; high Reynolds number (Re) wake means setup_high_re_wake; NACA or airfoil (any 4-digit code or bare airfoil) means setup_airfoil carrying the code into body plus angle of attack (alpha) when named; rectangle, block, or square means one set_spec block; orifice, constriction, tunnel, venturi, throat, or gap means one set_spec orifice with angle of attack (alpha) always 0.`,
+        `Only setup_shedding, setup_high_re_wake, and setup_airfoil exist: set_preset aliases map before validation (cylinder, shedding, karman, or vortex map to setup_shedding; high Re wake maps to setup_high_re_wake; NACA or airfoil maps to setup_airfoil; high pressure maps to retired setup_high_pressure), while conflicting or unknown presets (bare wake, high resistance, cylinder airfoil together) are strictly rejected with the canvas unchanged.`,
+        `Bare body requests apply a setup with the stated Reynolds number (Re) together: show me a cylinder (or vortex shedding, karman) means setup_shedding plus a validated Reynolds number action carrying the stated Re when one is named; high Reynolds number (Re) wake means setup_high_re_wake plus a validated Reynolds number action carrying the stated Re when one is named; NACA or airfoil (any 4-digit code or bare airfoil) means setup_airfoil carrying the code into body plus angle of attack (alpha) when named; rectangle, block, or square means one set_spec block; orifice, constriction, tunnel, venturi, throat, or gap means one set_spec orifice with angle of attack (alpha) always 0.`,
+        `Cylinder size maps to the cylinder radius in [0.05, 1]: radius phrasing carries directly, diameter phrasing halves into radius, out of range values clamp with a note naming the bound.`,
+        `Explain or teach plus a body noun applies that body setup first (when it names a body other than the current one) and then teaches fully in the same single response; a pure explain-this-run question with no body noun never writes the canvas. What, why, and define questions without a setup request never write the canvas.`,
         'Any 4-digit NACA rides one set_spec with the full parametric geometry plus reynolds plus rationale (required non-empty string, e.g. rationale "Agent setup NACA 2415 alpha 6.").',
         "NACA validity: thickness (t) in [0.02, 1.0], camber (m) in [0, 0.15], when camber (m) is above 0 camber position (p) in (0, 1); clamp or pick the nearest valid value and say so.",
         "Bounds: alpha in [-180, 180] hard ([-4, 12] characterized), reynolds in [100, 1000000]. Orifice alpha is always 0, never outside that single value.",
@@ -459,7 +466,8 @@ export function buildModalMessages(
         '{"kind":"set_spec","spec":{"geometry":{"kind":"block","chord":1,"alphaDeg":0,"nPoints":120,"width":0.5,"height":0.5,"center":{"x":0.5,"y":0}},"reynolds":200000,"rationale":"Agent setup Rectangle 0.5 by 0.5."}}',
         "```",
         "Angle of attack (alpha) influence, stall demo, stall sweep, or show stall: when the user asks to see angle of attack (alpha) influence or effect, or names a stall demo, stall sweep, or show stall, answer with no action fence and name the live analytic staircase (-4 to 12 step 2, 9 points) that the agent runs now with Stop plus per-point Apply chips, never just describe it and never promise a run the agent did not take. Sweep replies carry NO fence: never emit alpha_sweep_summary or any action-json fence on a sweep reply, the agent runs the staircase.",
-        "Reply with exactly one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas) plus the fence only, never two sentences, never duplicate What changed, Why, or Try next in the model reply, never teaching sections, never tables; then the validated apply follows and the tutor upsert owns all teaching on the same turn with a before versus after table plus Why plus Try next. Questions with no actions answer fully.",
+        "Reply with exactly one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas) plus the fence only, never two sentences, never duplicate What changed, Why, or Try next in the model reply, never teaching sections, never tables, never narrate future bumps or plans; then the validated apply follows and the tutor upsert owns all teaching on the same turn with a before versus after table plus Why plus Try next. Questions with no actions answer fully.",
+        "Never name presets in the reply; describe physics only (body plus angle plus Reynolds number), never setup names or preset words. Prose never contains raw JSON: actions ride fenced blocks only.",
         "Try next is a physics thought experiment only: nudge angle of attack by 1 deg or change Reynolds number and reason about the effect. Never a field switch, never a view change, never a run.",
         "No solver or tech stack talk: teach flow physics only, no solver names, no statistics, no spinning-flow copy, no field views. Physics note only when the idea needs it: the potential flow picture omits separation and stall.",
     ];
@@ -509,8 +517,109 @@ function describeAction(a: AgentAction): string {
     if (a.kind === "setup_shedding") return "vortex shedding case (cylinder, angle of attack (alpha) 0, Reynolds number (Re) 100)";
     if (a.kind === "setup_high_re_wake") return "high Reynolds number (Re) wake case (cylinder, angle of attack (alpha) 0, Reynolds number (Re) 700)";
     if (a.kind === "setup_high_pressure") return "retired high pressure case (use setup_high_re_wake instead)";
-    if (a.kind === "setup_airfoil") return "airfoil case (NACA body)";
+    if (a.kind === "setup_airfoil") {
+        const body = typeof (a as { body?: unknown }).body === "string" ? String((a as { body?: unknown }).body) : "naca2412";
+        const alpha = typeof (a as { alphaDeg?: unknown }).alphaDeg === "number" ? (a as { alphaDeg: number }).alphaDeg : 6;
+        return `airfoil case (${body} at angle of attack (alpha) ${alpha}, Reynolds number (Re) 1200)`;
+    }
     return "custom spec";
+}
+
+/** First sentence of a model reply, so settled turns stay one sentence.
+ *  Collapses whitespace, cuts at the first period, question, or
+ *  exclamation mark, and folds any parser Note tail into the same
+ *  sentence with a semicolon. Never throws. */
+export function firstSentenceReply(raw: unknown): string {
+    try {
+        if (typeof raw !== "string") return "";
+        const flat = raw.trim().replace(/\s+/g, " ");
+        if (flat.length === 0) return "";
+        const match = flat.match(/^(.+?[.!?])(\s|$)/);
+        const first = match !== null ? match[1].trim() : flat.split(/(?<!\d)\.(?!\d)/)[0]?.trim() ?? flat;
+        const single = first.length > 0 ? first : flat;
+        return single.endsWith(".") || single.endsWith("!") || single.endsWith("?") ? single : `${single}.`;
+    } catch {
+        return "";
+    }
+}
+
+/** Collapse a built reply with parser Note tails into one sentence so
+ *  settled turns never render two sentences. Note tails join with
+ *  semicolons inside the single trailing period. Never throws. */
+export function collapseToOneSentence(reply: unknown): string {
+    try {
+        if (typeof reply !== "string") return "";
+        const flat = reply.trim().replace(/\s+/g, " ");
+        if (flat.length === 0) return "";
+        const folded = flat.replace(/\.?\s*Note:\s*/gi, "; note: ");
+        const sentences = folded.split(/(?<=[.!?])\s+/);
+        if (sentences.length <= 1) {
+            return folded.endsWith(".") || folded.endsWith("!") || folded.endsWith("?") ? folded : `${folded}.`;
+        }
+        const joined = sentences.map((s) => s.replace(/[.?!]+$/, "")).join("; ");
+        return `${joined}.`;
+    } catch {
+        return typeof reply === "string" ? reply : "";
+    }
+}
+
+/** Atomic setup settle: a setup envelope carrying any rejection settles
+ *  zero actions, so a half applied case can never land. Pure helper so
+ *  the review round pins the contract without a React harness. Never
+ *  throws. */
+export function atomicSetupActions(actions: AgentAction[], rejections: string[]): AgentAction[] {
+    try {
+        const hasSetupPreset = actions.some((a) => typeof a.kind === "string" && a.kind.startsWith("setup_"));
+        if (rejections.length > 0 && hasSetupPreset) return [];
+        return actions;
+    } catch {
+        return [];
+    }
+}
+
+/** Honest executor fault copy: claims the canvas unchanged only when
+ *  nothing applied yet, otherwise names the partial apply count. Never
+ *  throws. */
+export function executorFaultCopy(kind: string, appliedCount: number): string {
+    try {
+        const safeKind = typeof kind === "string" && kind.length > 0 ? kind : "action";
+        const safeCount = Number.isFinite(appliedCount) ? Math.max(0, Math.floor(appliedCount)) : 0;
+        return safeCount > 0
+            ? `apply failed for ${safeKind} after ${safeCount} applied, check the canvas`
+            : `apply failed for ${safeKind}, canvas unchanged`;
+    } catch {
+        return "apply failed, check the canvas";
+    }
+}
+
+function describeEnvelopeActions(actions: AgentAction[]): string {
+    try {
+        const parts: string[] = [];
+        for (const a of actions.slice(0, 5)) {
+            if (a.kind === "setup_shedding") parts.push("the cylinder at angle of attack (alpha) 0 and Reynolds number (Re) 100");
+            else if (a.kind === "setup_high_re_wake") parts.push("the cylinder at angle of attack (alpha) 0 and Reynolds number (Re) 700");
+            else if (a.kind === "setup_airfoil") {
+                const body = typeof (a as { body?: unknown }).body === "string" ? String((a as { body?: unknown }).body).toUpperCase() : "airfoil";
+                const alpha = typeof (a as { alphaDeg?: unknown }).alphaDeg === "number" ? ` at angle of attack (alpha) ${(a as { alphaDeg: number }).alphaDeg}` : " at angle of attack (alpha) 6";
+                parts.push(`the ${body} body${alpha} at Reynolds number (Re) 1200`);
+            } else if (a.kind === "set_spec") {
+                const kind = (a as { spec?: { geometry?: { kind?: unknown } } }).spec?.geometry?.kind;
+                const re = (a as { spec?: { reynolds?: unknown } }).spec?.reynolds;
+                const reText = typeof re === "number" && Number.isFinite(re) ? ` at Reynolds number (Re) ${Math.round(re)}` : "";
+                if (kind === "cylinder") {
+                    const r = (a as { spec?: { geometry?: { radius?: unknown } } }).spec?.geometry?.radius;
+                    parts.push(typeof r === "number" && Number.isFinite(r) ? `the cylinder with radius ${r}${reText}` : `the cylinder${reText}`);
+                } else if (kind === "orifice") parts.push(`the orifice plate with gap opening 0.4${reText}, a narrower gap speeds the flow like a venturi`);
+                else if (kind === "block") parts.push(`the rectangular section 0.5 by 0.5${reText}`);
+                else if (kind === "naca4") parts.push(`the airfoil body${reText}`);
+                else parts.push(`the ${String(kind ?? "body")}${reText}`);
+            } else parts.push(describeAction(a).replace(/^body /, "the "));
+        }
+        if (parts.length === 0) return "Applying the requested case.";
+        return `Applying ${parts.join(" and ")}.`;
+    } catch {
+        return "Applying the requested case.";
+    }
 }
 
 function makeExtra(over: Partial<TurnExtra> = {}): TurnExtra {
@@ -758,6 +867,24 @@ export default function AgentConsole({
         const appliedActions: AgentAction[] = [];
         const navTopics: string[] = [];
         const rejections = [...envelope.rejections];
+        // Atomic setup settle: a setup envelope carrying any rejection
+        // applies nothing, so a half applied case can never land. The
+        // rejections render with the canvas unchanged.
+        const hasSetupEnvelope = envelope.actions.some((a) => typeof a.kind === "string" && a.kind.startsWith("setup_"));
+        if (hasSetupEnvelope && rejections.length > 0) {
+            const patchAtomic: Partial<TurnExtra> = { rejections };
+            patchAtomic.streaming = false;
+            setExtra(id, patchAtomic);
+            if (envelope.reply.trim().length > 0) {
+                const reply = firstSentenceReply(envelope.reply);
+                setTurns((prev) => {
+                    const merged = prev.map((t) => (t.id === id ? { ...t, text: reply } : t));
+                    saveTurns(merged.slice(-TRANSCRIPT_CAP));
+                    return merged.slice(-TRANSCRIPT_CAP);
+                });
+            }
+            return;
+        }
         for (const action of envelope.actions) {
             if (RUN_KINDS.has(action.kind)) {
                 pending.push(action);
@@ -773,8 +900,11 @@ export default function AgentConsole({
                     const topic = (action as { topic?: unknown }).topic;
                     if (typeof topic === "string" && topic.length > 0) navTopics.push(topic);
                 } catch {
-                    // Executor faults render as a rejection line, never throw.
-                    rejections.push(`apply failed for ${action.kind}, canvas unchanged`);
+                    // Executor faults never claim an untouched canvas: an
+                    // earlier apply in the same envelope may have landed,
+                    // so the copy names the failure without the unchanged
+                    // claim unless nothing applied yet.
+                    rejections.push(executorFaultCopy(action.kind, applied.length));
                 }
                 continue;
             }
@@ -784,8 +914,11 @@ export default function AgentConsole({
                     applied.push(`Applied: ${describeAction(action)}.`);
                     appliedActions.push(action);
                 } catch {
-                    // Executor faults render as a rejection line, never throw.
-                    rejections.push(`apply failed for ${action.kind}, canvas unchanged`);
+                    // Executor faults never claim an untouched canvas: an
+                    // earlier apply in the same envelope may have landed,
+                    // so the copy names the failure without the unchanged
+                    // claim unless nothing applied yet.
+                    rejections.push(executorFaultCopy(action.kind, applied.length));
                 }
                 continue;
             }
@@ -893,6 +1026,20 @@ export default function AgentConsole({
             // Sweep mapping faults fall through to the normal envelope.
         }
         const parsed = parseAgentEnvelope(rawText, validationCtx);
+        // Raw JSON never renders as reply text: an unfenced envelope that
+        // parses to actions settles with a generated single-sentence
+        // physics description instead of the raw JSON.
+        if (parsed.actions.length > 0 && parsed.reply.trim().length === 0) {
+            try {
+                const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+                if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                    settleParsedEnvelope(id, { reply: describeEnvelopeActions(parsed.actions), actions: parsed.actions, rejections: parsed.rejections }, userText);
+                    return;
+                }
+            } catch {
+                // Description faults fall through to the normal settle path.
+            }
+        }
         // Post-rescue: the model answered with no actionable envelope, but
         // the original request parses high confidence. Settle the parser
         // envelope on the same path instead of leaving the canvas stale.
@@ -912,12 +1059,12 @@ export default function AgentConsole({
                 // a partial rescue with any rejection applies nothing, keeps
                 // the model reply, surfaces the rejections, canvas unchanged.
                 if (rescued.actions.length > 0 && rescued.rejections.length === 0) {
-                    const reply = parsed.reply.trim().length > 0 ? parsed.reply : rescued.reply;
+                    const reply = parsed.reply.trim().length > 0 ? firstSentenceReply(parsed.reply) : collapseToOneSentence(rescued.reply);
                     settleParsedEnvelope(id, { reply, actions: rescued.actions, rejections: rescued.rejections }, userText);
                     return;
                 }
                 if (rescued.rejections.length > 0) {
-                    const reply = parsed.reply.trim().length > 0 ? parsed.reply : rescued.reply;
+                    const reply = parsed.reply.trim().length > 0 ? firstSentenceReply(parsed.reply) : collapseToOneSentence(rescued.reply);
                     settleParsedEnvelope(id, { reply, actions: [], rejections: rescued.rejections }, userText);
                     return;
                 }
@@ -943,12 +1090,12 @@ export default function AgentConsole({
                         else rejections.push(checked.reason ?? "parser block action rejected");
                     }
                     if (actions.length > 0 && rejections.length === parsed.rejections.length) {
-                        const reply = parsed.reply.trim().length > 0 ? parsed.reply : built.reply;
+                        const reply = parsed.reply.trim().length > 0 ? firstSentenceReply(parsed.reply) : collapseToOneSentence(built.reply);
                         settleParsedEnvelope(id, { reply, actions, rejections: [] }, userText);
                         return;
                     }
                     if (rejections.length > parsed.rejections.length) {
-                        const reply = parsed.reply.trim().length > 0 ? parsed.reply : built.reply;
+                        const reply = parsed.reply.trim().length > 0 ? firstSentenceReply(parsed.reply) : collapseToOneSentence(built.reply);
                         settleParsedEnvelope(id, { reply, actions: [], rejections }, userText);
                         return;
                     }
@@ -976,12 +1123,12 @@ export default function AgentConsole({
                         else rejections.push(checked.reason ?? "parser orifice action rejected");
                     }
                     if (actions.length > 0 && rejections.length === parsed.rejections.length) {
-                        const reply = parsed.reply.trim().length > 0 ? parsed.reply : built.reply;
+                        const reply = parsed.reply.trim().length > 0 ? firstSentenceReply(parsed.reply) : collapseToOneSentence(built.reply);
                         settleParsedEnvelope(id, { reply, actions, rejections: [] }, userText);
                         return;
                     }
                     if (rejections.length > parsed.rejections.length) {
-                        const reply = parsed.reply.trim().length > 0 ? parsed.reply : built.reply;
+                        const reply = parsed.reply.trim().length > 0 ? firstSentenceReply(parsed.reply) : collapseToOneSentence(built.reply);
                         settleParsedEnvelope(id, { reply, actions: [], rejections }, userText);
                         return;
                     }
@@ -989,27 +1136,138 @@ export default function AgentConsole({
             } catch {
                 // Orifice rescue faults fall through to the model envelope.
             }
+            // Cylinder rescue beside the orifice rescue. Explicit radius or
+            // diameter phrasing maps to one validated cylinder set_spec
+            // (alpha always 0, radius in [0.05, 1], diameter halves), plus
+            // the stated or live Re. Bare mentions with no size fall
+            // through to the bare-body rescue below.
+            try {
+                const cylinderApply = parseCylinderIntent(userText, {
+                    reynolds: agentContext?.reynolds ?? null,
+                });
+                if (cylinderApply !== null && cylinderApply.confidence >= PARSER_APPLY_CONFIDENCE) {
+                    const built = buildCylinderEnvelope(cylinderApply, {
+                        reynolds: agentContext?.reynolds ?? null,
+                    });
+                    const actions: AgentAction[] = [];
+                    const rejections = [...parsed.rejections];
+                    for (const candidate of built.candidates) {
+                        const checked = validateAgentAction(candidate, validationCtx);
+                        if (checked.ok && checked.action !== null) actions.push(checked.action);
+                        else rejections.push(checked.reason ?? "parser cylinder action rejected");
+                    }
+                    if (actions.length > 0 && rejections.length === parsed.rejections.length) {
+                        const reply = parsed.reply.trim().length > 0 ? firstSentenceReply(parsed.reply) : collapseToOneSentence(built.reply);
+                        settleParsedEnvelope(id, { reply, actions, rejections: [] }, userText);
+                        return;
+                    }
+                    if (rejections.length > parsed.rejections.length) {
+                        const reply = parsed.reply.trim().length > 0 ? firstSentenceReply(parsed.reply) : collapseToOneSentence(built.reply);
+                        settleParsedEnvelope(id, { reply, actions: [], rejections }, userText);
+                        return;
+                    }
+                }
+            } catch {
+                // Cylinder rescue faults fall through to the model envelope.
+            }
             // Bare body rescue: show me a cylinder (and block, orifice, NACA
-            // equivalents) applies a setup, never an unknown set_preset.
-            // Runs only when the envelope carried no valid actions, on the
-            // post-model path only. Question phrasings (what is, why,
-            // explain) never rescue, so glossary and definitional turns
-            // keep the canvas unchanged. Physics-only replies, Modal-only
-            // path, orifice alpha always 0, no solver talk.
+            // equivalents) applies a setup atomically with the stated Re,
+            // never an unknown set_preset (only setup_* kinds exist, any
+            // other preset fence is strictly rejected). Runs only when the
+            // envelope carried no valid actions, on the post-model path
+            // only. Explain or teach plus a body noun applies that body
+            // setup when it names a body other than the current one, then
+            // teaches fully on the same combined turn; pure explain-this-run
+            // text with no body noun never writes. What, why, and define
+            // guards keep non-body questions on the canvas-unchanged path.
+            // Physics-only single-sentence replies, Modal-only path,
+            // orifice alpha always 0, no solver talk, never preset names.
             try {
                 const lower = userText.toLowerCase();
                 const hasVerb = /\b(set|setup|show|use|try|generate|run|switch|apply|make|test|simulate|change|display|put)\b/i.test(lower);
                 const isQuestion = /\bwhat\s+is\b|\bwhat'?s\b|\bwhy\b|\bexplain\b|\bcompar\w*|\bversus\b|\bvs\.?(?!\w)/i.test(lower);
                 const isDefinitional = /\bwhat\s+(a|an|the)\b[\s\S]*\bis\b/i.test(lower) || /\bdefine\b|\bmeaning of\b/i.test(lower);
-                if (hasVerb && !isQuestion && !isDefinitional) {
-                    let bare: AgentAction | null = null;
+                const namesBody = /cylinder|karman|shedding|vortex|airfoil|naca|block|square|rectangle|rectangular|orifice|venturi|throat|constriction|tunnel/i.test(lower);
+                const isExplainTeach = /\bexplain\b|\bteach\b/i.test(lower);
+                const isExplainBody = isExplainTeach && namesBody;
+                const requestedKind: string | null = /orifice|venturi|throat|constriction|tunnel/i.test(lower)
+                    ? "orifice"
+                    : /square|rectangle|rectangular|block/i.test(lower)
+                        ? "block"
+                        : /airfoil|naca/i.test(lower)
+                            ? "naca4"
+                            : /cylinder|karman|shedding|vortex/i.test(lower)
+                                ? "cylinder"
+                                : null;
+                const currentKind = (() => {
+                    try {
+                        const k = (agentContext as { spec?: { kind?: unknown } } | null | undefined)?.spec?.kind;
+                        return typeof k === "string" ? k : null;
+                    } catch {
+                        return null;
+                    }
+                })();
+                const isSameBody = requestedKind !== null && currentKind !== null && requestedKind === currentKind;
+                // Declined requests never apply: a negation word anywhere
+                // in the turn blocks the bare rescue, so do not show me a
+                // cylinder and explain variants with not or never leave
+                // the canvas untouched with zero actions.
+                const isDeclined = /\bdo\s+not\b|\bdon'?t\b|\bnever\b|\bnot\b/i.test(lower);
+                const mayRescue = (hasVerb || isExplainBody) && !isDeclined && !isDefinitional && !(isQuestion && !isExplainBody) && !(isExplainBody && isSameBody);
+                if (mayRescue) {
+                    // Atomic Re: a stated Re rides a validated set_reynolds
+                    // after the setup preset, so body plus Re land together.
+                    const statedRe = parseReynolds(userText);
+                    const statedReValid = (() => {
+                        if (statedRe === null) return null;
+                        const checked = validateAgentAction({ kind: "set_reynolds", reynolds: statedRe }, validationCtx);
+                        return checked.ok && checked.action !== null ? checked.action : null;
+                    })();
+                    if (statedRe !== null && statedReValid === null) {
+                        const checked = validateAgentAction({ kind: "set_reynolds", reynolds: statedRe }, validationCtx);
+                        settleParsedEnvelope(id, { reply: parsed.reply.trim().length > 0 ? parsed.reply : `The stated Reynolds number (Re) ${statedRe} sits outside [100, 1000000], so the canvas stays unchanged.`, actions: [], rejections: [checked.reason ?? `set_reynolds ${statedRe} outside [100, 1000000]`] }, userText);
+                        return;
+                    }
+                    const withAtomicRe = (preset: AgentAction, baseRe: number): { actions: AgentAction[]; rejections: string[] } => {
+                        const checkedPreset = validateAgentAction(preset, validationCtx);
+                        if (!checkedPreset.ok || checkedPreset.action === null) {
+                            return { actions: [], rejections: [checkedPreset.reason ?? "preset setup rejected"] };
+                        }
+                        const actions: AgentAction[] = [checkedPreset.action];
+                        if (statedReValid !== null) {
+                            const sameAsBase = Math.round(statedRe as number) === baseRe;
+                            if (!sameAsBase) actions.push(statedReValid);
+                        }
+                        return { actions, rejections: [] };
+                    };
+                    let bareActions: AgentAction[] | null = null;
                     let bareReply = "";
                     if (/high\s*(reynolds|re)\s*wake|high.?re.?wake/i.test(lower)) {
-                        bare = { kind: "setup_high_re_wake" };
-                        bareReply = "Applying the high Reynolds number (Re) wake case (cylinder, angle of attack (alpha) 0, Reynolds number (Re) 700). Canvas updates on apply.";
+                        const settled = withAtomicRe({ kind: "setup_high_re_wake" }, 700);
+                        if (settled.rejections.length === 0) {
+                            bareActions = settled.actions;
+                            const reText = statedRe !== null ? Math.round(statedRe) : 700;
+                            bareReply = `Applying the cylinder at angle of attack (alpha) 0 and Reynolds number (Re) ${reText}.`;
+                        }
                     } else if (/karman|vortex shedding|vortex street|\bshedding\b|\bcylinder\b/i.test(lower)) {
-                        bare = { kind: "setup_shedding" };
-                        bareReply = "Applying the vortex shedding case (cylinder, angle of attack (alpha) 0, Reynolds number (Re) 100). Canvas updates on apply.";
+                        // Explicit radius rides one set_spec so size plus Re
+                        // land together; otherwise the preset plus atomic Re.
+                        const sized = parseCylinderIntent(userText, { reynolds: agentContext?.reynolds ?? null });
+                        if (sized !== null && sized.confidence >= PARSER_APPLY_CONFIDENCE) {
+                            const built = buildCylinderEnvelope(sized, { reynolds: agentContext?.reynolds ?? null });
+                            const checked = validateAgentAction(built.candidates[0], validationCtx);
+                            if (checked.ok && checked.action !== null) {
+                                bareActions = [checked.action];
+                                bareReply = collapseToOneSentence(built.reply);
+                            }
+                        } else {
+                            const settled = withAtomicRe({ kind: "setup_shedding" }, 100);
+                            if (settled.rejections.length === 0) {
+                                bareActions = settled.actions;
+                                const reText = statedRe !== null ? Math.round(statedRe) : 100;
+                                bareReply = `Applying the cylinder at angle of attack (alpha) 0 and Reynolds number (Re) ${reText}.`;
+                            }
+                        }
                     } else if (/\bairfoil\b|\bnaca\b/i.test(lower)) {
                         const codeMatch = userText.match(/naca\s*(\d{4})/i);
                         const alphaHere = parseAirfoilIntent(userText, { code: currentSectionCode() });
@@ -1018,11 +1276,17 @@ export default function AgentConsole({
                             const token = `naca${codeMatch[1]}`;
                             const canonical = token === "naca0012" || token === "naca2412" || token === "naca4412";
                             if (canonical) {
-                                bare = { kind: "setup_airfoil", body: token } as AgentAction;
+                                const preset: AgentAction = { kind: "setup_airfoil", body: token } as AgentAction;
                                 if (typeof alphaVal === "number" && Number.isFinite(alphaVal)) {
-                                    (bare as { alphaDeg?: number }).alphaDeg = alphaVal;
+                                    (preset as { alphaDeg?: number }).alphaDeg = alphaVal;
                                 }
-                                bareReply = `Applying the airfoil case (${token.toUpperCase()} body). Canvas updates on apply.`;
+                                const settled = withAtomicRe(preset, 1200);
+                                if (settled.rejections.length === 0) {
+                                    bareActions = settled.actions;
+                                    const reText = statedRe !== null ? Math.round(statedRe) : 1200;
+                                    const alphaText = typeof alphaVal === "number" && Number.isFinite(alphaVal) ? alphaVal : 6;
+                                    bareReply = `Applying the ${token.toUpperCase()} body at angle of attack (alpha) ${alphaText} and Reynolds number (Re) ${reText}.`;
+                                }
                             } else {
                                 // Valid non-canonical code rides one set_spec
                                 // with the full parametric geometry, so the
@@ -1035,10 +1299,12 @@ export default function AgentConsole({
                                         const liveAlpha = typeof alphaVal === "number" && Number.isFinite(alphaVal)
                                             ? alphaVal
                                             : (typeof agentContext?.alphaDeg === "number" && Number.isFinite(agentContext.alphaDeg) ? agentContext.alphaDeg : 6);
-                                        const liveRe = typeof agentContext?.reynolds === "number" && Number.isFinite(agentContext.reynolds)
-                                            ? Math.round(agentContext.reynolds)
-                                            : 50000;
-                                        bare = {
+                                        const liveRe = statedRe !== null
+                                            ? Math.round(statedRe)
+                                            : (typeof agentContext?.reynolds === "number" && Number.isFinite(agentContext.reynolds)
+                                                ? Math.round(agentContext.reynolds)
+                                                : 50000);
+                                        const candidate = {
                                             kind: "set_spec",
                                             spec: {
                                                 geometry: { kind: "naca4", naca: { code: check.code, m: check.m, p: check.p, t: check.t }, chord: 1, alphaDeg: liveAlpha, nPoints: 120 },
@@ -1046,24 +1312,36 @@ export default function AgentConsole({
                                                 rationale: `Agent setup NACA ${check.code} alpha ${liveAlpha}.`,
                                             },
                                         } as unknown as AgentAction;
-                                        bareReply = `Applying body naca${check.code} (NACA ${check.code}, angle of attack (alpha) ${liveAlpha}, Reynolds number (Re) ${liveRe}). Canvas updates on apply.`;
+                                        const checked = validateAgentAction(candidate, validationCtx);
+                                        if (checked.ok && checked.action !== null) {
+                                            bareActions = [checked.action];
+                                            bareReply = `Applying the NACA ${check.code} body at angle of attack (alpha) ${liveAlpha} and Reynolds number (Re) ${liveRe}.`;
+                                        }
                                     }
                                 } catch {
-                                    bare = null;
+                                    bareActions = null;
                                 }
                             }
                         } else {
-                            bare = { kind: "setup_airfoil" };
+                            const preset: AgentAction = { kind: "setup_airfoil" };
                             if (typeof alphaVal === "number" && Number.isFinite(alphaVal)) {
-                                (bare as { alphaDeg?: number }).alphaDeg = alphaVal;
+                                (preset as { alphaDeg?: number }).alphaDeg = alphaVal;
                             }
-                            bareReply = "Applying the airfoil case (NACA body). Canvas updates on apply.";
+                            const settled = withAtomicRe(preset, 1200);
+                            if (settled.rejections.length === 0) {
+                                bareActions = settled.actions;
+                                const reText = statedRe !== null ? Math.round(statedRe) : 1200;
+                                const bareAlpha = typeof alphaVal === "number" && Number.isFinite(alphaVal) ? alphaVal : 6;
+                                bareReply = `Applying the airfoil body at angle of attack (alpha) ${bareAlpha} and Reynolds number (Re) ${reText}.`;
+                            }
                         }
                     } else if (/\borifice\b|\bventuri\b|\bthroat\b|\bconstriction\b|\btunnel\b/i.test(lower)) {
-                        const liveRe = typeof agentContext?.reynolds === "number" && Number.isFinite(agentContext.reynolds)
-                            ? Math.round(agentContext.reynolds)
-                            : 1000;
-                        bare = {
+                        const liveRe = statedRe !== null
+                            ? Math.round(statedRe)
+                            : (typeof agentContext?.reynolds === "number" && Number.isFinite(agentContext.reynolds)
+                                ? Math.round(agentContext.reynolds)
+                                : 1000);
+                        const candidate = {
                             kind: "set_spec",
                             spec: {
                                 geometry: { kind: "orifice", chord: 1, alphaDeg: 0, nPoints: 120, width: 0.08, height: 0.4, center: { x: 0.5, y: 0 } },
@@ -1071,15 +1349,21 @@ export default function AgentConsole({
                                 rationale: "Agent setup Orifice gap 0.4 plate 0.08.",
                             },
                         } as unknown as AgentAction;
-                        bareReply = "Applying the orifice plate, gap opening 0.4, plate thickness 0.08. A narrower gap speeds the flow like a venturi. Canvas updates on apply.";
+                        const checked = validateAgentAction(candidate, validationCtx);
+                        if (checked.ok && checked.action !== null) {
+                            bareActions = [checked.action];
+                            bareReply = `Applying the orifice plate with gap opening 0.4 at Reynolds number (Re) ${liveRe}, a narrower gap speeds the flow like a venturi.`;
+                        }
                     } else if (/\bsquare\b|\brectangle\b|\brectangular\b|\bblock\b/i.test(lower)) {
                         const liveAlpha = typeof agentContext?.alphaDeg === "number" && Number.isFinite(agentContext.alphaDeg)
                             ? agentContext.alphaDeg
                             : 0;
-                        const liveRe = typeof agentContext?.reynolds === "number" && Number.isFinite(agentContext.reynolds)
-                            ? Math.round(agentContext.reynolds)
-                            : 50000;
-                        bare = {
+                        const liveRe = statedRe !== null
+                            ? Math.round(statedRe)
+                            : (typeof agentContext?.reynolds === "number" && Number.isFinite(agentContext.reynolds)
+                                ? Math.round(agentContext.reynolds)
+                                : 50000);
+                        const candidate = {
                             kind: "set_spec",
                             spec: {
                                 geometry: { kind: "block", chord: 1, alphaDeg: liveAlpha, nPoints: 120, width: 0.5, height: 0.5, center: { x: 0.5, y: 0 } },
@@ -1087,15 +1371,16 @@ export default function AgentConsole({
                                 rationale: "Agent setup Rectangle 0.5 by 0.5.",
                             },
                         } as unknown as AgentAction;
-                        bareReply = "Applying the rectangular section 0.5 by 0.5. A narrower section speeds the flow like a venturi. Canvas updates on apply.";
-                    }
-                    if (bare !== null) {
-                        const checked = validateAgentAction(bare, validationCtx);
+                        const checked = validateAgentAction(candidate, validationCtx);
                         if (checked.ok && checked.action !== null) {
-                            const reply = parsed.reply.trim().length > 0 ? parsed.reply : bareReply;
-                            settleParsedEnvelope(id, { reply, actions: [checked.action], rejections: [] }, userText);
-                            return;
+                            bareActions = [checked.action];
+                            bareReply = `Applying the rectangular section 0.5 by 0.5 at angle of attack (alpha) ${liveAlpha} and Reynolds number (Re) ${liveRe}, a narrower section speeds the flow like a venturi.`;
                         }
+                    }
+                    if (bareActions !== null && bareActions.length > 0) {
+                        const reply = parsed.reply.trim().length > 0 ? firstSentenceReply(parsed.reply) : collapseToOneSentence(bareReply);
+                        settleParsedEnvelope(id, { reply, actions: bareActions, rejections: [] }, userText);
+                        return;
                     }
                 }
             } catch {

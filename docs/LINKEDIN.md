@@ -1,13 +1,13 @@
 # LinkedIn Launch Post: GearFlow
 
-## Recommended Post (copy and paste, about 210 words)
+## Recommended Post (copy and paste, about 180 words)
 I stopped clicking CFD sliders.
 
-I built GearFlow, a browser airfoil lab where chat sets up and runs flow simulations. Type a case like Set up NACA 2412 alpha 6 and the agent builds it live. You see pressure, velocity, lift, and stall behavior right in the canvas. NACA 2412 at alpha 6 gives lift 0.9750 with minimum pressure minus 2.4880, readable with sound off.
+I built GearFlow, a browser lab where chat sets up and runs flow simulations. Type a case and the agent builds it live: an airfoil at angle of attack, a cylinder wake, a square block, a constricted orifice. Then keep talking: more camber, thinner section, higher angle, wider gap. Pressure, velocity, lift, right in the canvas.
 
-Under the hood is an analytic preview solver (2 ms, 118 panels, 512 grid) with honest provenance labels on every run. The chat harness runs on a Meta text model, with a 24 hour cache and an eval ledger for cost and latency. 130 files and 1750 tests keep the build green.
+Under the hood is an analytic preview solver that solves in milliseconds on a 512 grid, with honest provenance labels on every run. The chat harness runs on a Meta text model, with a 24 hour cache and an eval ledger for cost and latency. Full test suite green.
 
-The wow moment is the stall sweep. One phrase runs 9 alphas from minus 4 to 12 degrees, stepping the canvas live with progress and Stop control, then a tutor summary explains what changed, why, and what to try next.
+The demo runs four cases back to back, each reshaped by follow-up chat: airfoil to cylinder to square to constriction. No sliders hunted.
 
 This is day one. Next, the same agent will drive a full viscous solver end to end for real CFD simulations, not just an analytic estimate. Image and audio inputs come after that.
 
