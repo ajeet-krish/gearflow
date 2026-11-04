@@ -96,7 +96,7 @@ On validation, this README quotes the docs instead of claiming live results. The
 
 ## Next steps
 
-Next, the agent drives a built in solver end to end for real simulations, growing this harness into a full CFD harness. Image plus audio inputs come later, so an owner can sketch a geometry or ask about turbulence by voice. The goal stays the same: pushing the bounds of traditional CFD with agentic AI.
+Next, the agent drives a built in solver end to end for real simulations, growing this harness into a full CFD harness. Image plus audio inputs come later, so an owner can sketch a geometry or ask about turbulence by voice. The goal stays the same: pushing the boundaries of traditional CFD with agentic AI.
 
 ## Run it in 5 minutes
 
