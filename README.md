@@ -191,7 +191,3 @@ Never invent a source or license. The owner must confirm each asset is owned, li
 * [ ] Short writeup (problem, users, Meta tooling, architecture, next steps).
 * [ ] Licenses declared for third party assets and data.
 * [ ] Submitted before Nov 4 9PM ET.
-
-## Team status license
-
-Solo Indie entry. Name and contact: [TODO, add name, email, profile link]. Status: shipped behavior described above with file anchors, no phase counts. License: [TODO, add license and LICENSE file before publishing].
