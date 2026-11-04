@@ -2,20 +2,14 @@
 
 # GearFlow: An Agentic Interface for Computational Fluid Dynamics
 
-What if you could set up an aerodynamics simulation in seconds, without being lost in a sea of menus. Traditional CFD tools are extremely powerful but setting up simulations can take hours.
-
-With GearFlow, describe the simulation you want, and an agent sets it up, runs it, and explains the results.
+Describe the simulation you want, and an agent sets it up, runs it, and explains the results. Traditional CFD tools are powerful, but setting up a simulation takes hours of meshing, solver configuration, and plotting before any insight appears. Students can ask questions and receive instant visual feedback with physics explanations. Engineers can test simple ideas without wasting compute resources on expensive simulations.
 
 Live App: https://gearflow-five.vercel.app
 Demo Video: https://youtu.be/DIGMct427Ak
 
-## Who it is for
-
-Students can ask questions and receive instant visual feedback with physics explanations. Engineers can test simple ideas without wasting compute resources on expensive simulations.
-
 ## How it works
 
-Type plain English in the left-side chat and the physics agent sets up the simulation and runs it, and provides physics explanations.
+Type "Set up an airfoil naca 2415 at angle of attack 6" and an agent builds the case live: airfoils, cylinder wakes, square blocks, orifice constrictions, with pressure, velocity, and lift reading out beside the field. The "Physics Agent" explains what changed, why, and what to try next in plain language. The demo is the agentic loop itself: describe the physics you want, the agent sets it up, runs it, and explains it.
 
 ![GearFlow Studio scene with NACA 2425 airfoil Cp pressure field, RUN card showing CL 1.609](media/airfoil.png)
 
@@ -23,7 +17,6 @@ Type plain English in the left-side chat and the physics agent sets up the simul
 In this example where an airfoil simulation is setup, the user describes adding thickness. The agent makes the changes and also explains that the thicker section strengthens the suction peak while camber and alpha stay fixed, so the change is purely a thickness effect. It names Try next as nudging alpha by 1 deg to test whether the suction peak grows faster on the fatter section, and it carries the honest physics note that potential flow omits separation and stall, so real thick sections at high alpha may differ.
 
 ![GearFlow Studio scene with orifice plate velocity field, RUN card showing CPMIN minus 50.234](media/orifice.png)
-Screenshot alt: Agent Console on the left, Scene canvas with orifice velocity field and streamlines on the right.
 
 The user asks to learn about a specific flow scenario: "show me what happens when flow is constricted". The canvas builds the orifice plate with 0.4 gap opening and 0.08 plate thickness at Re 1000 in the velocity field, with streamlines squeezing through the gap.
 
@@ -62,13 +55,3 @@ Planned next steps are a built-in solver that the agent can drive end-to-end for
 * `docs/RESEARCH.md`: background notes and measured findings.
 * `docs/REVIEWS.md`: review history and quality gates.
 * `docs/TESTS.md`: validation detail and test inventory.
-* `docs/VIDEO_SCRIPT.md`: frozen spoken script and beat sheet, do not modify.
-
-## Submission checklist
-
-* [x] Live demo URL: https://gearflow-five.vercel.app/.
-* [x] Demo video 2 to 3 min: https://youtu.be/DIGMct427Ak (unlisted).
-* [ ] Public repo with this README (setup, keys, run steps).
-* [ ] Short writeup (problem, users, Meta tooling, architecture, next steps).
-* [ ] Licenses declared for third party assets and data.
-* [ ] Submitted before Nov 4 9PM ET.
