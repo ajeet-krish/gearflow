@@ -1,5 +1,5 @@
 # GearFlow Test Results
-Last updated: 2026-11-03
+Last updated: 2026-11-04
 
 ## 2026-11-03 - Cylinder Fixes Verification: Test Report (radius re-solve, cylinder-only guard, non-finite size naming, liteRadius suffix, honest rejection override, orifice alpha 0, Re floor, sweep handling, single 512 grid)
 
@@ -1558,3 +1558,39 @@ Phase tests integrate with prior phase tests (prior entry 1793 total across 134 
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests (1793 prior plus 10 new, 1803 total, zero regressions)
 - [x] wasm skipped per owner, Modal network excluded per scope
+
+## 2026-11-04 - Node Only Verification: Test Report (full npm suite green including p4.grid512 README checks, App.followup, App.sequence)
+
+### Test Results
+npm test (Node only, per owner scope): 135 files, 1808 tests, all passed. Zero failures. cargo test skipped per scope (Rust wasm not part of this verification). Modal network suites excluded per scope (need live Baseten access).
+Targeted run: src/p4.grid512.test.ts plus src/App.followup.test.ts plus src/App.sequence.test.ts: 3 files, 18 tests, all passed.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| p4.grid512.test.ts (12) | PASS | Fixed 512 contract, slow solves never fall back, README plus docs notes pinned |
+| App.followup.test.ts (3) | PASS | Follow-up chips and applied value replies green |
+| App.sequence.test.ts (3) | PASS | Setup sequence and settle wiring green |
+| all other Node suites (1790) | PASS | No regressions, 1808 total across 135 files |
+| cargo test gearflow-wasm | NOT RUN | Skipped per scope, Node tests only |
+| Modal network suites | NOT RUN | Excluded per scope, need live Baseten access |
+
+### Coverage Summary
+Happy path covered (single 512 grid resolution, follow-up replies from applied values, setup sequence settle, full 1808 Node suite green).
+Edge cases covered (slow solve streak never falls back, sweep fence handling, orifice and cylinder intent guards held in full run).
+Error conditions covered (oversize grid rejected, offline pack failures, honest rejection paths held in full run).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (prior entry 1803 total across 134 files, now 1808 total across 135 files, zero regressions).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| (none) | Full Node suite green on this run, 1808 passed with zero failures | No fix needed |
+
+### Verification Checklist
+- [x] All Node tests pass (135 files, 1808 tests)
+- [x] Happy path covered (512 grid, follow-up, sequence, full suite)
+- [x] Edge cases covered (slow solve no fallback, sweep fence, intent guards)
+- [x] Error conditions covered (oversize, offline pack, honest rejection)
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests (1803 prior plus 5 new, 1808 total, zero regressions)

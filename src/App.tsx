@@ -749,17 +749,25 @@ export default function App() {
     useEffect(() => {
         const a = caseTabs.active;
         if (a === null) return;
-        if (tabSyncRef.current === a.id) return;
-        if (agentTabCommitRef.current === a.id) {
+        // One-shot agent-commit suppression, always cleared. The commit id
+        // is consumed before the tabSync early return so a stale stamp can
+        // never linger past this effect and over-suppress a later commit.
+        // A stale stamp for a different tab falls through to the normal
+        // tab load instead of suppressing it.
+        const commit = agentTabCommitRef.current;
+        if (commit !== null) {
             agentTabCommitRef.current = null;
-            tabSyncRef.current = a.id;
-            try {
-                caseTabs.updateActive({ spec, reynolds });
-            } catch {
-                // Mirror faults never break the solver state.
+            if (commit === a.id) {
+                tabSyncRef.current = a.id;
+                try {
+                    caseTabs.updateActive({ spec, reynolds });
+                } catch {
+                    // Mirror faults never break the solver state.
+                }
+                return;
             }
-            return;
         }
+        if (tabSyncRef.current === a.id) return;
         tabSyncRef.current = a.id;
         try {
             setSpec(a.spec);
@@ -1802,7 +1810,7 @@ export default function App() {
         // stale stored memory over it. Direct token mapping keeps
         // cylinder, block (Rectangle), orifice, and any NACA code on the
         // right tab even when applyBodyPreset cannot carry a generic code.
-        const ensureBodyTab = (body: string): void => {
+        const ensureBodyTab = (body: string): string => {
             try {
                 const norm = body.trim().toLowerCase();
                 let id: string | null = null;
@@ -1813,15 +1821,36 @@ export default function App() {
                 if (id === null) {
                     const provisional = applyBodyPreset(spec, body);
                     const mapped = bodyTabIdForSpec(provisional);
-                    if (mapped === null) return;
+                    if (mapped === null) return caseTabs.activeId;
                     id = mapped;
                 }
                 if (id !== caseTabs.activeId) {
                     agentTabCommitRef.current = id;
                     caseTabs.activate(id);
                 }
+                return id;
             } catch {
                 // Activation faults never break the executor.
+                return caseTabs.activeId;
+            }
+        };
+        /** Forward the exact applied spec plus Re into the target tab memory
+         *  and the debounced solver copies in the same tick. The mirror
+         *  effect stays as the backup, but this synchronous write means a
+         *  follow-up apply can never be swallowed by a stale suppression or
+         *  a coalesced debounce: the tab owns the new numbers and the solve
+         *  refires on the next render. Never throws. */
+        const syncAgentCommit = (targetId: string, nextSpec: GeometrySpec, nextRe: number): void => {
+            try {
+                caseTabs.updateTab(targetId, { spec: nextSpec, reynolds: nextRe });
+            } catch {
+                // Tab writes never break the executor.
+            }
+            try {
+                setDebouncedSpec(nextSpec);
+                setDebouncedRe(nextRe);
+            } catch {
+                // Debounced sync never breaks the executor.
             }
         };
         if (agentFirst.agentFirst) {
@@ -1841,11 +1870,12 @@ export default function App() {
             return finish([action], []);
         }
         if (action.kind === "setup_shedding" || action.kind === "setup_high_pressure" || action.kind === "setup_high_re_wake" || action.kind === "setup_airfoil") {
-            if (action.kind === "setup_shedding") ensureBodyTab("cylinder");
-            else if (action.kind === "setup_high_re_wake") ensureBodyTab("cylinder");
+            let targetId = caseTabs.activeId;
+            if (action.kind === "setup_shedding") targetId = ensureBodyTab("cylinder");
+            else if (action.kind === "setup_high_re_wake") targetId = ensureBodyTab("cylinder");
             else if (action.kind === "setup_airfoil") {
                 const b = typeof action.body === "string" ? action.body : "naca2412";
-                ensureBodyTab(b);
+                targetId = ensureBodyTab(b);
             }
             const request = action.kind === "setup_shedding"
                 ? { preset: "shedding" as const }
@@ -1862,6 +1892,11 @@ export default function App() {
             }
             const applied: AgentAction[] = [];
             const gated: string[] = [];
+            // Track the exact post-apply values locally so the synchronous
+            // tab plus debounced sync below forwards the new case even when
+            // the mirror effect is suppressed. Mirrors the bar funnels.
+            let finalSpec = spec;
+            let finalRe = reynolds;
             for (const prim of expanded.actions) {
                 if (agentFirst.agentFirst) {
                     const blocked = agentFirstRejectionFor(prim);
@@ -1871,13 +1906,24 @@ export default function App() {
                     }
                 }
                 if (prim.kind === "set_body") {
-                    const next = applyBodyPreset(spec, prim.body);
+                    const next = applyBodyPreset(finalSpec, prim.body);
+                    finalSpec = next;
                     if (next !== spec) setSpec(next);
                     applied.push(prim);
                 } else if (prim.kind === "set_alpha") {
+                    if (Number.isFinite(prim.alphaDeg)) {
+                        const clamped = Math.min(ALPHA_HARD_MAX, Math.max(ALPHA_HARD_MIN, prim.alphaDeg));
+                        finalSpec = { ...finalSpec, alphaDeg: clamped };
+                    }
                     onAlphaBar(prim.alphaDeg);
                     applied.push(prim);
                 } else if (prim.kind === "set_reynolds") {
+                    try {
+                        const commit = commitReynoldsValue(prim.reynolds, lbmActive, finalRe);
+                        finalRe = commit.reynolds;
+                    } catch {
+                        finalRe = prim.reynolds;
+                    }
                     onReynoldsBar(prim.reynolds);
                     applied.push(prim);
                 } else if (prim.kind === "set_field") {
@@ -1893,20 +1939,37 @@ export default function App() {
                     applied.push(prim);
                 }
             }
+            // Synchronous forward: the target tab owns the applied case and
+            // the debounced solver copies update in the same tick, so a
+            // follow-up apply can never observe the stale memory.
+            if (applied.length > 0) syncAgentCommit(targetId, finalSpec, finalRe);
             return finish(applied, gated);
         }
         if (action.kind === "set_body") {
-            ensureBodyTab(action.body);
+            const targetId = ensureBodyTab(action.body);
             const next = applyBodyPreset(spec, action.body);
             if (next !== spec) setSpec(next);
+            syncAgentCommit(targetId, next, reynolds);
             return finish([action], []);
         }
         if (action.kind === "set_alpha") {
             onAlphaBar(action.alphaDeg);
+            const clamped = Number.isFinite(action.alphaDeg)
+                ? Math.min(ALPHA_HARD_MAX, Math.max(ALPHA_HARD_MIN, action.alphaDeg))
+                : spec.alphaDeg;
+            const nextSpec: GeometrySpec = { ...spec, alphaDeg: clamped };
+            syncAgentCommit(caseTabs.activeId, nextSpec, reynolds);
             return finish([action], []);
         }
         if (action.kind === "set_reynolds") {
             onReynoldsBar(action.reynolds);
+            let nextRe = reynolds;
+            try {
+                nextRe = commitReynoldsValue(action.reynolds, lbmActive, reynolds).reynolds;
+            } catch {
+                nextRe = action.reynolds;
+            }
+            syncAgentCommit(caseTabs.activeId, spec, nextRe);
             return finish([action], []);
         }
         if (action.kind === "set_engine") {
@@ -1942,14 +2005,25 @@ export default function App() {
             // directly so orifice, block, cylinder, and any NACA code land
             // on the matching tab with the live body reflected in the
             // canvas status and body selector right after the apply.
+            // The exact applied geometry plus Re forwards synchronously
+            // into the target tab and the debounced solver copies, so every
+            // follow-up recomputes even when the mirror or debounce would
+            // otherwise coalesce it.
+            let targetId = caseTabs.activeId;
             try {
                 const gkind = (action.spec.geometry as { kind?: unknown }).kind;
-                if (gkind === "naca4") ensureBodyTab("airfoil");
-                else if (typeof gkind === "string" && gkind.length > 0) ensureBodyTab(gkind);
+                if (gkind === "naca4") targetId = ensureBodyTab("airfoil");
+                else if (typeof gkind === "string" && gkind.length > 0) targetId = ensureBodyTab(gkind);
             } catch {
                 // Tab mapping faults never break the spec commit.
             }
-            applyParametric(action.spec);
+            const applied = applyParametric(action.spec);
+            try {
+                const geometry = (action.spec.geometry as GeometrySpec) ?? spec;
+                syncAgentCommit(targetId, geometry, applied.reynolds);
+            } catch {
+                // Synchronous forward never breaks the executor.
+            }
             return finish([action], []);
         }
         return finish([], ["unknown action kind, canvas unchanged"]);

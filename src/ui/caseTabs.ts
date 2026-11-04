@@ -355,6 +355,17 @@ export function useCaseTabs(seed?: CaseTabMemory[]) {
             return storeUpdate(prev, active.id, patch);
         });
     }, []);
+    /** Targeted tab write for agent commits. Unlike updateActive this names
+     *  the tab id explicitly, so a cross-tab agent apply lands the exact
+     *  applied spec plus Re into the target memory even when the active id
+     *  has not flipped yet. Pure storeUpdate underneath, never throws. */
+    const updateTab = useCallback((id: string, patch: { spec?: GeometrySpec; reynolds?: number }) => {
+        try {
+            setStore((prev) => storeUpdate(prev, id, patch));
+        } catch {
+            // Tab writes never break the executor.
+        }
+    }, []);
     const upsertTab = useCallback((tab: CaseTabMemory, makeActive: boolean) => {
         setStore((prev) => {
             const exists = prev.tabs.some((t) => t.id === tab.id);
@@ -382,5 +393,5 @@ export function useCaseTabs(seed?: CaseTabMemory[]) {
         });
     }, []);
     const active = useMemo(() => storeActive(store), [store]);
-    return { tabs: store.tabs, activeId: store.activeId, active, activate, updateActive, upsertTab, closeTab };
+    return { tabs: store.tabs, activeId: store.activeId, active, activate, updateActive, updateTab, upsertTab, closeTab };
 }

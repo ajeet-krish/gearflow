@@ -116,7 +116,7 @@ npm test
 npm run build
 ```
 
-Script names verified in `package.json`: `dev`, `build`, `test`, plus optional `pack:offline`, `wasm:build`, `wasm:test`. Then open the dev URL. For Vercel, set the same server only env (`MODAL_CHAT_URL`, `MODAL_PROXY_TOKEN`, optional `MODAL_MODEL_ID`) in the project env and keep `VITE_MODAL_URL` pointed at `/api/modal`. A static export has no server proxy, so live chat needs the serverless proxy path.
+Script names verified in `package.json`: `dev`, `build`, `test`, plus optional `pack:offline`, `wasm:build`, `wasm:test`. Then open the dev URL. For Vercel, set the same server only env (`MODAL_CHAT_URL`, `MODAL_PROXY_TOKEN`, optional `MODAL_MODEL_ID`) in the project env and keep `VITE_MODAL_URL` pointed at `/api/modal`. A static export has no server proxy, so live chat needs the serverless proxy path. We stay on Vercel because GitHub Pages rejected the proxy requirement.
 
 For the judged booth copy with no network:
 
