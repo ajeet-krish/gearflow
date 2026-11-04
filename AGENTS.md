@@ -2,15 +2,15 @@
 Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKATHON_RULES.md first.
 
 ## Quick Commands
-* Node: npm install, npm run dev, npm test (TBD)
-* Python: uv sync, uv run pytest (TBD)
-* Rust: cargo run, cargo test (TBD)
-* Copy env: cp .env.example .env (add Meta API key)
+* Node: npm install, npm run dev, npm test, npm run build
+* Python (training): uv sync --project training, uv run --project training pytest training/tests
+* Rust (legacy): cargo test --manifest-path rust/gearflow-wasm/Cargo.toml
+* Copy env: cp .env.example .env (add MODAL_CHAT_URL plus MODAL_PROXY_TOKEN)
 
 ## Conventions
 * No em dashes in docs or copy. Use commas, colons, parentheses.
 * Conventional commits. Docs first, code second.
-* Multi model orchestration is mandatory (Spark plus SAM plus Image).
+* Single live model (Muse Spark via Modal proxy); legacy multi model paths gated off. See docs/DECISIONS.md 2026-11-03.
 * Keys in env only. Never commit secrets.
 * Solo scope: one owner, one core loop, one wow moment. Keep demo runnable daily.
 
@@ -19,6 +19,7 @@ Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKAT
 * docs/AGENTS.md (agent guide)
 * docs/DESIGN.md (product and demo)
 * docs/ARCHITECTURE.md (tech plan)
+* docs/SUBMISSION.md (submission text)
 * docs/DECISIONS.md, docs/RESEARCH.md (logs)
 * src/ (to be created after idea pick)
 
@@ -50,6 +51,7 @@ Solo Indie Push the Frontier entry. Build Oct 26 to Nov 4 2026. Read docs/HACKAT
 | Phase 22 | Agent-first P2: velocity slider, Re coupling | Complete |
 | Phase 23 | Agent-first P3: live alpha sweep | Complete |
 | Phase 24 | Agent-first P4: misconceptions, curriculum, caption | Complete |
+| Final | Submission cleanup (honesty fixes, docs snapshot, safe deletes) | Complete |
 
 ## Deep Docs
 * Rules: docs/HACKATHON_RULES.md

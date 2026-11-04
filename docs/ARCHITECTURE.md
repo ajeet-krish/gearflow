@@ -1,11 +1,11 @@
 # Architecture
-Last updated: 2026-10-26. Phase 8 Zenith shell plus Phase 7 Rust WASM path. Phases 1 to 6 complete, Phase 7 and Phase 8 complete. Solo owner, demo must run offline.
+Last updated: 2026-11-04. Submission snapshot: agent-first analytic default, Modal-only chat (endpoint gearflow-chat, 400 token cap). LBM, neural, and WASM paths are gated legacy slices, off by default. Solo owner, demo must run offline.
 
 ## System Overview
-GearFlow is a browser airfoil flow lab. Vite plus TypeScript, no backend at demo time except a thin Meta proxy for key safety.
+GearFlow is a browser airfoil flow lab. Vite plus TypeScript, no backend at demo time except a thin Modal proxy for key safety.
 Phase 1 gives SDF geometry fixtures on a 128 by 128 grid. Phase 2 gives analytic potential flow (Hess Smith panels for airfoils, analytic doublet plus vortex for cylinder, Poiseuille baseline for duct). Phase 3 adds a learned surrogate provider behind the same frame interface plus a validation panel fed by vendored datasets.
-Phase 4 adds Meta orchestration beside the loop for explanation, segmentation, and demo assets. Text path: UI Controls to Frame Source (Analytic or Surrogate) to Render (Canvas plus Particles) to Validation Panel. Meta path: MetaPanel to Proxy to MetaClient (Spark, SAM, Image) with HashCache plus EvalLog under all calls, OfflinePack as fallback.
-Core loop never blocks on Meta. Every Meta call has a cached or template fallback and a visible status badge.
+Submission slice (agent-first, Phases 21 to 24): the app serves the analytic frame only by default. VITE_AGENT_FIRST defaults on, which forces the LBM worker, neural bundle loads, and engine switching off (src/config/agentFirst.ts). The single live model path is the Modal agent chat (endpoint gearflow-chat, 400 token cap, temperature 0) through the same origin proxy. LBM, neural (v2/v3 ONNX), WASM, and Phase 4 Meta orchestration remain in the tree as gated legacy slices, off by default, and are labeled as such below.
+Core loop never blocks on the model. Every agent turn has an honest error plus Retry path, deterministic helpers stay local and credit free, and validation reads vendored JSON with no network calls.
 
 ## Components (core loop, unchanged)
 * Geometry (src/geometry/parametric.ts): NACA 4 digit generator, cosine spacing, polygon plus SDF sign. Canonical TS source, plain node bake script mirrors it with parity test.
@@ -16,20 +16,23 @@ Core loop never blocks on Meta. Every Meta call has a cached or template fallbac
 * Render (src/render/FlowCanvas.tsx, fieldTexture.ts, particles.ts, colormap.ts): canvas field texture plus advected particles. Reads frames only, never physics.
 * Contracts (src/contracts): DemoPack, FlowField, Grid, Geometry, Provenance schemas. DemoPack pins version, meta, files, and pack to flow consistency.
 
-## Frontend Shell (Phase 8 Zenith instrument room)
-* Top navbar (src/ui/TopNav.tsx): 56px tall instrument bar with GearFlow wordmark, STUDIO/VALIDATE/EXPORT nav links, offline chip, theme icon, plus WASM badge when the Rust backend is live.
-* Left agent rail (src/ui/AgentConsole.tsx in src/App.tsx railLeft, default 320px resizable): full height transcript with a pinned composer, offline aware, backed by MetaClient plus HashCache plus EvalLog.
-* Right analysis rail (src/ui/AnalysisPanel.tsx plus src/ui/AnalysisSection.tsx, default 320px resizable): five stacked collapsible windows that stay mounted when collapsed, GEOMETRY (src/ui/FlowControls.tsx), DISPLAY (src/ui/DisplayControls.tsx), VALIDATION (src/ui/ValidationPanel.tsx), EVAL LEDGER (src/ui/EvalLogPanel.tsx), EXPORT (src/ui/ExportBar.tsx). Navbar VALIDATE and EXPORT links open the matching window.
-* Center tunnel column (src/App.tsx tunnelCol): three pinned bars above an edge to edge FlowCanvas (src/render/FlowCanvas.tsx). SOLVER bar (src/ui/SolverBar.tsx) for backend, body, alpha, Re, grid, live state. FIELD bar (src/ui/FieldBar.tsx) for quantity, layers, particles, colormap name. TELEMETRY bar (src/ui/TelemetryBar.tsx) for engine, grid, cells, solve time, Cl, CpMin, regime, provenance, validation counts.
-* Tunnel overlays: bottom left RUN card (body, alpha, Re, grid, regime summary) and bottom right vertical colorbar (src/ui/VerticalColorbar.tsx, 8 stop gradient with ticks at max, 75, 50, 25, min). Both are overlays inside the tunnel element, so the field stays full bleed.
+## Frontend Shell (submission snapshot, supersedes the Phase 8 description below)
+* Top navbar (src/ui/TopNav.tsx): instrument bar with GearFlow wordmark, studio plus theory navigation, offline chip, theme icon, focus mode toggle, settings entry.
+* Left agent rail (RailShell side left in src/App.tsx, AGENT CONSOLE head): full height transcript with a pinned composer, backed by the Modal chat port plus deterministic local helpers plus EvalLog. Collapsible to an AGENT blade, resizable via grip.
+* Center tunnel column (src/App.tsx tunnelCol): collapsible SceneBars (src/ui/shellRegions.tsx) holding EditorTabs (src/ui/EditorTabs.tsx, case tabs per body) above FieldBar (src/ui/FieldBar.tsx, quantity plus layers plus particles plus colormap), then an edge to edge FlowCanvas (src/render/FlowCanvas.tsx). Overlays inside the tunnel: bottom left RUN card (body, alpha, Re, Cl, CpMin) and bottom right vertical colorbar (src/ui/VerticalColorbar.tsx). Solver plus geometry notices stack in a notice region above the RUN card.
+* Right analysis rail (RailShell side right, ANALYSIS head): SIMULATION section (src/ui/SimulationSection.tsx, live Re slider plus number, velocity multiplier, LBM run controls when the legacy engine is armed) plus GEOMETRY section (src/ui/GeometrySection.tsx, live spec: AoA slider, NACA thickness and camber, cylinder radius, rectangle dims, orifice gap and plate). Sections read the live spec and Re so an agent case setup paints immediately, debounced copies serve the solver only.
+* SettingsModal (src/ui/SettingsModal.tsx): display prefs, particle prefs, grid mode plus resolution, field variable. Hidden in theory mode.
+* TheoryPage (src/ui/TheoryPage.tsx): airfoil companion textbook that owns the center column in theory mode, with topic routing driven by the agent chat.
+* Legacy note: the earlier Phase 8 text naming SolverBar, TelemetryBar, and a five window right rail (GEOMETRY, DISPLAY, VALIDATION, EVAL LEDGER, EXPORT via AnalysisPanel plus AnalysisSection) is superseded. SceneBars plus EditorTabs plus FieldBar plus the SIMULATION and GEOMETRY sections are the shipped surfaces.
 
-## Solver Backends (analytic plus Rust WASM, Phase 7)
-* Analytic default (src/flow/frameSource.ts AnalyticFlowProvider): Hess Smith panels plus analytic cylinder, matrix factored once per geometry, wake rebuilt on Re change. Panel cache survives Re only updates via geometriesEqual early return.
-* Rust WASM path (rust/gearflow-wasm plus src/flow/wasmFlowProvider.ts WasmFlowProvider, factory src/flow/createFlowProvider.ts, loader src/flow/wasmLoader.ts): wasm-pack web output checked in under src/wasm/pkg. Loader uses a static dynamic import of @/wasm/pkg/gearflow_wasm, so Vite bundles the glue chunk and emits a dist/assets/gearflow_wasm_bg hashed wasm asset plus the glue chunk in production. Loader is a singleton that never throws, missing pkg resolves false for TS fallback.
-* Provider lifecycle: created once per grid via createFlowProvider when ?wasm=1 is set, kept alive across slider moves, driven by the App solved memo through setGeometry plus setRe. Re only changes reuse cached panels and rebuild the field. Any WASM fault latches wasmFailed to the TS analytic fallback with honest provenance (analytic fallback label, no WASM badge, fallback notice in the tunnel).
+## Solver Backends (forced analytic default plus gated legacy slice)
+* Analytic default (src/flow/frameSource.ts AnalyticFlowProvider): Hess Smith panels plus analytic cylinder, matrix factored once per geometry, wake rebuilt on Re change. Panel cache survives Re only updates via geometriesEqual early return. This is the only backend that runs under agent-first.
+* Agent-first gate (src/config/agentFirst.ts): VITE_AGENT_FIRST defaults on when unset or blank. While it holds, lbmEnabled, surrogateEnabled, and engineSwitchingEnabled are forced false: the LBM worker is never constructed (lbmWorkerArmed), neural bundles never load (neuralLoadAllowed), and a ?engine=lbm request resolves as ignored with a terminal note (resolveAgentFirstStartup). Re only changes reuse cached panels and rebuild the field.
+* Legacy slice, off by default: Rust WASM path (rust/gearflow-wasm plus src/flow/wasmFlowProvider.ts, factory src/flow/createFlowProvider.ts, loader src/flow/wasmLoader.ts), LBM core plus worker (src/flow/lbmFlowProvider.ts, src/flow/lbmClient.ts, gated preflight in src/flow/lbmRunConfig.ts), and neural v2/v3 ONNX adapters (src/flow/neuralV2Adapter.ts, src/flow/neuralV3Adapter.ts, providers src/flow/surrogateV2.ts plus src/flow/surrogateV3.ts). Any fault latches to the analytic fallback with honest provenance (analytic fallback label, no live badge, fallback notice in the tunnel). Re enable only by explicitly opting out of agent-first plus the capability flags, never in the judged build.
 
-## Phase 4 Meta Orchestration (new)
-Design goal: visible multi model value (Spark reasoning, SAM segmentation, Image visuals) with Standard mode default, cache first, offline pack fallback, and keys never in the browser bundle.
+## Phase 4 Meta Orchestration (legacy slice, gated off in the submission)
+Legacy scope. The multi model orchestration below (Spark reasoning, SAM segmentation, Image visuals) is not live in the shipped build. It stays in the tree for reference, behind the agent-first gate and the offline pack path. The single live model in the submission is the Modal agent chat described in the next section. Do not present Spark, SAM, or Image as live capabilities.
+Design goal (historical): visible multi model value with Standard mode default, cache first, offline pack fallback, and keys never in the browser bundle.
 
 ### MetaClient (src/meta/metaClient.ts, new)
 * Single fetch wrapper for all Meta calls. Base URL https://api.meta.ai/v1. Timeout 20s, one retry on 429 or 5xx with backoff, typed errors (Auth, RateLimit, SafetyBlock, Network).
@@ -78,19 +81,19 @@ Design goal: visible multi model value (Spark reasoning, SAM segmentation, Image
 ### Agent chat (Modal only, Phase 13 plus Modal revamp)
 * Single upstream: POST /api/modal/chat/completions through the same origin proxy (Vite dev middleware plus Vercel handler). No second upstream, no dual routing.
 * Server only config: MODAL_CHAT_URL (full https URL on a Modal serving host, allowlist checked, hostile or missing values fail closed to 503) plus MODAL_PROXY_TOKEN (Bearer token, never bundled, never logged). Optional server only MODAL_MODEL_ID renames the endpoint, default gearflow-chat. Client base is VITE_MODAL_URL with default /api/modal.
-* Model contract: gearflow-chat with forced n 1, max_tokens capped at 700, temperature forced to 0 (src/agent/modalGate.ts forceModel). Upstream bodies never echo to the browser, generic errors only, 64 KiB body cap, 1 MiB response cap, per IP rate limit, same origin check.
+* Model contract: gearflow-chat with forced n 1, max_tokens capped at 400, temperature forced to 0, chat_template_kwargs reasoning_effort pinned to low (src/agent/modalGate.ts forceModel). Upstream bodies never echo to the browser, generic errors only, 64 KiB body cap, 1 MiB response cap, per IP rate limit, same origin check. No upstream Modal model ID is asserted; the code pins the endpoint name gearflow-chat, renamable only via server only MODAL_MODEL_ID.
 * Physics Agent path (tutor-v2, src/agent/tutorPrompt.ts): system teaches one idea in plain grade 8 to 10 language, cites only the Physics Agent table, allows at most one set_field fence for the suggested primary. Private reasoning stays in reasoning_content only and renders collapsed, never parsed as an envelope and never persisted as prose. Final order is fixed: What changed, Why, Misconception, What to look at, Try next, Caveat. What changed uses only before versus after table numbers from tutorTable, n/a reads as pending. Honesty pinned: neural is predicted not validated, analytic is a potential flow estimate, only an LBM instantaneous snapshot may be called solved.
 * Console behavior (src/ui/AgentConsole.tsx): every live turn goes through the live Modal port with a 30 s budget and Stop. A live failure lands an honest error turn with zero canvas writes plus a Retry chip that reuses the turn id. No local prose fallback for chat or Physics Agent, Physics Agent failures render rows plus the error plus Retry. Deterministic helpers stay local and credit free: NACA parser plus airfoil intent plus curriculum chips plus misconception detector plus analytic alpha sweep, with envelope parse plus validateAgentAction capping at 5 actions. Transcript persists capped at 50, spend cap plus EvalLog ledger unchanged.
 * Meta /api/meta orchestration below is unchanged legacy scope and stays separate from the Modal chat path.
 
-## Data Flow (Phase 4)
-1. User picks fixture plus alpha and thickness, or types a preset prompt in MetaPanel.
-2. SparkSpec path (optional): text to spec JSON, schema validated, applied to frame source on accept. Template fallback on invalid output.
-3. Frame source selects backend (analytic default, surrogate when enabled and allowed by sync gate). Evaluates u, v, Cp on 128 by 128, masks inside solid via SDF, attaches provenance.
+## Data Flow (submission loop; Phase 4 steps marked legacy)
+1. User picks body plus alpha plus Re in the SIMULATION and GEOMETRY sections, or asks the agent console to set up a case.
+2. Legacy: SparkSpec path (optional): text to spec JSON, schema validated, applied to frame source on accept. Template fallback on invalid output. Off by default in the submission.
+3. Frame source serves the forced analytic backend. Evaluates u, v, Cp on the grid, masks inside solid via SDF, attaches provenance.
 4. Render draws field plus particles. Validation panel integrates Cl from panel Cp and checks named metrics locally.
-5. Meta explain path: SparkEngineer reads frame metrics plus validation tiers, checks HashCache first, then live via Proxy, then template copy. EvalLog records each step.
-6. SAM overlay path: SamSegment checks mask cache, then live, then polygon heuristic. Image path serves /public asset first, live generates only on demand.
-7. Offline toggle short circuits steps 5 and 6 to OfflinePack with zero fetch. EvalLog marks all entries cached.
+5. Legacy: Meta explain path: SparkEngineer reads frame metrics plus validation tiers, checks HashCache first, then live via Proxy, then template copy. EvalLog records each step. Off by default in the submission.
+6. Legacy: SAM overlay path: SamSegment checks mask cache, then live, then polygon heuristic. Image path serves /public asset first, live generates only on demand. Off by default in the submission.
+7. Offline toggle short circuits legacy steps 5 and 6 to OfflinePack with zero fetch. EvalLog marks all entries cached.
 
 ## Surrogate Design (Phase 3 carried forward)
 * Input channels: normalized SDF over chord, solid mask, freestream u and v, alpha encoding tiled over grid. Grid fixed at x in [minus 0.5, 2.0], y in [minus 1.0, 1.0], chord 1, LE at (0,0).
@@ -107,20 +110,21 @@ Design goal: visible multi model value (Spark reasoning, SAM segmentation, Image
 * Parsers locked: TXT 12 line header whitespace rows, CSV 10 line metadata with header on line 11 comma rows, TMR Tecplot zones with D to E conversion, Selig x y pairs. Panel reads JSON only.
 
 ## Technology Decisions
-* Client: Vite plus TypeScript plus Canvas. Reason: solo scope, zero backend, fast demo.
-* Flow core: TS Hess Smith plus analytic cylinder. Reason: deterministic, testable, under 100 ms.
-* Surrogate: compact U Net behind frame interface with sync gate. Reason: same UI path, A/B ready, honest fallback.
+* Client: Vite plus TypeScript plus Canvas. Reason: solo scope, fast demo, thin Modal proxy only.
+* Flow core: TS Hess Smith plus analytic cylinder, forced on under agent-first. Reason: deterministic, testable, under 100 ms.
+* Surrogate: compact U Net behind frame interface with sync gate (legacy slice, gated off under agent-first). Reason: same UI path, A/B ready, honest fallback.
 * Validation: vendored JSON, no runtime fetch. Reason: offline judging, leakage control.
-* Meta AI: Standard mode via proxy, cache then fallback. Reason: privacy default, survives network loss, key safety.
-* Meta UI: agent console rail plus stacked analysis rail (AgentConsole, AnalysisPanel, EvalLogPanel) for status plus controls. Reason: judging transparency, single presenter clarity.
+* Model: single live path, Modal agent chat (endpoint gearflow-chat, 400 token cap) via same origin proxy. Reason: one truthful live integration, key safety, fail closed auth.
+* Legacy Meta AI (Spark, SAM, Image via proxy, cache then fallback): gated off in the submission. Reason recorded for history: privacy default, survives network loss, key safety.
+* Shell: left agent console rail plus center tunnel (SceneBars, EditorTabs, FieldBar) plus right ANALYSIS rail (SIMULATION, GEOMETRY) plus SettingsModal plus TheoryPage. Reason: judging transparency, single presenter clarity, field stays hero.
 
-## API Strategy
-* Base URL: https://api.meta.ai/v1 via proxy path /api/meta. Keys in env only, sample env file, no secrets in repo.
-* Standard mode by default. Contributor mode excluded without explicit consent and labeling.
-* Models: muse-spark-1.3 for text, sam-3.1 for masks, muse-image-1.0 for visuals. Pinned names in MetaClient.
-* Caching: hash inputs with sha256, TTL 24h Spark text and 7d SAM plus Image, serve stale on failure. Preload cached responses for live demo.
-* Offline fallback: OfflinePack runs full script with zero network. One click toggle in MetaPanel.
-* Fallback chain: SAM to polygon heuristic to full frame, Spark to template copy, Image to cached asset, surrogate to analytic.
+## API Strategy (legacy Phase 4 slice, plus the shipped Modal contract)
+* Shipped: POST /api/modal/chat/completions through the same origin proxy. Endpoint name gearflow-chat (server only MODAL_MODEL_ID may rename it), forced n 1, max_tokens cap 400, temperature 0, reasoning effort low. Keys in server env only, sample env file, no secrets in repo. No upstream Modal model ID is asserted.
+* Legacy: base URL https://api.meta.ai/v1 via proxy path /api/meta. Standard mode by default. Contributor mode excluded without explicit consent and labeling.
+* Legacy models: muse-spark-1.3 for text, sam-3.1 for masks, muse-image-1.0 for visuals. Pinned names in MetaClient. Not live in the submission; .env.example marks these pins legacy and unused.
+* Legacy caching: hash inputs with sha256, TTL 24h Spark text and 7d SAM plus Image, serve stale on failure. Preload cached responses for live demo.
+* Offline fallback: OfflinePack runs the legacy script with zero network. One click toggle.
+* Fallback chain: SAM to polygon heuristic to full frame, Spark to template copy, Image to cached asset, surrogate to analytic. Legacy except the surrogate to analytic tail, which stays honest under the gate.
 
 ## Geography and Offline Fallback
 * Handle ET plus UTC times, locale aware copy.
@@ -128,8 +132,8 @@ Design goal: visible multi model value (Spark reasoning, SAM segmentation, Image
 * Low bandwidth mode: text first, images lazy, clear status copy.
 * Solo maintainability: single owner stack, minimal ops, pinned versions, one command setup.
 
-## Phase 10 pointer
-The viscous Lattice Boltzmann core design (modules, kernel, boundaries, forces, statistics, batch API, tests, provenance) lives in docs/ARCHITECTURE-LBM-PHASE10.md. The potential path in this document is unchanged and remains the instant preview and fallback.
+## Phase 10 pointer (legacy slice, gated off in the submission)
+The viscous Lattice Boltzmann core design (modules, kernel, boundaries, forces, statistics, batch API, tests, provenance) lives in docs/ARCHITECTURE-LBM-PHASE10.md. It is a gated legacy slice under agent-first (worker never constructed, LBM controls inert) and is not live in the judged build. The analytic potential path in this document is unchanged and remains the instant preview and only shipped solver.
 
 ## Modal training and sweep (C-1/C-2)
 

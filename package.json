@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "GearFlow: solo Indie Push the Frontier flow visualizer. Phase 5 export and performance.",
+  "description": "GearFlow: interactive airfoil flow visualizer with analytic, neural, and LBM backends plus offline export.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

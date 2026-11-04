@@ -1,6 +1,6 @@
 // P4 verification: fixed single grid option 512x512, analytic 1024 cap
 // with the LBM 512 envelope intact, custom parser 128 to 1024 for fixtures,
-// plus docs notes (README Vercel stay, DECISIONS 2026-11-03).
+// plus docs notes (README frozen Vercel hosting plus Modal proxy, DECISIONS 2026-11-03).
 import { describe, expect, it, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -165,11 +165,12 @@ describe("P4 1024 analytic cap plus fixture parser intact", () => {
 });
 
 describe("P4 docs notes", () => {
-    it("README keeps the Vercel stay note", () => {
+    it("README documents frozen Vercel hosting with server Modal proxy", () => {
         const readme = readFileSync(resolve(root, "README.md"), "utf8");
-        expect(readme).toContain("stay on Vercel");
-        expect(readme).toContain("GitHub Pages rejected");
-        expect(readme).toContain("/api/modal");
+        expect(readme).toContain("vercel.app");
+        expect(readme).toContain("Vercel");
+        expect(readme).toContain("Modal proxy");
+        expect(readme).toContain("MODAL_");
     });
 
     it("DECISIONS logs the 2026-11-03 Vercel stay entry", () => {

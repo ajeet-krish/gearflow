@@ -2363,9 +2363,8 @@ export default function App() {
                             meanFields={prefs.meanFields}
                         />
                         <p className="printValidation mono" role="note" aria-label="Validation summary for print">
-                            Validation ledger (print): {valSummary.pass} pass, {valSummary.warn} warn, {valSummary.fail} fail,{" "}
-                            {valSummary.info} info. {valSummary.blocking === 0 ? "No blocking failures." : `${valSummary.blocking} blocking failures, demo hold.`}{" "}
-                            Full 9 row ledger lives in the app side panel. PDF export carries the same counts plus report rows.
+                            Validation ledger (print): the 9 row offline anchor table is not mounted in this build,
+                            so print carries no ledger counts. The PDF export carries the solved values plus report rows.
                         </p>
                     </div>
                     </>

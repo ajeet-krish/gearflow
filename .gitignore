@@ -24,8 +24,11 @@ public/surrogate/*.onnx
 public/surrogate/*.wasm
 training/checkpoints/
 training/.venv/
+.venv/
 __pycache__/
+.pytest_cache/
 *.pyc
+*.tsbuildinfo
 
 # Rust build
 rust/**/target/

@@ -1594,3 +1594,37 @@ Phase tests integrate with prior phase tests (prior entry 1803 total across 134 
 - [x] Error conditions covered (oversize, offline pack, honest rejection)
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests (1803 prior plus 5 new, 1808 total, zero regressions)
+
+## 2026-11-04 - P4 grid512 README Hosting Fix: Test Report (frozen README Vercel plus Modal proxy, DECISIONS 2026-11-03 kept)
+
+### Test Results
+npm test for src/p4.grid512.test.ts: 1 file, 12 tests, all passed.
+npm test full suite (Node only, per owner scope): 135 files, 1808 tests, all passed. Zero failures. cargo test skipped per scope (Rust wasm not part of this verification). Modal network suites excluded per scope.
+
+### Results Table
+| Test | Verdict | Notes |
+|------|---------|-------|
+| p4.grid512.test.ts (12) | PASS | Fixed 512 contract, slow solves never fall back, frozen README hosting plus DECISIONS stay note |
+| all other Node suites (1796) | PASS | No regressions, 1808 total across 135 files |
+| cargo test gearflow-wasm | NOT RUN | Skipped per scope, Node tests only |
+| Modal network suites | NOT RUN | Excluded per scope, need live access |
+
+### Coverage Summary
+Happy path covered (single 512 grid resolution, frozen README Vercel hosting with Modal proxy and MODAL env prefix, DECISIONS 2026-11-03 stay note).
+Edge cases covered (slow solve streak never falls back, custom parser 128 to 1024 boundaries held in full run).
+Error conditions covered (oversize grid rejected, offline pack failures, honest rejection paths held in full run).
+No em dashes, double hyphens, or dash equivalents; proper punctuation used.
+Phase tests integrate with prior phase tests (prior entry 1808 total across 135 files, now 1808 total across 135 files, zero regressions, one assertion updated with no count change).
+
+### Failure Analysis
+| Test | Root Cause | Suggested Fix |
+|------|-----------|---------------|
+| p4.grid512 README stay note (pre-fix) | Test expected exact slogans stay on Vercel and GitHub Pages rejected plus /api/modal, but frozen README documents hosting as vercel.app URL plus Vercel plus Modal proxy plus MODAL env prefix with no such slogans | Assert frozen copy (vercel.app, Vercel, Modal proxy, MODAL prefix) and keep DECISIONS 2026-11-03 assertion as is; fixed, now passes |
+
+### Verification Checklist
+- [x] All Node tests pass (135 files, 1808 tests)
+- [x] Happy path covered (512 grid, frozen README hosting, DECISIONS stay note)
+- [x] Edge cases covered (slow solve no fallback, parser boundaries)
+- [x] Error conditions covered (oversize, offline pack, honest rejection)
+- [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
+- [x] Phase tests integrate with prior phase tests (1808 total, zero regressions)

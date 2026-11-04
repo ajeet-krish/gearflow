@@ -2679,3 +2679,57 @@ Verdict: FAIL
 - [ ] Phase code integrates cleanly with prior phases (normalizeCylinderBody body guard remains)
 
 Note recurring pattern: normalization layers are correct on the cylinder happy path but ambiguous cross-category inputs (sized non-cylinder body, non-numeric size) are silently reinterpreted or dropped instead of rejected, the same normalization versus strict validator seam flagged in earlier phases. Delegate fixes to backend-dev and frontend-dev via the orchestrator, added tests to tester.
+
+## 2026-11-04 - Final submission architecture inventory (tech-lead, read-only)
+
+Date: 2026-11-04
+Reviewer: tech-lead (read-only)
+Scope: Final submission shipped surface only, no code changes proposed or applied
+Verdict: Inventory only, no pass or fail
+
+Shipped product module map:
+* Modal-only chat via api/modal (ModalClient, modalServerHandler, modalGate, AgentConsole Modal port). No Baseten fallback in the live path.
+* Forced analytic solver as the single live frame source (AnalyticFlowProvider, forced analytic flags in agent-first config). Solver output feeds Cl, CpMin, regime, and the canvas field.
+* Three.js canvas (FlowCanvas, fieldTexture, advection, particles, streamlines) rendering speed, pressure, and overlays from the analytic field.
+* TheoryPage as the Studio adjacent route with physics only copy and KaTeX formulas.
+* Right SIMULATION plus GEOMETRY rail as the single live control surface (SimulationSection, GeometrySection, FieldBar, EditorTabs body chips, SettingsModal popover, run card rows).
+
+Cold zones named (present in tree, not live in the default path):
+* src/meta legacy orchestration (Spark, SAM, poster, HashCache, EvalLog legacy mounts) unmounted from App.
+* Unmounted panels (SolverBar, TelemetryBar, EvalLogPanel, RunTerminal file removed, DisplayControls and ThemeToggle deleted).
+* v1 and v2 surrogate paths (surrogate.ts, surrogateV2.ts plus weights) pinned unavailable, App never fetches weights.
+* WASM analytic path (wasmFlowProvider, wasmLoader, rust gearflow-wasm potential core) gated off under agent-first.
+* Gated LBM and neural paths (lbm worker plus Rust LBM core, neural V2 adapter plus ONNX) gated off under agent-first flags.
+
+Buckets B1 through B6:
+* B1 through B4 approved for submission history (transport, agent core, guardrails, chat TUI and shell work recorded in prior entries).
+* B5 plus deferred past submission (no new model, solver, or transport changes approved in this inventory).
+* Legacy build kept and labeled per owner (legacy modules remain in tree for history, labeled legacy or unmounted, owned by tech-lead notes and prior reviews).
+
+No code changes made in this review. No em dashes.
+
+## 2026-11-04 - Final submission readability audit (code-reviewer, read-only)
+
+Date: 2026-11-04
+Reviewer: code-reviewer (read-only)
+Scope: Final submission readability only, no code changes proposed or applied
+Verdict: FAIL (readability only, 5 areas, not a ship blocker by itself)
+
+Findings summary, 5 areas FAIL:
+1. Unmounted components: 12 unmounted or deleted-surface components remain in tree (legacy panels, removed bars, gated providers). They render nothing live but add reader load.
+2. Stale docs: docs carry 4 model-ID stories across revisions (Spark, Baseten, Modal, gearflow-chat renames) that disagree on the canonical chat path without a single current source note.
+3. Comment bloat plus duplicated finiteOrNull: long header comments restate retired paths, and finiteOrNull style guards are duplicated across validation, agent, and export modules instead of one shared helper note.
+4. Gitignore gaps: ignore rules cover env and build outputs but leave worktree, dataset, and sweep artifact edges documented inconsistently across entries.
+5. README no setup section: README leads with product and demo copy and has no single setup section (install, env, dev, test, build) for a fresh checkout.
+
+Delete versus keep guidance (exact):
+* Delete: dead imports, dead handlers, dead CSS rules, stale header claims about retired solver and transport paths, duplicate CSP style copy, duplicated test-only helpers in production modules.
+* Keep: legacy orchestration and gated solver sources as history, vendored fixtures, golden files, manifests, and completed review logs. Keep with explicit legacy or unmounted labels, no silent resurrection.
+* Keep labels short: one line per legacy module stating unmounted or gated plus owner, no paragraph history in source.
+
+Open questions recorded:
+* Legacy archive versus delete decided keep plus label (no deletion pass approved before submission).
+* Logs ship as history (this file plus decisions, research, and tests remain as the audit trail).
+* Tracked status verified by implementer (working tree state and untracked artifacts were not inspected in this read-only session, implementer owns the final status check).
+
+No code changes made in this review. No em dashes.
