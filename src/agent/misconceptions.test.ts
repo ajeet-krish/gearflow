@@ -114,7 +114,7 @@ describe("misconception experiments use valid action kinds only", () => {
             expect(flow.experimentText).not.toContain("run_lbm");
         }
     });
-    it("tutor experimentFor stays analytic only with no LBM runs", () => {
+    it("Physics Agent experimentFor stays analytic only with no LBM runs", () => {
         for (const flow of misconceptionFlows()) {
             void flow;
         }

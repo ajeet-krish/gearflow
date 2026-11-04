@@ -474,7 +474,7 @@ export function localReply(text: unknown, ctx: AgentContext | null | undefined):
                 const staged = accept({ kind: "setup_high_re_wake" });
                 sections.push(
                     staged
-                        ? "Local setup note, no network. Applying the high Re wake case (cylinder, alpha 0, Re 700, speed field). Stagnation tutor note: Cp nears 1 at the nose where the flow stops, then falls around the shoulders. Canvas updates on apply."
+                        ? "Local setup note, no network. Applying the high Re wake case (cylinder, alpha 0, Re 700, speed field). Stagnation Physics Agent note: Cp nears 1 at the nose where the flow stops, then falls around the shoulders. Canvas updates on apply."
                         : `Local setup note, no network. Staying on ${bodyLabel}; the high Re wake case is outside the serving envelope. Canvas unchanged.`
                 );
             } else {

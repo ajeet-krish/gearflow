@@ -1,6 +1,6 @@
-// Phase T2 agent console tutor hook. Drives the real AgentConsole through
+// Phase T2 agent console Physics Agent hook. Drives the real AgentConsole through
 // a hook dispatcher shim with effect support (zero live calls), so the
-// pending tutor state machine, the dedupe, the offline table, the run-only
+// pending Physics Agent state machine, the dedupe, the offline table, the run-only
 // silence, and the timeout path fail here instead of passing silently.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -192,7 +192,7 @@ function mountTutor(baseProps: Record<string, unknown>): MountedTutor {
     };
     const renderOnce = (): void => {
         renderCount += 1;
-        if (renderCount > 2000) throw new Error("render loop suspected in tutor harness");
+        if (renderCount > 2000) throw new Error("render loop suspected in Physics Agent harness");
         hookIndex = 0;
         effectIndex = 0;
         INTERNALS.ReactCurrentDispatcher.current = {
@@ -263,7 +263,7 @@ async function flush(ticks = 80): Promise<void> {
     }
 }
 
-function tutorPort(log: { chats: number; streams: number }, tutorText = "Spark tutor prose, plain words."): {
+function tutorPort(log: { chats: number; streams: number }, tutorText = "Physics Agent prose, plain words."): {
     streamChat: (m: unknown, o?: unknown) => AsyncGenerator<{ delta: string; text: string; done: boolean }, { text: string; action: null; model: string; usage: { inputTokens: number; outputTokens: number; cachedTokens: number }; costUsd: number; latencyMs: number; reasoning: string }, void>;
     chat: (m: unknown, o?: unknown) => Promise<{ text: string; action: null; model: string; usage: { inputTokens: number; outputTokens: number; cachedTokens: number }; costUsd: number; latencyMs: number; reasoning: string }>;
 } {
@@ -318,8 +318,8 @@ function settledSnapshot(over: Record<string, unknown> = {}): Record<string, unk
     };
 }
 
-describe("agent console tutor hook (T2)", () => {
-    it("renders exactly one tutor turn after one applied case settles, once on rerender", async () => {
+describe("agent console Physics Agent hook (T2)", () => {
+    it("renders exactly one Physics Agent turn after one applied case settles, once on rerender", async () => {
         expect(TUTOR_TIMEOUT_MS).toBe(2500);
         const before = buildAgentContext(settledSnapshot() as never);
         const log = { chats: 0, streams: 0 };
@@ -359,7 +359,7 @@ describe("agent console tutor hook (T2)", () => {
             expect(log.chats).toBe(1);
             expect(tutorBlocks(m.tree())).toHaveLength(1);
             // Single agent response: one assistant turn carries the applied
-            // lines plus the teaching, never a separate tutor turn.
+            // lines plus the teaching, never a separate Physics Agent turn.
             const assistantTurns = findAll(
                 m.tree(),
                 (el) =>
@@ -370,10 +370,10 @@ describe("agent console tutor hook (T2)", () => {
             );
             expect(assistantTurns).toHaveLength(1);
             // The concept badge never renders: the teaching keeps the
-            // prose plus the numbers table with no Tutor line.
+            // prose plus the numbers table with no Physics Agent line.
             expect(m.text()).not.toContain("attached-lift");
-            expect(m.text()).not.toContain("Tutor:");
-            expect(m.text()).toContain("Spark tutor prose");
+            expect(m.text()).not.toContain("Physics Agent:");
+            expect(m.text()).toContain("Physics Agent prose");
             // Single-table contract: prose pipe block stripped, payload
             // table renders once with its accessible caption.
             expect(m.text()).toContain("Before versus after");
@@ -394,7 +394,7 @@ describe("agent console tutor hook (T2)", () => {
             expect(findAll(m.tree(), (el) => el.type === "details").length).toBe(0);
             expect(m.text()).not.toContain("Reasoning");
             expect(m.text()).not.toContain("checked the table numbers");
-            expect(buttonsByLabel(m.tree(), "Retry tutor request")).toHaveLength(0);
+            expect(buttonsByLabel(m.tree(), "Retry Physics Agent request")).toHaveLength(0);
             expect(m.text()).not.toContain("local mode");
             // Rerender with the same settled key fires nothing more.
             m.setProps({ ...base, agentContext: after });
@@ -438,7 +438,7 @@ describe("agent console tutor hook (T2)", () => {
             );
             m.setProps({ ...base, offline: true, agentContext: after });
             await flush();
-            // Tutor-v2 offline failure: zero tutor Modal calls, no extra
+            // Tutor-v2 offline failure: zero Physics Agent Modal calls, no extra
             // canvas writes beyond the armed live applies.
             expect(log.chats).toBe(0);
             expect(onAgentAction).toHaveBeenCalledTimes(3);
@@ -453,11 +453,11 @@ describe("agent console tutor hook (T2)", () => {
             expect(m.text()).toContain("Quantity");
             expect(m.text()).toContain("Change");
             // Failure shows rows plus the honest error plus Retry, zero local prose.
-            expect(m.text()).toContain("Tutor request failed");
+            expect(m.text()).toContain("Physics Agent request failed");
             expect(m.text()).toContain("offline demo mode");
             expect(m.text()).toContain("Canvas unchanged");
             expect(m.text()).toContain("Retry");
-            expect(buttonsByLabel(m.tree(), "Retry tutor request")).toHaveLength(1);
+            expect(buttonsByLabel(m.tree(), "Retry Physics Agent request")).toHaveLength(1);
             // Zero local prose on the failure turn: no retired local copy.
             expect(m.text()).not.toContain("engineer note, local only");
             expect(m.text()).not.toContain("solver bar");
@@ -477,7 +477,7 @@ describe("agent console tutor hook (T2)", () => {
                 log.streams += 1;
                 yield { delta: "x", text: "x", done: false };
                 return {
-                    text: "Spark tutor prose, plain words.",
+                    text: "Physics Agent prose, plain words.",
                     action: null,
                     model: "test-spark",
                     usage: { inputTokens: 4, outputTokens: 8, cachedTokens: 0 },
@@ -487,7 +487,7 @@ describe("agent console tutor hook (T2)", () => {
                 };
             },
             async chat(_m: unknown, _o?: unknown) {
-                // Tutor-v2 failure: the tutor Modal call throws, rows plus
+                // Tutor-v2 failure: the Physics Agent Modal call throws, rows plus
                 // error plus Retry render with zero local prose.
                 log.chats += 1;
                 throw new Error("Modal unavailable");
@@ -517,12 +517,12 @@ describe("agent console tutor hook (T2)", () => {
             );
             m.setProps({ ...base, agentContext: after });
             await flush();
-            // Every live turn hits Modal: the composer streamed once, the tutor chatted once and failed honestly.
+            // Every live turn hits Modal: the composer streamed once, the Physics Agent chatted once and failed honestly.
             expect(log.streams).toBe(1);
             expect(log.chats).toBe(1);
             expect(tutorBlocks(m.tree())).toHaveLength(1);
             expect(tutorTables(m.tree())).toHaveLength(1);
-            expect(m.text()).toContain("Tutor request failed");
+            expect(m.text()).toContain("Physics Agent request failed");
             expect(m.text()).toContain("Modal unavailable");
             expect(m.text()).toContain("Canvas unchanged");
             expect(m.text()).toContain("Before versus after");
@@ -530,13 +530,13 @@ describe("agent console tutor hook (T2)", () => {
             // Zero local prose on the failure turn: no retired local copy.
             expect(m.text()).not.toContain("engineer note, local only");
             expect(m.text()).not.toContain("solver bar");
-            expect(buttonsByLabel(m.tree(), "Retry tutor request")).toHaveLength(1);
+            expect(buttonsByLabel(m.tree(), "Retry Physics Agent request")).toHaveLength(1);
         } finally {
             m.unmount();
         }
     });
 
-    it("keeps run envelopes on the confirm chip with zero tutor", async () => {
+    it("keeps run envelopes on the confirm chip with zero Physics Agent", async () => {
         const RUN_ENVELOPE = "Ready to solve. The viscous run is staged.\n```action-json\n{\"kind\":\"run_lbm\"}\n```";
         const pending = buildAgentContext(
             settledSnapshot({ engine: "lbm", lbmEffective: true, caseKey: "case-run-before", frameSettled: true, agentFirst: false }) as never
@@ -589,7 +589,7 @@ describe("agent console tutor hook (T2)", () => {
             m.setProps({ ...base, agentContext: after });
             await flush();
             expect(tutorBlocks(m.tree())).toHaveLength(0);
-            expect(m.text()).not.toContain("Tutor:");
+            expect(m.text()).not.toContain("Physics Agent:");
         } finally {
             m.unmount();
         }
@@ -625,7 +625,7 @@ describe("agent console tutor hook (T2)", () => {
             await flush();
             expect(tutorBlocks(m.tree())).toHaveLength(1);
             expect(log.chats).toBe(1);
-            // A second applied turn settling on the same key renders no new tutor.
+            // A second applied turn settling on the same key renders no new Physics Agent.
             typeText(m, "Set up NACA 2412 alpha 6 Re 50000");
             submitForm(m);
             await flush();
@@ -709,7 +709,7 @@ describe("agent console tutor hook (T2)", () => {
             await flush();
             expect(onAgentAction).toHaveBeenCalledTimes(3);
             // The stall concept suggests omega, but the operator already
-            // moved to omega by hand, so the tutor must not rewrite it.
+            // moved to omega by hand, so the Physics Agent must not rewrite it.
             const after = buildAgentContext(
                 settledSnapshot({
                     spec: { kind: "naca4", naca: { code: "2412", m: 0.02, p: 0.4, t: 0.12 }, chord: 1, alphaDeg: 6, nPoints: 120 },
@@ -728,7 +728,7 @@ describe("agent console tutor hook (T2)", () => {
             // The concept badge never renders, but the teaching still
             // lands without rewriting the manually chosen field.
             expect(m.text()).not.toContain("stall-separation");
-            expect(m.text()).not.toContain("Tutor:");
+            expect(m.text()).not.toContain("Physics Agent:");
             const fieldWrites = onAgentAction.mock.calls.filter(
                 (c) => (c[0] as { kind?: string }).kind === "set_field"
             );
@@ -799,7 +799,7 @@ describe("agent console tutor hook (T2)", () => {
                 );
                 m.setProps({ ...base, agentContext: after });
                 await flush();
-                // Tutor-v2: the timeout tutor turn rides one live Modal port call.
+                // Tutor-v2: the timeout Physics Agent turn rides one live Modal port call.
                 expect(log.chats).toBe(1);
                 expect(tutorBlocks(m.tree())).toHaveLength(1);
                 expect(m.text()).toContain(TUTOR_LOADING_LINE);
@@ -818,7 +818,7 @@ describe("agent console tutor hook (T2)", () => {
         }
     });
 
-    it("caps the merged tutor turn once so reload keeps it", async () => {
+    it("caps the merged Physics Agent turn once so reload keeps it", async () => {
         const before = buildAgentContext(settledSnapshot() as never);
         const longBase = "B".repeat(1900);
         const longTeaching = "T".repeat(1900);
@@ -885,7 +885,7 @@ describe("agent console tutor hook (T2)", () => {
                 expect(t.text.length).toBeLessThanOrEqual(CHAT_TEXT_MAX);
             }
             // Reload keeps every persisted turn: overlong merges would drop
-            // the tutor turn through the isChatTurn length guard.
+            // the Physics Agent turn through the isChatTurn length guard.
             const reloaded = loadTurns();
             expect(reloaded.length).toBe(saved.turns.length);
             const tutorReloaded = reloaded.find((t) => t.tutor !== undefined);

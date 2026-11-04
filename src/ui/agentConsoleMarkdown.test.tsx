@@ -1,7 +1,7 @@
 // Phase T2 frontend: Claude layout plus react-markdown rendering. Static
 // markup over initialTurns, zero live calls. Covers the full-width TUI
 // turn blocks, GFM pipe tables rendering as real tables (never raw
-// pipes), script text staying inert, and the tutor numbers table with no
+// pipes), script text staying inert, and the Physics Agent numbers table with no
 // concept badge and no field chip.
 
 import { describe, expect, it } from "vitest";
@@ -34,7 +34,7 @@ function agentTurn(over: Partial<ChatTurn> = {}): ChatTurn {
 function tutorTurn(over: Partial<ChatTurn> = {}): ChatTurn {
     return agentTurn({
         id: "t-tutor-1",
-        text: "Local tutor note, local only. Attached flow at angle of attack (alpha) 6.\n\nTry next: Nudge angle of attack (alpha) by 1 deg and compare lift coefficient (Cl).",
+        text: "Local Physics Agent note, local only. Attached flow at angle of attack (alpha) 6.\n\nTry next: Nudge angle of attack (alpha) by 1 deg and compare lift coefficient (Cl).",
         status: "offline",
         tutor: {
             concept: "attached-lift",
@@ -111,7 +111,7 @@ describe("agent console T2 markdown layout", () => {
         expect(html).toContain("wake sketch");
     });
 
-    it("renders combined teaching turns distinct: Tutor role, no concept badge, numbers table, no field chip", () => {
+    it("renders combined teaching turns distinct: Physics Agent role, no concept badge, numbers table, no field chip", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline
@@ -122,9 +122,9 @@ describe("agent console T2 markdown layout", () => {
         expect(html).toContain("tuiTurn");
         expect(html).not.toContain("chatRight");
         expect(html).not.toContain("chatLeft");
-        // P0 TUI mimic: the combined turn reads Tutor with no tool or
+        // P0 TUI mimic: the combined turn reads Physics Agent with no tool or
         // model pills. Physics-only: no field suggestion chip.
-        expect(html).toContain(">Tutor</span>");
+        expect(html).toContain(">Physics Agent</span>");
         expect(html).not.toContain(">Agent</span>");
         expect(html).not.toContain(">modal</span>");
         expect(html).not.toContain("gearflow-chat");
@@ -132,13 +132,13 @@ describe("agent console T2 markdown layout", () => {
         expect(html).toContain("Quantity");
         expect(html).toContain("Change");
         expect(html).toContain("0.700");
-        expect(html).not.toContain("Tutor: attached-lift");
-        expect(html).not.toContain("Tutor:");
+        expect(html).not.toContain("Physics Agent: attached-lift");
+        expect(html).not.toContain("Physics Agent:");
         expect(html).not.toContain("Show cp");
         expect(html).not.toContain("tutorChip");
     });
 
-    it("repairs the tutor prose table into GFM exactly once", () => {
+    it("repairs the Physics Agent prose table into GFM exactly once", () => {
         const raw = "Before vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100";
         const fixed = tutorProseToGfm(raw);
         expect(fixed).toContain("| --- | --- | --- | ---");
@@ -146,25 +146,25 @@ describe("agent console T2 markdown layout", () => {
         expect(tutorProseToGfm("plain words, no table")).toBe("plain words, no table");
     });
 
-    it("strips the tutor pipe block from prose, keeping the surrounding copy", () => {
+    it("strips the Physics Agent pipe block from prose, keeping the surrounding copy", () => {
         const raw =
-            "Local tutor note, local only. Attached flow at angle of attack (alpha) 6.\n\nBefore vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100\n\nTry next: nudge angle of attack (alpha) by 1 deg.";
+            "Local Physics Agent note, local only. Attached flow at angle of attack (alpha) 6.\n\nBefore vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100\n\nTry next: nudge angle of attack (alpha) by 1 deg.";
         const stripped = stripTutorPipeTable(raw);
         expect(stripped).not.toContain("Metric | Before | After | Delta");
         expect(stripped).not.toContain("Cl | 0.600");
-        expect(stripped).toContain("Local tutor note");
+        expect(stripped).toContain("Local Physics Agent note");
         expect(stripped).toContain("Try next: nudge angle of attack (alpha) by 1 deg.");
         expect(stripTutorPipeTable("plain words, no table")).toBe("plain words, no table");
     });
 
-    it("renders a single table when the tutor payload and prose pipe block coexist", () => {
+    it("renders a single table when the Physics Agent payload and prose pipe block coexist", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline
                 onOfflineChange={() => {}}
                 initialTurns={[
                     tutorTurn({
-                        text: "Local tutor note, local only. Attached flow at angle of attack (alpha) 6.\n\nBefore vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100\n\nTry next: nudge angle of attack (alpha) by 1 deg.",
+                        text: "Local Physics Agent note, local only. Attached flow at angle of attack (alpha) 6.\n\nBefore vs after\nMetric | Before | After | Delta\nCl | 0.600 | 0.700 | +0.100\n\nTry next: nudge angle of attack (alpha) by 1 deg.",
                     }),
                 ]}
             />
@@ -175,10 +175,10 @@ describe("agent console T2 markdown layout", () => {
         expect(html).toContain("Quantity");
         expect(html).toContain("Change");
         expect(html).toContain("0.700");
-        expect(html).toContain("Local tutor note");
+        expect(html).toContain("Local Physics Agent note");
     });
 
-    it("falls back to the prose GFM table when the tutor payload has no rows", () => {
+    it("falls back to the prose GFM table when the Physics Agent payload has no rows", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline

@@ -441,7 +441,7 @@ export function buildModalMessages(
     const contract = actionContractSummary();
     const topicList = contract.topics.join(", ");
     const systemLines = [
-        "You are the GearFlow flow tutor. Answer briefly about the run like an interactive textbook.",
+        "You are the GearFlow Physics Agent. Answer briefly about the run like an interactive textbook.",
         "First mention per turn expands each term, then symbols after: lift coefficient (Cl), pressure coefficient (Cp), angle of attack (alpha), Reynolds number (Re).",
         "To change the canvas, append one fenced block per action, at most five:",
         "```action-json",
@@ -478,7 +478,7 @@ export function buildModalMessages(
         '{"kind":"set_spec","spec":{"geometry":{"kind":"block","chord":1,"alphaDeg":0,"nPoints":120,"width":0.5,"height":0.5,"center":{"x":0.5,"y":0}},"reynolds":200000,"rationale":"Agent setup Rectangle 0.5 by 0.5."}}',
         "```",
         "Angle of attack (alpha) influence, stall demo, stall sweep, or show stall: when the user asks to see angle of attack (alpha) influence or effect, or names a stall demo, stall sweep, or show stall, answer with no action fence and name the live analytic staircase (-4 to 12 step 2, 9 points) that the agent runs now with Stop plus per-point Apply chips, never just describe it and never promise a run the agent did not take. Sweep replies carry NO fence: never emit alpha_sweep_summary or any action-json fence on a sweep reply, the agent runs the staircase.",
-        "Reply with exactly one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas) plus the fence only, never two sentences, never duplicate What changed, Why, or Try next in the model reply, never teaching sections, never tables, never narrate future bumps or plans; then the validated apply follows and the tutor upsert owns all teaching on the same turn with a before versus after table plus Why plus Try next. Questions with no actions answer fully.",
+        "Reply with exactly one sentence describing the new case (body plus angle of attack plus Reynolds number plus what changed on canvas) plus the fence only, never two sentences, never duplicate What changed, Why, or Try next in the model reply, never teaching sections, never tables, never narrate future bumps or plans; then the validated apply follows and the Physics Agent upsert owns all teaching on the same turn with a before versus after table plus Why plus Try next. Questions with no actions answer fully.",
         "Never name presets in the reply; describe physics only (body plus angle plus Reynolds number), never setup names or preset words. Prose never contains raw JSON: actions ride fenced blocks only.",
         "Try next is a physics thought experiment only: nudge angle of attack by 1 deg or change Reynolds number and reason about the effect. Never a field switch, never a view change, never a run.",
         "No solver or tech stack talk: teach flow physics only, no solver names, no statistics, no spinning-flow copy, no field views. Physics note only when the idea needs it: the potential flow picture omits separation and stall.",
@@ -1608,7 +1608,7 @@ export default function AgentConsole({
         if (forcedRef.current) {
             const detail = "offline demo mode, cached table only";
             upsertTutorTurn(
-                `Tutor request failed (${detail}). Canvas unchanged.\n\nBefore vs after\n${tableText}${timedNote}`,
+                `Physics Agent request failed (${detail}). Canvas unchanged.\n\nBefore vs after\n${tableText}${timedNote}`,
                 "cached",
             );
             patchTutorExtra(tutorId, { streaming: false, model: MODAL_MODEL_ID, reasoning: "", tutorError: detail });
@@ -1693,7 +1693,7 @@ export default function AgentConsole({
             const reason = err instanceof Error ? err.message : String(err);
             const detail = (reason.length > 0 ? reason : "unknown error").slice(0, 160);
             upsertTutorTurn(
-                `Tutor request failed (${detail}). Canvas unchanged.\n\nBefore vs after\n${tableText}${timedNote}`,
+                `Physics Agent request failed (${detail}). Canvas unchanged.\n\nBefore vs after\n${tableText}${timedNote}`,
                 "fallback",
             );
             patchTutorExtra(tutorId, { streaming: false, model: MODAL_MODEL_ID, reasoning: "", tutorError: detail });
@@ -2182,7 +2182,7 @@ export default function AgentConsole({
                         {
                             role: "system",
                             content: [
-                                "You are the GearFlow flow tutor.",
+                                "You are the GearFlow Physics Agent.",
                                 "Teach the sweep result in plain grade 8 to 10 language, like an interactive textbook.",
                                 "First mention per turn expands each term, then symbols after: lift coefficient (Cl), pressure coefficient (Cp), angle of attack (alpha), Reynolds number (Re).",
                                 "Cite only the Before vs after table and the swept points below, never invent numbers. When a value reads n/a, call it pending.",
@@ -2503,7 +2503,7 @@ export default function AgentConsole({
                     return (
                         <div key={t.id} className={`chatTurn tuiTurn ${t.role}${isTutor ? " tutorTurn" : ""}`}>
                             <div className="chatHead tuiHead">
-                                <span className="mono tuiRole">{t.role === "user" ? "You" : "Tutor"}</span>
+                                <span className="mono tuiRole">{t.role === "user" ? "You" : "Physics Agent"}</span>
                                 {isAssistant && statusText === "live" && (
                                     <span className="liveDotWrap">
                                         <span className="liveDot" aria-hidden="true" />
@@ -2528,14 +2528,14 @@ export default function AgentConsole({
                                 <p className="chatText">Composing reply</p>
                             )}
                             {isAssistant && tutorErrorText.length > 0 && (
-                                <p className="mSub mono" role="note">Tutor error: {tutorErrorText}. Canvas unchanged.</p>
+                                <p className="mSub mono" role="note">Physics Agent error: {tutorErrorText}. Canvas unchanged.</p>
                             )}
                             {isAssistant && isTutor && tutorErrorText.length > 0 && (
                                 <button
                                     type="button"
                                     className="chip retryChip"
                                     onClick={() => void onRetryTutor(t.id)}
-                                    aria-label="Retry tutor request"
+                                    aria-label="Retry Physics Agent request"
                                 >
                                     Retry
                                 </button>

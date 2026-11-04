@@ -1,4 +1,4 @@
-// P4 tutor caption tests: capped plus caveat plus offline. Pure, no network.
+// P4 Physics Agent caption tests: capped plus caveat plus offline. Pure, no network.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -47,22 +47,22 @@ describe("capTutorCaption", () => {
         expect(capped.endsWith(TUTOR_CAPTION_CAVEAT)).toBe(true);
         expect(capped.length).toBeLessThanOrEqual(TUTOR_CAPTION_MAX);
     });
-    it("keeps empty input empty so no Tutor row renders", () => {
+    it("keeps empty input empty so no Physics Agent row renders", () => {
         expect(capTutorCaption("")).toBe("");
         expect(capTutorCaption("   ")).toBe("");
         expect(capTutorCaption(null)).toBe("");
     });
 });
 
-describe("buildReportData Tutor row", () => {
-    it("appends the Tutor row when the caption is non-empty", () => {
+describe("buildReportData Physics Agent row", () => {
+    it("appends the Physics Agent row when the caption is non-empty", () => {
         const report = buildReportData(demoData({ tutorCaption: "Cl 0.823 at alpha 6. Caveat: analytic estimate, not validated." }));
         expect(report.rows.length).toBe(13);
-        const tutor = report.rows.find(([k]) => k === "Tutor");
-        expect(tutor?.[1]).toContain("Cl 0.823");
-        expect(tutor?.[1].endsWith(TUTOR_CAPTION_CAVEAT)).toBe(true);
+        const physicsAgent = report.rows.find(([k]) => k === "Physics Agent");
+        expect(physicsAgent?.[1]).toContain("Cl 0.823");
+        expect(physicsAgent?.[1].endsWith(TUTOR_CAPTION_CAVEAT)).toBe(true);
     });
-    it("renders no Tutor row without a caption, keeping the twelve row sheet", () => {
+    it("renders no Physics Agent row without a caption, keeping the twelve row sheet", () => {
         expect(buildReportData(demoData()).rows.length).toBe(12);
         expect(buildReportData(demoData({ tutorCaption: "   " })).rows.length).toBe(12);
     });
@@ -87,8 +87,8 @@ describe("buildReportData Tutor row", () => {
         expect(capped.length).toBeLessThanOrEqual(TUTOR_CAPTION_MAX);
         expect(capped.endsWith(TUTOR_CAPTION_CAVEAT)).toBe(true);
         const report = buildReportData(demoData({ tutorCaption: capped }));
-        const tutor = report.rows.find(([k]) => k === "Tutor");
-        expect(tutor?.[1].length ?? 0).toBeLessThanOrEqual(TUTOR_CAPTION_MAX);
+        const physicsAgent = report.rows.find(([k]) => k === "Physics Agent");
+        expect(physicsAgent?.[1].length ?? 0).toBeLessThanOrEqual(TUTOR_CAPTION_MAX);
         const text = [report.title, report.footer, ...report.rows.flat()].join(" ");
         expect(text).not.toContain(DOUBLE);
     });
@@ -162,25 +162,25 @@ describe("buildReportData keeps the provenance tail", () => {
         const analyticCapped = capTutorCaption("Cl 0.823 at alpha 6 with CpMin -1.420.", lbmLabel);
         expect(analyticCapped.endsWith(TUTOR_CAPTION_CAVEAT_LBM)).toBe(true);
         const report = buildReportData(demoData({ tutorCaption: analyticCapped, provenance: lbmLabel }));
-        const tutor = report.rows.find(([k]) => k === "Tutor");
-        expect(tutor?.[1].endsWith(TUTOR_CAPTION_CAVEAT_LBM)).toBe(true);
-        expect(tutor?.[1].endsWith(TUTOR_CAPTION_CAVEAT)).toBe(false);
+        const physicsAgent = report.rows.find(([k]) => k === "Physics Agent");
+        expect(physicsAgent?.[1].endsWith(TUTOR_CAPTION_CAVEAT_LBM)).toBe(true);
+        expect(physicsAgent?.[1].endsWith(TUTOR_CAPTION_CAVEAT)).toBe(false);
     });
     it("keeps the neural tail through buildReportData, never retipped to analytic", () => {
         const neuralLabel = "neural-v3 prediction, phase averaged, not validated";
         const neuralCapped = capTutorCaption("Cl 0.810 at alpha 6 with CpMin -1.400.", neuralLabel);
         expect(neuralCapped.endsWith(TUTOR_CAPTION_CAVEAT_NEURAL)).toBe(true);
         const report = buildReportData(demoData({ tutorCaption: neuralCapped, provenance: neuralLabel }));
-        const tutor = report.rows.find(([k]) => k === "Tutor");
-        expect(tutor?.[1].endsWith(TUTOR_CAPTION_CAVEAT_NEURAL)).toBe(true);
-        expect(tutor?.[1].endsWith(TUTOR_CAPTION_CAVEAT)).toBe(false);
+        const physicsAgent = report.rows.find(([k]) => k === "Physics Agent");
+        expect(physicsAgent?.[1].endsWith(TUTOR_CAPTION_CAVEAT_NEURAL)).toBe(true);
+        expect(physicsAgent?.[1].endsWith(TUTOR_CAPTION_CAVEAT)).toBe(false);
     });
     it("retips a stale analytic tail to the LBM tail via buildReportData provenance", () => {
         const lbmLabel = "lbm-binary, solved instantaneous snapshot";
         const stale = `Cl 0.823 at alpha 6. ${TUTOR_CAPTION_CAVEAT}`;
         const report = buildReportData(demoData({ tutorCaption: stale, provenance: lbmLabel }));
-        const tutor = report.rows.find(([k]) => k === "Tutor");
-        expect(tutor?.[1].endsWith(TUTOR_CAPTION_CAVEAT_LBM)).toBe(true);
-        expect(tutor?.[1].endsWith(TUTOR_CAPTION_CAVEAT)).toBe(false);
+        const physicsAgent = report.rows.find(([k]) => k === "Physics Agent");
+        expect(physicsAgent?.[1].endsWith(TUTOR_CAPTION_CAVEAT_LBM)).toBe(true);
+        expect(physicsAgent?.[1].endsWith(TUTOR_CAPTION_CAVEAT)).toBe(false);
     });
 });

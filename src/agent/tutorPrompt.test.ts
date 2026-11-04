@@ -1,4 +1,4 @@
-// Phase T1 tutor prompt tests: version pin plus physics-only plain
+// Phase T1 Physics Agent prompt tests: version pin plus physics-only plain
 // language clauses the Explain preset depends on. Pure, zero network.
 
 import { describe, expect, it } from "vitest";
@@ -34,7 +34,7 @@ function rows() {
 }
 
 describe("buildTutorMessages", () => {
-    it("pins the tutor version and the simple language clauses", () => {
+    it("pins the Physics Agent version and the simple language clauses", () => {
         const messages = buildTutorMessages({
             after: null,
             rows: rows(),
@@ -46,7 +46,7 @@ describe("buildTutorMessages", () => {
         const system = messages[0].content;
         expect(TUTOR_PROMPT_VERSION).toBe("tutor-v4");
         expect(system).toContain("tutor-v4");
-        expect(system).toContain("GearFlow flow tutor");
+        expect(system).toContain("GearFlow Physics Agent");
         expect(system).toContain("one idea per reply");
         expect(system).toContain("grade 8 to 10");
         expect(system).toContain("same sentence");

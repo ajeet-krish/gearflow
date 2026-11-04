@@ -206,7 +206,7 @@ describe("verify sweep blocked on explain plus what plus why plus negation", () 
 });
 
 describe("verify rejected setups never teach unapplied tables", () => {
-  it("pins the rejected setup rule in the tutor system prompt", () => {
+  it("pins the rejected setup rule in the Physics Agent system prompt", () => {
     const system = tutorSystem();
     expect(system).toContain("When the setup was rejected");
     expect(system).toContain("canvas unchanged");

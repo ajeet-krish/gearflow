@@ -941,10 +941,10 @@ Phase tests integrate with prior phase tests (all 1537 prior tests still pass pl
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
 
-## 2026-11-02 - Phase 2: Test Report (live Modal tutor tutor-v2, reasoning collapsed, rows once, Retry, zero local prose)
+## 2026-11-02 - Phase 2: Test Report (live Modal Physics Agent tutor-v2, reasoning collapsed, rows once, Retry, zero local prose)
 
 ### Test Results
-npm test: 116 files, 1550 tests, all passed. Baseline before this fix was 116 files, 1548 tests with 9 failures. Delta is 2 new tests (Baseten live path source contract plus tutor live failure Retry) plus 9 rewritten assertions to the tutor-v2 contract.
+npm test: 116 files, 1550 tests, all passed. Baseline before this fix was 116 files, 1548 tests with 9 failures. Delta is 2 new tests (Baseten live path source contract plus Physics Agent live failure Retry) plus 9 rewritten assertions to the tutor-v2 contract.
 
 ### Results Table
 | Test | Verdict | Notes |
@@ -954,17 +954,17 @@ npm test: 116 files, 1550 tests, all passed. Baseline before this fix was 116 fi
 | Baseten localOfflineReply offline demo copy | PASS | Was pinning solver bar prose, now pins Offline demo mode plus cached table only plus Cl 0.600 plus Canvas unchanged |
 | Baseten live path source contract | PASS | New, asserts AgentConsole carries zero localAssistant imports and rides buildTutorMessages plus TUTOR_FEATURE |
 | Curriculum chip offline turn with Retry | PASS | Was pinning lowercase local, now pins chip prompt plus Offline demo mode plus cached table only plus Canvas unchanged plus Retry chat request plus zero port calls |
-| Tutor offline rows plus error plus Retry | PASS | Was expecting 3 local applies with zero network, now arms live then settles offline, 1 stream plus 0 tutor chats, 1 tutor block plus 1 table plus Tutor request failed plus offline demo mode plus Retry tutor request |
-| Tutor timeout with one live port call | PASS | Was expecting 0 chats, now 1 chat plus loading line plus Before versus after plus one table |
-| Tutor field-only timeout with one live port call | PASS | Was expecting 0 chats, now 1 chat plus loading line plus one table plus fcp key move |
-| Tutor live failure rows plus error plus Retry | PASS | New, stream success arms hook then chat throws Modal unavailable, 1 stream plus 1 chat, rows plus error plus Retry with zero local prose |
-| Tutor live success reasoning collapsed plus rows once | PASS | Extended, pins collapsed Reasoning details plus checked the table numbers plus zero Retry on success |
+| Physics Agent offline rows plus error plus Retry | PASS | Was expecting 3 local applies with zero network, now arms live then settles offline, 1 stream plus 0 Physics Agent chats, 1 Physics Agent block plus 1 table plus Physics Agent request failed plus offline demo mode plus Retry Physics Agent request |
+| Physics Agent timeout with one live port call | PASS | Was expecting 0 chats, now 1 chat plus loading line plus Before versus after plus one table |
+| Physics Agent field-only timeout with one live port call | PASS | Was expecting 0 chats, now 1 chat plus loading line plus one table plus fcp key move |
+| Physics Agent live failure rows plus error plus Retry | PASS | New, stream success arms hook then chat throws Modal unavailable, 1 stream plus 1 chat, rows plus error plus Retry with zero local prose |
+| Physics Agent live success reasoning collapsed plus rows once | PASS | Extended, pins collapsed Reasoning details plus checked the table numbers plus zero Retry on success |
 | Wiring offline toggle offline demo copy | PASS | Was pinning engineer note local only, now pins Offline demo mode plus cached table only plus Retry plus cached badge |
 | Wiring spend gate demo mode until reset | PASS | Was pinning local mode plus engineer note, now pins demo mode until reset plus Spend cap plus Canvas unchanged |
 | npm test full suite (116 files, 1550 tests) | PASS | All green, zero failures |
 
 ### Coverage Summary
-Happy path covered (tutor-v2 prompt with reasoning_content, live tutor success with collapsed reasoning plus rows once, every live composer plus tutor turn hits the Modal port).
+Happy path covered (tutor-v2 prompt with reasoning_content, live Physics Agent success with collapsed reasoning plus rows once, every live composer plus Physics Agent turn hits the Modal port).
 Edge cases covered (timeout with loading line plus one live call, field-only timeout with key move, offline settle after live arm, spend gate forced demo mode).
 Error conditions covered (offline failure rows plus error plus Retry with zero local prose, live Modal down rows plus Modal unavailable plus Retry, no localAssistant imports on the console live path).
 No em dashes, double hyphens, or dash equivalents; proper punctuation used.
@@ -976,8 +976,8 @@ Phase tests integrate with prior phase tests (all 1548 prior tests pass as rewri
 | tutorPrompt version pin (initial) | Spec pinned tutor-v1 while tutorPrompt.ts already serves tutor-v2 | Pin tutor-v2 plus reasoning_content, fixed, now passes |
 | Baseten soft stop plus offline copy (initial) | Specs pinned retired local mode until reset and solver bar prose while AgentConsole serves demo mode until reset and Offline demo mode copy | Pin demo mode until reset and Offline demo mode copy, fixed, now passes |
 | Curriculum plus wiring offline copy (initial) | Specs pinned lowercase local and engineer note local only while console serves Offline demo mode plus cached table only plus Retry | Pin new copy plus Retry plus cached badge, fixed, now passes |
-| Tutor offline plus timeout plus field timeout (initial) | Specs pinned 3 offline applies and zero network timeouts while tutor-v2 needs live arm plus one Modal call per turn and failure shows rows plus error plus Retry | Arm live then settle offline, expect 1 stream plus 1 chat on timeouts, fixed, now passes |
-| Tutor offline plus live failure Retry (updated) | First rewrite expected tutor blocks without an armed pending hook and asserted whole transcript lacks live Modal prose | Arm pending via live stream success, scope zero prose to retired local copy, fixed, now passes |
+| Physics Agent offline plus timeout plus field timeout (initial) | Specs pinned 3 offline applies and zero network timeouts while tutor-v2 needs live arm plus one Modal call per turn and failure shows rows plus error plus Retry | Arm live then settle offline, expect 1 stream plus 1 chat on timeouts, fixed, now passes |
+| Physics Agent offline plus live failure Retry (updated) | First rewrite expected Physics Agent blocks without an armed pending hook and asserted whole transcript lacks live Modal prose | Arm pending via live stream success, scope zero prose to retired local copy, fixed, now passes |
 | Baseten source contract (new) | First draft asserted literal tutor-v2 in AgentConsole.tsx which only imports buildTutorMessages | Assert buildTutorMessages plus TUTOR_FEATURE with zero localAssistant, fixed, now passes |
 | Wiring offline badge (updated) | Spec expected an offline badge the renderer no longer emits (cached status badge instead) | Pin cached badge, fixed, now passes |
 
@@ -989,24 +989,24 @@ Phase tests integrate with prior phase tests (all 1548 prior tests pass as rewri
 - [x] No em dashes, double hyphens, or dash equivalents; proper punctuation used
 - [x] Phase tests integrate with prior phase tests
 
-## 2026-11-03 - P0 Chat TUI: Test Report (no header chrome, Tutor label, no pills, one-row dropdowns, no spend render, single combined response)
+## 2026-11-03 - P0 Chat TUI: Test Report (no header chrome, Physics Agent label, no pills, one-row dropdowns, no spend render, single combined response)
 
 ### Test Results
 npm test: 117 files, 1571 tests, all passed. Baseline before this file was 116 files, 1564 tests. Delta is src/ui/chatTuiP0.test.tsx (7 tests).
 
 New coverage in src/ui/chatTuiP0.test.tsx (7 tests):
-happy path Tutor label with green dot and visually hidden live label on live turns, example plus tutorial dropdowns sharing one promptRow with all labels reachable plus stylesheet two column grid with mobile single column fallback, single combined tutor turn with applied line plus numbers table plus Retry chip plus collapsed reasoning trace and exactly one tutorTurn block, chat failure turn with Retry chip and Canvas unchanged,
+happy path Physics Agent label with green dot and visually hidden live label on live turns, example plus tutorial dropdowns sharing one promptRow with all labels reachable plus stylesheet two column grid with mobile single column fallback, single combined Physics Agent turn with applied line plus numbers table plus Retry chip plus collapsed reasoning trace and exactly one tutorTurn block, chat failure turn with Retry chip and Canvas unchanged,
 edge cached and bare assistant turns plus user turns carry no tool or model pills,
 error spendCapUsd zero render shows no Session cost, no Spend cap, no demo mode until reset while spendExceeded still trips at five dollars and at any positive spend under a zero cap.
 
 ### Results Table
 | Test | Verdict | Notes |
 |------|---------|-------|
-| chatTuiP0.test.tsx (7) | PASS | No header or toggle or clear chrome, Tutor plus dot, no pills, one row dropdowns, no spend render with gate intact, single combined response with Retry and reasoning, chat Retry |
+| chatTuiP0.test.tsx (7) | PASS | No header or toggle or clear chrome, Physics Agent plus dot, no pills, one row dropdowns, no spend render with gate intact, single combined response with Retry and reasoning, chat Retry |
 | all other Node suites (1564) | PASS | No regressions, 1571 total |
 
 ### Coverage Summary
-Happy path covered (Tutor label with green dot, dropdowns side by side in one row, single combined response with Retry and collapsed reasoning).
+Happy path covered (Physics Agent label with green dot, dropdowns side by side in one row, single combined response with Retry and collapsed reasoning).
 Edge cases covered (cached and bare assistant turns plus user turns free of tool and model pills, mobile single column fallback in the stylesheet).
 Error conditions covered (spend gate logic intact with zero render, chat failure Retry with Canvas unchanged).
 No em dashes, double hyphens, or dash equivalents; proper punctuation used.
@@ -1284,7 +1284,7 @@ Targeted: npx vitest run src/verify.fixed512.sweepguard.test.tsx, 16 passed.
 New coverage in src/verify.fixed512.sweepguard.test.tsx (16 tests):
 happy path only 512 reachable with no picker (GRID_512 is 512 with mode 512 and resolve 512 plus legacy modes coerce plus slow solves never fall back plus SettingsModal Fixed grid 512 only plus sources name the fixed 512 contract), NACA p rule plus rejection turns plus block chord in prompt (camber above 0 with 0.2 to 0.8 range plus nearest valid with No teaching prose for unapplied cases and canvas unchanged plus chord 1 with center JSON plus influence line with no fence and never promise a run), sweep fires on show plus run plus influence (show and run and staircase and sweep through plus influence and effect and across and what if, 9 point staircase shape),
 edge sweep blocked on explain plus what plus why plus negation and bare setup text,
-error rejected setups never teach unapplied tables (tutor system rejected setup rule with canvas unchanged and teach no table, sweep narration from table numbers only with stall caveat and empty rows on empty sweep).
+error rejected setups never teach unapplied tables (Physics Agent system rejected setup rule with canvas unchanged and teach no table, sweep narration from table numbers only with stall caveat and empty rows on empty sweep).
 
 ### Results Table
 | Test | Verdict | Notes |
@@ -1375,7 +1375,7 @@ Focused batch rerun: 11 files, 137 tests, all passed (agentActions, misconceptio
 | no particle size with white default (gridUiBatch 18, SettingsModal) | PASS | No settingsParticleSize slider in render; particleColor defaults to white; count envelope 0 to 8000 with Off at 0 |
 | no resolution with Display Settings title (sweepguard 16, gridUiBatch 18) | PASS | Settings renders DISPLAY SETTINGS with no RESOLUTION section, no grid mode or custom square controls; live grid fixed at 512 |
 | Re sentence (App rail wiring, gridUiBatch agent setups) | PASS | Rail plus scene bars read live spec, Re, and tab sources |
-| no cached pill (agentConsoleBaseten 22) | PASS | Assistant turns render Tutor with live dot and no model or cached pill; SAM cached offline copy absent |
+| no cached pill (agentConsoleBaseten 22) | PASS | Assistant turns render Physics Agent with live dot and no model or cached pill; SAM cached offline copy absent |
 | 3 tutorials (agentConsoleCurriculum 4, curriculum 2) | PASS | Tutorial dropdown offers one option per curriculum lesson plus example dropdown side by side; dispatch is a normal offline turn with zero port calls |
 | batchCombined.verify (8) | PASS | Sweep gating, appearance lines, tab keys, Rectangle naming, single 512, turn chrome removed |
 | all other Node suites | PASS | No regressions outside the one stale reset expectation |
@@ -1418,7 +1418,7 @@ Targeted: 15 files, 171 tests, all passed (agentConsoleOrificeSweep 2, orificeIn
 | orificeIntent.test.ts (6) | PASS | Orifice apply from set up phrasing with high confidence, constriction language mapping, full set_spec with alpha always 0, Re 100 and Re 700 validate on the canvas floor |
 | agentActions.test.ts (23) | PASS | Re 100 floor accepted on the analytic path, setup_shedding carries Re 100, set_re alias maps to set_reynolds, canonical NACA fractions override |
 | caseSetup.test.ts (21) | PASS | setup_shedding at Re 100 on analytic and neural paths, rejected setups teach no table with Canvas unchanged |
-| agentConsoleBaseten.test.tsx (29) | PASS | Plot to field routing (plot pressure emits set_field cp with contours coupling), one-sentence setups (exactly one sentence plus fence only), follow-up chips (orifice plus airfoil follow-ups on no-action explain turns), no cached pill (Tutor with live dot, no model or cached badge) |
+| agentConsoleBaseten.test.tsx (29) | PASS | Plot to field routing (plot pressure emits set_field cp with contours coupling), one-sentence setups (exactly one sentence plus fence only), follow-up chips (orifice plus airfoil follow-ups on no-action explain turns), no cached pill (Physics Agent with live dot, no model or cached badge) |
 | agentConsoleCurriculum.test.tsx (4) plus curriculum.test.ts (2) | PASS | 3 tutorials offered one per lesson with example dropdown side by side, dispatch is a normal offline turn with zero port calls |
 | SettingsModal.test.tsx (12) plus gridUiBatch.verify (18) plus sweepguard (16) plus batchCombined (8) | PASS | No size slider plus no resolution section with Display Settings title, particle count 0 to 8000 with Off at 0, live grid fixed at 512, turn chrome removed |
 | particleColor.test.ts (2) plus phase6 hardening dark pins | PASS | Particle color white default with no Auto option, theme dark-only (defaults dark, forces dark over legacy light) |
@@ -1528,7 +1528,7 @@ Targeted fidelity rerun: 12 files, 123 tests, all passed (cylinderIntent 5, revi
 | cylinderIntent.test.ts (5) | PASS | Radius phrasing, diameter halving, envelope clamp with note, null on bare/question/negation, validated set_spec envelope carrying radius plus Re |
 | agentActions.test.ts cylinder guard (2 of suite) | PASS | Sized non-cylinder body (naca2412 radius, block size, missing body) left untouched for strict rejection, never rebuilt as cylinder; non-finite size (string, NaN) rejected naming the field |
 | reviewFailsRound.test.ts (17) | PASS | Explain-tolerant radius keeps size end to end, radius re-solve teaching fresh numbers |
-| agentConsoleBaseten.test.tsx cylinder plus rejection (4 of suite) | PASS | Lite caseKey moves on radius change so tutor waits for fresh frame; radius carried from built context into lite snapshot; honestRejectionReply override replaces model teaching on total rejection; radius suffix appended to supplied key lacking the r token |
+| agentConsoleBaseten.test.tsx cylinder plus rejection (4 of suite) | PASS | Lite caseKey moves on radius change so Physics Agent waits for fresh frame; radius carried from built context into lite snapshot; honestRejectionReply override replaces model teaching on total rejection; radius suffix appended to supplied key lacking the r token |
 | orificeIntent.test.ts (6) | PASS | Orifice apply with alpha always 0, gap mapping, Re floor respected |
 | agentConsoleOrificeSweep.test.tsx (2) | PASS | Orifice stall gate, zero stepper, alpha 0 unchanged, gap teaching copy |
 | agentConsoleSweep.test.tsx (5) | PASS | Staircase paints with fence handling, sweep replies carry no fence |
@@ -1539,7 +1539,7 @@ Targeted fidelity rerun: 12 files, 123 tests, all passed (cylinderIntent 5, revi
 | Modal network suites | NOT RUN | Excluded per scope, need live Baseten access |
 
 ### Coverage Summary
-Happy path covered (cylinder radius apply with Re, diameter halving, radius re-solve teaching fresh numbers, orifice alpha 0 with Re floor, liteRadius key suffix moving the tutor key, single 512 grid).
+Happy path covered (cylinder radius apply with Re, diameter halving, radius re-solve teaching fresh numbers, orifice alpha 0 with Re floor, liteRadius key suffix moving the Physics Agent key, single 512 grid).
 Edge cases covered (clamped out of envelope radius with note, sized non-cylinder strict rejection, radius suffix on legacy keys lacking the r token, sweep handling with no fence).
 Error conditions covered (non-finite size field naming and rejection, honestRejectionReply override on total rejection with canvas unchanged, bare cylinder with no size returns null to the bare-body rescue).
 No em dashes, double hyphens, or dash equivalents; proper punctuation used.

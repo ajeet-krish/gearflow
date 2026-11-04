@@ -77,7 +77,7 @@ describe("chatStore migration", () => {
         expect(loaded[0].specSnapshot).toBeUndefined();
     });
 
-    it("rejects a tutor payload with secondary omitted so no chip renders", () => {
+    it("rejects a Physics Agent payload with secondary omitted so no chip renders", () => {
         const omitted = {
             concept: "attached-lift",
             primary: "speed",
@@ -91,7 +91,7 @@ describe("chatStore migration", () => {
                 {
                     id: "t1",
                     role: "assistant",
-                    text: "Tutor note",
+                    text: "Physics Agent note",
                     at: "2026-01-01T00:00:04.000Z",
                     tool: "chat",
                     status: "live",
@@ -111,7 +111,7 @@ describe("chatStore migration", () => {
         expect(showsChip).toBe(false);
     });
 
-    it("keeps a tutor payload with an explicit null secondary and no chip", () => {
+    it("keeps a Physics Agent payload with an explicit null secondary and no chip", () => {
         const nulled = {
             concept: "attached-lift",
             primary: "speed",

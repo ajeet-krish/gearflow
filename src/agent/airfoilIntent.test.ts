@@ -119,7 +119,7 @@ describe("parseAirfoilIntent safety", () => {
         }
     });
 
-    it("carries the unrealistic thickness tutor note", () => {
+    it("carries the unrealistic thickness Physics Agent note", () => {
         const got = parseAirfoilIntent("NACA 2440", null);
         expect(got?.kind).toBe("apply");
         if (got?.kind === "apply") {

@@ -204,7 +204,7 @@ function fakeStepper() {
 
 /** Fake Modal port for the sweep summary call. The staircase itself stays
  *  local through onWhatIfSweep; only the summary plus teaching rides chat. */
-function fakeSummaryPort(text = "Sweep summary from the tutor, plain words.") {
+function fakeSummaryPort(text = "Sweep summary from the Physics Agent, plain words.") {
     const result = () => ({
         text,
         action: null,
@@ -252,18 +252,18 @@ describe("agent console sweep summary-only", () => {
             expect(applied).toEqual([...SWEEP_ALPHAS]);
             expect(executor).not.toHaveBeenCalled();
             expect(m.text()).toContain("Sweep complete");
-            expect(m.text()).toContain("Sweep summary from the tutor");
+            expect(m.text()).toContain("Sweep summary from the Physics Agent");
             expect(m.text()).toContain("Summary follows");
             const chips = buttonsByLabel(m.tree(), "Apply angle of attack (alpha) 6 degrees");
             expect(chips.length).toBeGreaterThan(0);
             expect(m.text()).not.toContain("Running the live alpha staircase, canvas stepping");
             expect(badgeCount(m.tree(), "live")).toBe(0);
             expect(badgeCount(m.tree(), "offline")).toBeGreaterThan(0);
-            // P0 TUI mimic: no tool or model pills, no separate tutor badge
-            // pill. The summary turn still teaches in place with the Tutor
+            // P0 TUI mimic: no tool or model pills, no separate Physics Agent badge
+            // pill. The summary turn still teaches in place with the Physics Agent
             // label plus the numbers table.
-            expect(badgeCount(m.tree(), "tutor")).toBe(0);
-            expect(m.text()).toContain("Tutor");
+            expect(badgeCount(m.tree(), "Physics Agent")).toBe(0);
+            expect(m.text()).toContain("Physics Agent");
         } finally {
             m.unmount();
         }
@@ -328,7 +328,7 @@ describe("agent console sweep summary-only", () => {
             expect(m.text()).toContain("Summary teaching is missing");
             expect(m.text()).not.toContain("analytic path");
             expect(m.text()).not.toContain("Canvas unchanged");
-            expect(m.text()).not.toContain("Sweep summary from the tutor");
+            expect(m.text()).not.toContain("Sweep summary from the Physics Agent");
             const chips = buttonsByLabel(m.tree(), "Apply angle of attack (alpha) 6 degrees");
             expect(chips.length).toBeGreaterThan(0);
         } finally {

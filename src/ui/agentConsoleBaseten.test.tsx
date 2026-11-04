@@ -383,7 +383,7 @@ describe("modal console B2 fixes", () => {
         expect(out.reply).not.toContain("alphaDeg");
     });
 
-    it("labels assistant turns Tutor with a live dot and no model pill", () => {
+    it("labels assistant turns Physics Agent with a live dot and no model pill", () => {
         const liveHtml = renderToStaticMarkup(
             <AgentConsole
                 offline={false}
@@ -391,9 +391,9 @@ describe("modal console B2 fixes", () => {
                 initialTurns={[assistantTurn({ status: "live", text: "Run looks healthy at alpha 6." })]}
             />
         );
-        // P0 TUI mimic: Tutor label, green live dot with a visually hidden
+        // P0 TUI mimic: Physics Agent label, green live dot with a visually hidden
         // label instead of live text, no tool or model pills.
-        expect(liveHtml).toContain(">Tutor</span>");
+        expect(liveHtml).toContain(">Physics Agent</span>");
         expect(liveHtml).not.toContain(">Agent</span>");
         expect(liveHtml).toContain("liveDot");
         expect(liveHtml).toContain("visuallyHidden\">live</span>");
@@ -409,8 +409,8 @@ describe("modal console B2 fixes", () => {
                 initialTurns={[assistantTurn({ status: "cached", text: "Cached table note." })]}
             />
         );
-        expect(cachedHtml).toContain(">Tutor</span>");
-        // No cached pill beside Tutor: the cached status renders no badge,
+        expect(cachedHtml).toContain(">Physics Agent</span>");
+        // No cached pill beside Physics Agent: the cached status renders no badge,
         // the honest cached-table note plus Retry carry the signal instead.
         expect(cachedHtml).not.toContain(">cached</span>");
     });
@@ -425,7 +425,7 @@ describe("modal console B2 fixes", () => {
         );
         expect(userHtml).toContain("You");
         expect(userHtml).not.toContain("baseten");
-        // P0 TUI mimic: assistant turns read Tutor, tool and model pills
+        // P0 TUI mimic: assistant turns read Physics Agent, tool and model pills
         // are gone, so the legacy badge copy is gone too.
         const legacyHtml = renderToStaticMarkup(
             <AgentConsole
@@ -434,7 +434,7 @@ describe("modal console B2 fixes", () => {
                 initialTurns={[{ id: "t-legacy-1", role: "assistant", text: "Legacy note", at: new Date().toISOString() }]}
             />
         );
-        expect(legacyHtml).toContain("Tutor");
+        expect(legacyHtml).toContain("Physics Agent");
         expect(legacyHtml).not.toContain(">Agent</span>");
         expect(legacyHtml).not.toContain("legacy");
         expect(legacyHtml).not.toContain(">baseten<");
@@ -562,7 +562,7 @@ describe("modal console truthfulness batch", () => {
         const system = messages[0].content;
         expect(system).toContain("exactly one sentence");
         expect(system).toContain("never teaching sections, never tables");
-        expect(system).toContain("tutor upsert owns all teaching");
+        expect(system).toContain("Physics Agent upsert owns all teaching");
     });
 
     it("attaches orifice and airfoil follow-ups on no-action explain turns", () => {
@@ -581,7 +581,7 @@ describe("modal console truthfulness batch", () => {
         expect(snap.alpha).toBe(null);
     });
 
-    it("moves the lite caseKey on cylinder radius changes so the tutor waits for the fresh frame", () => {
+    it("moves the lite caseKey on cylinder radius changes so the Physics Agent waits for the fresh frame", () => {
         const before = snapshotLiteFor({
             spec: { kind: "cylinder", alphaDeg: 0, radius: 0.25 },
             alphaDeg: 0,

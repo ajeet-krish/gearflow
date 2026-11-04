@@ -217,11 +217,11 @@ export function localTutorReply(
         void tutorSourceFamily(typeof focus?.pathLabel === "string" ? focus.pathLabel : "");
         const tail = note.length > 0 ? `\n\n${note}` : "";
         return (
-            `Local tutor note, local only. ${explanation}\n\n` +
+            `Local Physics Agent note, local only. ${explanation}\n\n` +
             `Before vs after\n${tutorRowsText(rows)}\n\n` +
             `Try next: ${experiment}${tail}`
         );
     } catch {
-        return "Local tutor note, local only. The run is pending.\n\nTry next: Nudge angle of attack (alpha) by 1 deg and compare lift coefficient (Cl).";
+        return "Local Physics Agent note, local only. The run is pending.\n\nTry next: Nudge angle of attack (alpha) by 1 deg and compare lift coefficient (Cl).";
     }
 }

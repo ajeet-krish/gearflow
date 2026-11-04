@@ -1,4 +1,4 @@
-// Phase T1 tutor table tests: finite guards, source family deltas, and
+// Phase T1 Physics Agent table tests: finite guards, source family deltas, and
 // the LBM CpMin n/a rule. Pure, zero network.
 
 import { describe, expect, it } from "vitest";

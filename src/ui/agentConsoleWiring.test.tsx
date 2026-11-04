@@ -490,7 +490,7 @@ describe("agent console offline paths", () => {
             expect(fetchFn).not.toHaveBeenCalled();
             expect(onAgentAction).not.toHaveBeenCalled();
             // Tutor-v2 offline copy: cached table only plus Retry, zero local prose.
-            // No cached pill beside Tutor: the badge is retired, spend still
+            // No cached pill beside Physics Agent: the badge is retired, spend still
             // accrues silently and the note plus Retry carry the signal.
             expect(m.text()).toContain("Offline demo mode");
             expect(m.text()).toContain("cached table only");

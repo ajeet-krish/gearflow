@@ -44,7 +44,7 @@ describe("sweep alphas", () => {
         expect(SWEEP_ALPHAS).toEqual([-4, -2, 0, 2, 4, 6, 8, 10, 12]);
     });
 
-    it("suppresses per-step tutor turns during the run", () => {
+    it("suppresses per-step Physics Agent turns during the run", () => {
         expect(SWEEP_SUPPRESSES_TUTOR).toBe(true);
     });
 });

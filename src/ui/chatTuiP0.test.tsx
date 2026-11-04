@@ -1,10 +1,10 @@
 // P0 chat TUI contract. Static markup plus pure helpers, zero live
 // calls. Pins the six P0 requirements: no header or offline toggle or
-// clear chrome, Tutor role label with a green dot and no live text pill,
+// clear chrome, Physics Agent role label with a green dot and no live text pill,
 // no tool or model pills, example plus tutorial dropdowns side by side
 // in one row, no session cost render with the spend gate still forcing
 // the offline path, and one single combined response with Retry and no
-// collapsed reasoning trace, no rendered apply receipts, and no Tutor
+// collapsed reasoning trace, no rendered apply receipts, and no Physics Agent
 // concept badge.
 
 import { describe, expect, it } from "vitest";
@@ -59,7 +59,7 @@ describe("P0 chat TUI chrome", () => {
         expect(html).toContain("chatLog");
     });
 
-    it("labels live assistant turns Tutor with a green dot and no live text pill", () => {
+    it("labels live assistant turns Physics Agent with a green dot and no live text pill", () => {
         const html = renderToStaticMarkup(
             <AgentConsole
                 offline={false}
@@ -67,7 +67,7 @@ describe("P0 chat TUI chrome", () => {
                 initialTurns={[assistantTurn({ status: "live" })]}
             />
         );
-        expect(html).toContain(">Tutor</span>");
+        expect(html).toContain(">Physics Agent</span>");
         expect(html).toContain("liveDot");
         expect(html).toContain("visuallyHidden\">live</span>");
         expect(html).not.toContain(">Agent</span>");
@@ -164,22 +164,22 @@ describe("P0 chat TUI chrome", () => {
             />
         );
         // Single combined turn: the numbers table and the Retry chip live
-        // on the same Tutor turn, never a second tutor turn. Apply
-        // receipts stay in the turn extras for the tutor capture and never
+        // on the same Physics Agent turn, never a second Physics Agent turn. Apply
+        // receipts stay in the turn extras for the Physics Agent capture and never
         // render, the reasoning trace never renders, and the concept badge
         // is gone.
-        expect(html).toContain(">Tutor</span>");
+        expect(html).toContain(">Physics Agent</span>");
         expect(html).not.toContain("Applied: angle of attack (alpha) 6 deg.");
         expect(html).not.toContain("Applied:");
         expect(html).toContain("<table");
         expect(html).toContain("Retry");
-        expect(html).toContain('aria-label="Retry tutor request"');
+        expect(html).toContain('aria-label="Retry Physics Agent request"');
         // No collapsed chrome: no reasoning disclosure, no concept line.
         expect(html).not.toContain("reasoningTrace");
         expect(html).not.toContain("Reasoning");
         expect(html).not.toContain("Checked the before versus after Cl delta.");
-        expect(html).not.toContain("Tutor:");
-        // No second tutor turn and no tool or model pills leaked back in.
+        expect(html).not.toContain("Physics Agent:");
+        // No second Physics Agent turn and no tool or model pills leaked back in.
         expect(html.match(/tutorTurn/g)?.length ?? 0).toBe(1);
         expect(html).not.toContain("gearflow-chat");
         expect(html).not.toContain(">modal</span>");

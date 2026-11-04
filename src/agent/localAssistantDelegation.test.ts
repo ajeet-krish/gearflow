@@ -150,7 +150,7 @@ describe("localReply follows the airfoil corpus", () => {
         expect(five.reply).toContain("5 digits");
     });
 
-    it("adds the tutor physics note for valid but unrealistic thickness", () => {
+    it("adds the Physics Agent physics note for valid but unrealistic thickness", () => {
         const out = localReply("NACA 2440", makeCtx());
         const spec = out.actions.find((a) => a.kind === "set_spec");
         expect(spec).toBeDefined();

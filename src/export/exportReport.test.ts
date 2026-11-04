@@ -158,7 +158,7 @@ describe("composePng", () => {
             vi.unstubAllGlobals();
         }
     });
-    it("renders the Tutor row wrapped to the canvas width, keeping the honesty caveat tail", async () => {
+    it("renders the Physics Agent row wrapped to the canvas width, keeping the honesty caveat tail", async () => {
         const calls: Array<{ text: string; x: number }> = [];
         const fakeCtx = {
             fillStyle: "",
@@ -200,7 +200,7 @@ describe("composePng", () => {
             vi.unstubAllGlobals();
         }
     });
-    it("wraps the Tutor row on a small snapshot with every segment inside the sheet", async () => {
+    it("wraps the Physics Agent row on a small snapshot with every segment inside the sheet", async () => {
         const calls: Array<{ text: string; x: number }> = [];
         const fakeCtx = {
             fillStyle: "",

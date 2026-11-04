@@ -156,10 +156,10 @@ describe("local phenomenological triggers", () => {
         expect(out.reply).toContain("Applying body naca0015");
     });
 
-    it("maps cylinder stagnation talk to the high Re wake case with a Cp tutor note", () => {
+    it("maps cylinder stagnation talk to the high Re wake case with a Cp Physics Agent note", () => {
         const out = localReply("show the high pressure zone on the cylinder", makeCtx());
         expect(out.actions).toContainEqual({ kind: "setup_high_re_wake" });
-        expect(out.reply).toContain("Stagnation tutor note");
+        expect(out.reply).toContain("Stagnation Physics Agent note");
         expect(out.reply).toContain("Cp nears 1");
     });
 

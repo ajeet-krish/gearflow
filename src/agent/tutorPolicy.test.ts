@@ -1,4 +1,4 @@
-// Phase T1 tutor policy tests: one concept per trigger plus physics-only
+// Phase T1 Physics Agent policy tests: one concept per trigger plus physics-only
 // copy for every concept. Pure, zero network.
 
 import { describe, expect, it } from "vitest";

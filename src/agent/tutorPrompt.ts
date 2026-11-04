@@ -123,7 +123,7 @@ export function buildTutorMessages(input: BuildTutorMessagesInput): ModalMessage
         const system: ModalMessage = {
             role: "system",
             content: [
-                `You are the GearFlow flow tutor (${TUTOR_PROMPT_VERSION}).`,
+                `You are the GearFlow Physics Agent (${TUTOR_PROMPT_VERSION}).`,
                 "Teach one idea per reply in plain grade 8 to 10 language, like an interactive textbook.",
                 "First mention per turn expands each term, then symbols after: lift coefficient (Cl), pressure coefficient (Cp), angle of attack (alpha), Reynolds number (Re). Spell each full name once, then use the short form.",
                 "When you use suction or separation, define the word in the same sentence you use it: suction means low pressure pulling on the surface, separation means flow leaving the surface.",
@@ -170,7 +170,7 @@ export function buildTutorMessages(input: BuildTutorMessagesInput): ModalMessage
         return [system, ...tail, user];
     } catch {
         return [
-            { role: "system", content: `You are the GearFlow flow tutor (${TUTOR_PROMPT_VERSION}). Teach one idea per reply in plain grade 8 to 10 language.` },
+            { role: "system", content: `You are the GearFlow Physics Agent (${TUTOR_PROMPT_VERSION}). Teach one idea per reply in plain grade 8 to 10 language.` },
             { role: "user", content: "Explain this run." },
         ];
     }

@@ -25,7 +25,7 @@ export interface ExportData {
     generatedAt: string;
     /** P4 teaching caption. Optional deterministic tutor line, capped to
      *  TUTOR_CAPTION_MAX with the provenance family caveat, rendered as the
-     *  Tutor row when non-empty. PNG and PDF inherit through buildReportData. */
+     *  Physics Agent row when non-empty. PNG and PDF inherit through buildReportData. */
     tutorCaption?: string;
 }
 
@@ -66,7 +66,7 @@ function reToken(reynolds: number): string {
     return `re${Math.round(reynolds)}`;
 }
 
-/** P4 tutor caption cap. The sheet stays one page, so the Tutor row never
+/** P4 Physics Agent caption cap. The sheet stays one page, so the Physics Agent row never
  *  exceeds this length. */
 export const TUTOR_CAPTION_MAX = 240;
 /** Analytic honesty tail. Every non-empty caption ends here so exports
@@ -111,9 +111,9 @@ export function caveatForCaption(pathLabel: unknown): string {
  * for the given provenance path label (analytic when omitted, keeping the
  * legacy single argument behavior). Collapses whitespace, trims, truncates
  * with room for the tail, then appends the tail when missing. A tail from
- * another family is retipped to the expected one so the Tutor row agrees
+ * another family is retipped to the expected one so the Physics Agent row agrees
  * with the Provenance row on the same sheet. Empty input stays empty so
- * buildReportData renders no Tutor row. Pure, never throws.
+ * buildReportData renders no Physics Agent row. Pure, never throws.
  */
 export function capTutorCaption(raw: unknown, pathLabel?: unknown): string {
     try {
@@ -179,12 +179,12 @@ export function buildReportData(d: ExportData): ReportData {
         ["Validation", `${pass} pass, ${warn} warn, ${fail} fail, ${info} info`],
         ["Generated", d.generatedAt],
     ];
-    // P4 teaching caption: optional Tutor row, capped with the provenance
+    // P4 teaching caption: optional Physics Agent row, capped with the provenance
     // family caveat. Empty or whitespace only captions render no row, keeping
     // the legacy twelve row sheet byte identical.
     try {
         const capped = capTutorCaption((d as { tutorCaption?: unknown }).tutorCaption, d.provenance);
-        if (capped.length > 0) rows.push(["Tutor", capped]);
+        if (capped.length > 0) rows.push(["Physics Agent", capped]);
     } catch {
         // Caption faults never break the sheet.
     }
@@ -229,12 +229,12 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 /** Monospace width estimate for the 13px PNG sheet font, px per char.
- *  Used to wrap the Tutor row into width bounded lines before canvas
+ *  Used to wrap the Physics Agent row into width bounded lines before canvas
  *  allocation, so the caveat tail never clips off the right edge. */
 export const TUTOR_PNG_CHAR_PX = 7.82;
 
 /**
- * Wrap a Tutor caption into width bounded lines on word boundaries.
+ * Wrap a Physics Agent caption into width bounded lines on word boundaries.
  * Pure, never throws. Long words split hard so every line fits maxChars.
  * A trailing honesty caveat stays intact on the final line when it fits,
  * so the rendered sheet never splits the mandated tail from its ending.
@@ -318,14 +318,14 @@ export async function composePng(snapshot: Blob, d: ExportData): Promise<Blob> {
         const imgW = Math.max(1, rawW);
         const imgH = Math.max(1, rawH);
         const width = Math.max(imgW + PAD * 2, 760);
-        // Wrap the Tutor row into width bounded lines before allocating the
+        // Wrap the Physics Agent row into width bounded lines before allocating the
         // canvas, so row height accounts for every drawn segment. Other rows
         // stay single line, truncated to the PNG cell width.
         const valueX = PAD + 150;
         const availW = Math.max(100, width - valueX - PAD);
         const maxChars = Math.max(20, Math.floor(availW / TUTOR_PNG_CHAR_PX));
         const displayRows: Array<{ label: string; lines: Array<string> }> = report.rows.map(([label, value]) => {
-            if (label === "Tutor") {
+            if (label === "Physics Agent") {
                 const lines = wrapTutorLinesForPng(value, maxChars);
                 return { label, lines: lines.length > 0 ? lines : [value] };
             }

@@ -108,7 +108,7 @@ describe("batch turn chrome removed from render", () => {
         expect(consoleSrc).not.toContain("extra?.reasoning");
         expect(consoleSrc).not.toContain("extra?.applied");
         expect(consoleSrc).not.toContain("tutorLine");
-        expect(consoleSrc).not.toContain("Tutor: {");
+        expect(consoleSrc).not.toContain("Physics Agent: {");
         const html = renderToStaticMarkup(
             <EditorTabs tabs={defaultCaseTabs()} activeId={defaultCaseTabs()[0].id} onActivate={() => {}} />,
         );

@@ -34,7 +34,7 @@
 * Thumbnail concept: CHAT RUNS CFD in bold mono over flow field still plus small face. Purple suction, cyan wake, RUN card visible.
 * Gifable wow loop: airfoil setup-to-reshape morph, chat turn sent, canvas morphs 2415 to a thinner higher-camber section. Silent loopable, readable at small size.
 * Honesty as differentiator: show provenance labels on camera. Served by analytic preview, potential flow estimate, not validated. Judges remember candor.
-* End on artifact: final flow still with Before versus After tutor table plus end card (name, project, hackathon, repo).
+* End on artifact: final flow still with Before versus After Physics Agent table plus end card (name, project, hackathon, repo).
 
 ## Production Checklist
 * OBS: 1440p canvas, 60 fps, screen plus webcam bottom corner, separate mic track, record to MKV then remux.
@@ -54,7 +54,7 @@
 * Submission form needs: live demo URL, repo URL, YouTube link, short writeup (problem, users, Meta tooling, architecture, next steps), third party asset notes.
 * Writeup mitigation for Tooling 25: the video shows the Meta text model path honestly. The README plus submission writeup document the full orchestration (Meta client, per call cache with 24h Spark TTL, eval ledger with cost, fallback chain with honest error plus Retry) to support the multi model Tooling criterion.
 * YouTube chapters to paste: 0:00 Cold open, chat sets up an airfoil. 0:07 Intro. 0:38 Live demo, four cases. 2:01 Agent architecture. 2:29 Honest labels and limits. 2:40 Next steps and close.
-* Code B roll files in order: src/agent/modalGate.ts (single completion, capped tokens, zero temperature, low reasoning, fail closed), src/agent/agentActions.ts (contract validator, five action cap), src/ui/AgentConsole.tsx (executor plus tutor), src/agent/sessionSpend.ts (5 dollar soft cap).
+* Code B roll files in order: src/agent/modalGate.ts (single completion, capped tokens, zero temperature, low reasoning, fail closed), src/agent/agentActions.ts (contract validator, five action cap), src/ui/AgentConsole.tsx (executor plus Physics Agent), src/agent/sessionSpend.ts (5 dollar soft cap).
 * Captions: export SRT from the editor and upload it, in addition to burned in captions, for judging accessibility.
 * Slide files in order: slides/01-cover.png, slides/02-problem.png, slides/03-product.png, slides/04-users.png, slides/05-harness.png, slides/06-future.png, slides/07-end-card.png.
 * Go or no go 30 min before recording: send each of the 10 verbatim prompts live and confirm the canvas changes as expected. Any misfire swaps to its backup prompt. Confirm warm cache.

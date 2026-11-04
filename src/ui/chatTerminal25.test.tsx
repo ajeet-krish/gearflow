@@ -53,7 +53,7 @@ describe("Phase 25 chat terminal chrome", () => {
     it("keeps the apply receipt in extras while Applied lines never render", async () => {
         const src = await readFile(consolePath, "utf8");
         expect(src).not.toContain("status-pass\">applied");
-        // The receipt strings are still built for the tutor capture, but
+        // The receipt strings are still built for the Physics Agent capture, but
         // the turn render never prints them.
         expect(src).toContain("Applied: ");
         const html = renderToStaticMarkup(
