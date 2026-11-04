@@ -182,8 +182,8 @@ export function sanitizeModalMessages(value: unknown): ModalSanitizedMessage[] {
  * renames), force n to 1, cap max_tokens at 400, force temperature
  * to 0, and pin chat_template_kwargs.reasoning_effort to low (merged
  * over any client supplied chat_template_kwargs so low always wins;
- * GLM small spends the whole 400 token budget on reasoning under the
- * endpoint default medium, leaving empty content). Returns a new
+ * the endpoint default medium would spend the whole 400 token budget
+ * on reasoning, leaving empty content). Returns a new
  * object, never mutates input. The optional env map keeps the override
  * pure and testable; production callers omit it so safeProcessEnv()
  * is read. */
