@@ -1,152 +1,53 @@
-# GearFlow
+<p align="center"><img src="media/projectthumbnail.png" width="800" alt="GearFlow, an agentic interface for computational fluid dynamics" /></p>
 
-GearFlow, an interactive aerodynamics toolkit controlled through natural language.
+# GearFlow: An Agentic Interface for Computational Fluid Dynamics
 
-Traditional CFD setup takes hours of mesh and menu work before any insight appears. GearFlow sets up a case in seconds from plain English, so the flow field is on screen while the question is still fresh.
+What if you could set up an aerodynamics simulation in seconds, without being lost in a sea of menus. Traditional CFD tools are extremely powerful but setting up simulations can take hours.
 
-Live Demo URL: https://gearflow-five.vercel.app/ | Video URL: https://youtu.be/DIGMct427Ak | Offline ready | Solo Indie Push the Frontier
+With GearFlow, describe the simulation you want, and an agent sets it up, runs it, and explains the results.
+
+Live App: https://gearflow-five.vercel.app
+Demo Video: https://youtu.be/DIGMct427Ak
 
 ## Who it is for
 
-Students see physics instantly, with each change explained beside the canvas. Engineers test simple ideas without burning cluster time on repeated simulations.
+Students can ask questions and receive instant visual feedback with physics explanations. Engineers can test simple ideas without wasting compute resources on expensive simulations.
 
-## Live demo walkthrough
+## How it works, two frames
 
-The demo runs four cases, ten turns total. Each prompt below is typed verbatim and sent live. After each turn the canvas morphs to the new case and the chat explains what changed.
+Type plain English in the left rail Agent Console and the physics agent replies with What changed, Why, and Try next, plus a Before versus After table. The center Scene canvas offers a body picker (NACA Airfoil, Cylinder, Rectangle, Orifice) and a field picker (Velocity, Pressure), with a RUN card reading out BODY, ALPHA, RE, CL, and CPMIN beside a labeled colorbar. Example prompts and Tutorials dropdowns plus the composer sit along the bottom, so each turn moves from words to field to explanation in one loop.
 
-Case 1, airfoil. The agent builds the case and explains lift and pressure, then reshapes the section, then raises the angle so the suction peak grows.
+Frame 1, airfoil plus thickness question.
 
-```text
-Set up an airfoil naca 2415 at angle of attack 6
-```
+![GearFlow Studio scene with NACA 2425 airfoil Cp pressure field, RUN card showing CL 1.609](media/airfoil.png)
+Screenshot alt: Agent Console on the left, Scene canvas with airfoil pressure field and RUN card on the right.
 
-The canvas builds the airfoil field, the chat explains the lift coefficient and the pressure coefficient.
+The user prompt reads increase the thickness. The canvas builds a NACA 2425 airfoil at alpha 10 deg and Re 200,000 in the Cp pressure field, with the RUN card reading BODY NACA 2425, ALPHA 10.0 deg, RE 200,000, CL 1.609, and CPMIN minus 3.316.
 
-```text
-increase camber and decrease thickness
-```
+The tutor explains that the thicker section strengthens the suction peak while camber and alpha stay fixed, so the change is purely a thickness effect. It names Try next as nudging alpha by 1 deg to test whether the suction peak grows faster on the fatter section, and it carries the honest physics note that potential flow omits separation and stall, so real thick sections at high alpha may differ.
 
-The canvas reshapes the section, the chat explains the new camber and thickness.
+Frame 2, orifice plus constriction question.
 
-```text
-increase the angle to 10
-```
+![GearFlow Studio scene with orifice plate velocity field, RUN card showing CPMIN minus 50.234](media/orifice.png)
+Screenshot alt: Agent Console on the left, Scene canvas with orifice velocity field and streamlines on the right.
 
-The canvas updates the field at the higher angle, the chat calls out the growing suction peak.
+The user prompt reads show me what happens when flow is constricted. The canvas builds the orifice plate with 0.4 gap opening and 0.08 plate thickness at Re 1000 in the velocity field, with streamlines squeezing through the gap and the RUN card reading CPMIN minus 50.234.
 
-Case 2, cylinder. The agent builds the default wake case, then widens the body.
+The tutor explains the venturi effect, where continuity forces speedup through the gap and Bernoulli means lower pressure, so Cp dips hardest inside the gap and recovers downstream. The Before versus After table maps the prior cylinder case to the orifice, and Try next suggests shrinking the gap further to reason through even higher speed and a larger pressure drop.
 
-```text
-Show me a flow around a cylinder
-```
-
-The canvas builds the cylinder wake, the chat explains the new case.
-
-```text
-increase radius
-```
-
-The canvas widens the body, the chat explains the wider wake.
-
-Case 3, square. The agent builds the block field, then stretches and rotates it.
-
-```text
-Show me flow around a square
-```
-
-The canvas builds the block field, the chat explains the new case.
-
-```text
-increase the length and rotate a bit
-```
-
-The canvas stretches and rotates the block, the chat explains the new orientation.
-
-Case 4, constriction. The agent explains the physics and builds the orifice, then switches the field to pressure, then widens the gap.
-
-```text
-what happens when flow is constricted
-```
-
-The canvas builds the orifice constriction, the chat teaches the constriction physics.
-
-```text
-what happens to pressure
-```
-
-The field switches to Cp, the canvas shows the gap pressure drop speeding the flow, the chat explains why.
-
-```text
-widen the gap a lot
-```
-
-The canvas opens the gap, the chat explains the softer constriction.
-
-Backup prompts for reproducibility, all absolute forms. Use one when a relative turn misfires on camera: `set NACA 3408 at alpha 6`, `set alpha to 10`, `set cylinder radius 0.5`, `set block width 1.2 height 0.5 alpha 10`, `set up the orifice constriction`, `how does this affect pressure`, `set orifice gap 0.8`.
+Try it yourself in the [live demo](https://gearflow-five.vercel.app).
 
 ## Under the hood, one harness per turn
 
 Every chat turn runs the same harness. Words go to a Meta text model through the Modal proxy with one completion, capped length at 400 tokens (`MODAL_MAX_TOKENS` in `src/agent/modalGate.ts`), temperature forced to 0 and `n` fixed to 1 (`forceModel` in `src/agent/modalGate.ts`), low reasoning effort (`MODAL_REASONING_EFFORT` in `src/agent/modalGate.ts`). The model answers in a fenced envelope of actions. A validator checks each action against the contract with a five action cap (`MAX_ENVELOPE_ACTIONS` in `src/agent/agentActions.ts`), and the app executor applies the valid ones (`src/ui/AgentConsole.tsx`). Then the tutor explains what changed, why, and what to try next, with a before versus after table (`src/ui/AgentConsole.tsx`). Session spend carries a 5 dollar soft cap (`SESSION_SPEND_CAP_USD` in `src/agent/sessionSpend.ts`). Failures land honest, with Retry and zero canvas writes (`src/ui/AgentConsole.tsx`).
 
-## Honest limits and provenance
+## Current Limitations
 
-This is 2D inviscid flow estimation, not full viscous CFD. The judged path serves an analytic preview labeled potential flow estimate, not validated. Neural output is predicted, never validated. Every run carries its label on the canvas and in chat, so provenance is visible at a glance. The repo contains additional engine paths in code, but the demo and every claim here cover the analytic preview path only.
-
-On validation, this README quotes the docs instead of claiming live results. The validation panel is debug gated: it mounts only with `?debug=1` (`src/App.tsx`). The panel definition in `src/ui/ValidationPanel.tsx` declares nine offline anchors against vendored XFOIL and literature bands (three PASS tier rows, two WARN rows, four INFO rows, with only a PASS tier failure blocking the demo). The test ledger in `docs/TESTS.md` records suite verdicts for the validator and metric helpers (for example the tiers and metrics suites report PASS), which is not the same as a live panel PASS row. Read a number off the run card only, never invent one.
+At its current stage, the physics is idealized. Inviscid estimation leaves out friction and turbulence, and can never show real separation and stall.
 
 ## Next steps
 
-Next, the agent drives a built in solver end to end for real simulations, growing this harness into a full CFD harness. Image plus audio inputs come later, so an owner can sketch a geometry or ask about turbulence by voice. The goal stays the same: pushing the boundaries of traditional CFD with agentic AI.
-
-## Run it in 5 minutes
-
-```sh
-cp .env.example .env
-```
-
-Set the Modal chat env in `.env` (server only): `MODAL_CHAT_URL` to the full https Modal Shared Endpoint URL, `MODAL_PROXY_TOKEN` to the Bearer token, optional `MODAL_MODEL_ID` when the endpoint is renamed (default `gearflow-chat`). Keep `VITE_MODAL_URL` as the same origin client base (`/api/modal`). `VITE_DEMO_OFFLINE=true` marks the booth copy as offline aware, it never replaces the Modal failure path which stays an honest error turn with Retry.
-
-```sh
-npm install
-npm run dev
-```
-
-```sh
-npm test
-npm run build
-```
-
-Script names verified in `package.json`: `dev`, `build`, `test`, plus optional `pack:offline`, `wasm:build`, `wasm:test`. Then open the dev URL. For Vercel, set the same server only env (`MODAL_CHAT_URL`, `MODAL_PROXY_TOKEN`, optional `MODAL_MODEL_ID`) in the project env and keep `VITE_MODAL_URL` pointed at `/api/modal`. A static export has no server proxy, so live chat needs the serverless proxy path. We stay on Vercel because GitHub Pages rejected the proxy requirement.
-
-For the judged booth copy with no network:
-
-```sh
-VITE_DEMO_OFFLINE=true npm run build
-npm run build
-npm run pack:offline
-npx serve
-```
-
-## Live endpoint runbook (Modal gearflow-chat)
-
-1) Start (scale from zero):
-
-```sh
-set -a
-source .env
-set +a
-curl -s "$MODAL_CHAT_URL" -H "Authorization: Bearer $MODAL_PROXY_TOKEN" -H "Content-Type: application/json" -d '{"model":"gearflow-chat","messages":[{"role":"user","content":"hello"}],"max_tokens":1}'
-```
-
-First hit often returns no upstreams available. That is normal. It triggers the cold boot, about 14 min. Send once, then move to logs.
-
-2) Watch logs with the Modal CLI using the logs command with follow enabled for endpoint `gearflow-chat`. Wait for fired up and ready, then a POST 200 OK. After that, chat in the app streams normally.
-
-3) Keepalive loop (only while debugging or recording): re-run the curl above about once per minute to prevent idle scale to zero during the session. Stop the loop when done.
-
-Config notes: `MODAL_CHAT_URL` must end in `/v1/chat/completions`. Token is the combined `wk` plus `ws` value in `MODAL_PROXY_TOKEN`. Keep `VITE_MODAL_URL=/api/modal`. Restart `npm run dev` after any `.env` change.
-
-Cost note: min 0 (scale to zero) is cheapest for daily use. Use min 1 only for the demo window, then stop it after Nov 9.
+Planned next steps are a built-in solver that the agent can drive end-to-end for real simulations, turning into a comprehensive CFD harness. Research is currently being done on implementing image plus audio inputs, so an owner can sketch a geometry or ask about turbulence by voice. The goal stays the same: pushing the boundaries of traditional CFD with agentic AI.
 
 ## Meta model usage status
 
@@ -157,8 +58,6 @@ Cost note: min 0 (scale to zero) is cheapest for daily use. Use min 1 only for t
 | Built but cut, code present, unmounted | SAM overlay | Cached and offline only, visual layer only, physics mask stays authoritative |
 | Deferred | Glimmer local | No live path in this submission |
 | Deferred | Wonder second voice | No live voice path in this submission |
-
-Video and README label every Meta moment as live versus cached versus fallback.
 
 ## Media and third party assets
 
