@@ -22,8 +22,8 @@ import {
     isModalPath,
     resolveModalUpstreamUrl,
     toGenericError,
-} from "./modalGate";
-import { isSameOriginRequest } from "../meta/proxyGate";
+} from "./modalGate.js";
+import { isSameOriginRequest } from "../meta/proxyGate.js";
 
 export interface ModalServerHandlerDeps {
     fetchFn?: typeof fetch;

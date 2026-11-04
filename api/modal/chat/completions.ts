@@ -2,7 +2,7 @@
 // Thin wrapper: the gate order lives in createModalServerHandler, this
 // file only pins requireOrigin for prod and sets the function timeout.
 
-import { createModalServerHandler } from "../../../src/agent/modalServerHandler";
+import { createModalServerHandler } from "../../../src/agent/modalServerHandler.js";
 
 const handler = createModalServerHandler({ requireOrigin: true });
 
