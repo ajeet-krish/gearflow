@@ -24,7 +24,7 @@ The Physics Agent explains the venturi effect, where continuity forces speedup t
 
 ## Under the hood, one harness per turn
 
-Every chat turn runs the same harness. Words go to a Meta text model through the Modal proxy with one completion, capped length at 400 tokens (`MODAL_MAX_TOKENS` in `src/agent/modalGate.ts`), temperature forced to 0 and `n` fixed to 1 (`forceModel` in `src/agent/modalGate.ts`), low reasoning effort (`MODAL_REASONING_EFFORT` in `src/agent/modalGate.ts`). The model answers in a fenced envelope of actions. A validator checks each action against the contract with a five action cap (`MAX_ENVELOPE_ACTIONS` in `src/agent/agentActions.ts`), and the app executor applies the valid ones (`src/ui/AgentConsole.tsx`). Then the tutor explains what changed, why, and what to try next, with a before versus after table (`src/ui/AgentConsole.tsx`). Session spend carries a 5 dollar soft cap (`SESSION_SPEND_CAP_USD` in `src/agent/sessionSpend.ts`). Failures land honest, with Retry and zero canvas writes (`src/ui/AgentConsole.tsx`).
+Every chat turn runs the same harness. Words go to Meta text model `meta-models/Muse-Spark-Open-816B-A42B-NVFP4` through the Modal proxy with one completion, capped length at 400 tokens (`MODAL_MAX_TOKENS` in `src/agent/modalGate.ts`), temperature forced to 0 and `n` fixed to 1 (`forceModel` in `src/agent/modalGate.ts`), low reasoning effort (`MODAL_REASONING_EFFORT` in `src/agent/modalGate.ts`). The model answers in a fenced envelope of actions. A validator checks each action against the contract with a five action cap (`MAX_ENVELOPE_ACTIONS` in `src/agent/agentActions.ts`), and the app executor applies the valid ones (`src/ui/AgentConsole.tsx`). Then the tutor explains what changed, why, and what to try next, with a before versus after table (`src/ui/AgentConsole.tsx`). Session spend carries a 5 dollar soft cap (`SESSION_SPEND_CAP_USD` in `src/agent/sessionSpend.ts`). Failures land honest, with Retry and zero canvas writes (`src/ui/AgentConsole.tsx`).
 
 ## Current Limitations
 
@@ -40,7 +40,7 @@ Planned next steps are a built-in solver that the agent can drive end-to-end for
 
 | Status | Model or path | How it ships |
 |--------|---------------|--------------|
-| Live | Muse Spark via Modal (`gearflow-chat`) | Single live Meta text model in the judged loop, chat plus tutor, fail closed with Retry |
+| Live | Muse Spark via Modal (`gearflow-chat`, model `meta-models/Muse-Spark-Open-816B-A42B-NVFP4`) | Single live Meta text model in the judged loop, chat plus tutor, fail closed with Retry |
 | Built but cut, code present, unmounted | Muse Image poster path | Explicit action only, not part of the judged loop, labeled cached when shown |
 | Built but cut, code present, unmounted | SAM overlay | Cached and offline only, visual layer only, physics mask stays authoritative |
 | Deferred | Glimmer local | No live path in this submission |
