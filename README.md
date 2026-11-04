@@ -4,7 +4,7 @@ GearFlow, an interactive aerodynamics toolkit controlled through natural languag
 
 Traditional CFD setup takes hours of mesh and menu work before any insight appears. GearFlow sets up a case in seconds from plain English, so the flow field is on screen while the question is still fresh.
 
-Live Demo URL: TODO | Video URL: https://youtu.be/DIGMct427Ak | Offline ready | Solo Indie Push the Frontier
+Live Demo URL: https://gearflow-five.vercel.app/ | Video URL: https://youtu.be/DIGMct427Ak | Offline ready | Solo Indie Push the Frontier
 
 ## Who it is for
 
@@ -185,7 +185,7 @@ Never invent a source or license. The owner must confirm each asset is owned, li
 
 ## Submission checklist
 
-* [ ] Live demo URL (TODO, add before Nov 4).
+* [x] Live demo URL: https://gearflow-five.vercel.app/.
 * [x] Demo video 2 to 3 min: https://youtu.be/DIGMct427Ak (unlisted).
 * [ ] Public repo with this README (setup, keys, run steps).
 * [ ] Short writeup (problem, users, Meta tooling, architecture, next steps).
