@@ -13,29 +13,21 @@ Demo Video: https://youtu.be/DIGMct427Ak
 
 Students can ask questions and receive instant visual feedback with physics explanations. Engineers can test simple ideas without wasting compute resources on expensive simulations.
 
-## How it works, two frames
+## How it works
 
-Type plain English in the left rail Agent Console and the physics agent replies with What changed, Why, and Try next, plus a Before versus After table. The center Scene canvas offers a body picker (NACA Airfoil, Cylinder, Rectangle, Orifice) and a field picker (Velocity, Pressure), with a RUN card reading out BODY, ALPHA, RE, CL, and CPMIN beside a labeled colorbar. Example prompts and Tutorials dropdowns plus the composer sit along the bottom, so each turn moves from words to field to explanation in one loop.
-
-Frame 1, airfoil plus thickness question.
+Type plain English in the left-side chat and the physics agent sets up the simulation and runs it, and provides physics explanations.
 
 ![GearFlow Studio scene with NACA 2425 airfoil Cp pressure field, RUN card showing CL 1.609](media/airfoil.png)
-Screenshot alt: Agent Console on the left, Scene canvas with airfoil pressure field and RUN card on the right.
 
-The user prompt reads increase the thickness. The canvas builds a NACA 2425 airfoil at alpha 10 deg and Re 200,000 in the Cp pressure field, with the RUN card reading BODY NACA 2425, ALPHA 10.0 deg, RE 200,000, CL 1.609, and CPMIN minus 3.316.
 
-The tutor explains that the thicker section strengthens the suction peak while camber and alpha stay fixed, so the change is purely a thickness effect. It names Try next as nudging alpha by 1 deg to test whether the suction peak grows faster on the fatter section, and it carries the honest physics note that potential flow omits separation and stall, so real thick sections at high alpha may differ.
-
-Frame 2, orifice plus constriction question.
+In this example where an airfoil simulation is setup, the user describes adding thickness. The agent makes the changes and also explains that the thicker section strengthens the suction peak while camber and alpha stay fixed, so the change is purely a thickness effect. It names Try next as nudging alpha by 1 deg to test whether the suction peak grows faster on the fatter section, and it carries the honest physics note that potential flow omits separation and stall, so real thick sections at high alpha may differ.
 
 ![GearFlow Studio scene with orifice plate velocity field, RUN card showing CPMIN minus 50.234](media/orifice.png)
 Screenshot alt: Agent Console on the left, Scene canvas with orifice velocity field and streamlines on the right.
 
-The user prompt reads show me what happens when flow is constricted. The canvas builds the orifice plate with 0.4 gap opening and 0.08 plate thickness at Re 1000 in the velocity field, with streamlines squeezing through the gap and the RUN card reading CPMIN minus 50.234.
+The user asks to learn about a specific flow scenario: "show me what happens when flow is constricted". The canvas builds the orifice plate with 0.4 gap opening and 0.08 plate thickness at Re 1000 in the velocity field, with streamlines squeezing through the gap.
 
-The tutor explains the venturi effect, where continuity forces speedup through the gap and Bernoulli means lower pressure, so Cp dips hardest inside the gap and recovers downstream. The Before versus After table maps the prior cylinder case to the orifice, and Try next suggests shrinking the gap further to reason through even higher speed and a larger pressure drop.
-
-Try it yourself in the [live demo](https://gearflow-five.vercel.app).
+The Physics Agent explains the venturi effect, where continuity forces speedup through the gap and Bernoulli means lower pressure, so Cp dips hardest inside the gap and recovers downstream. Try next suggests shrinking the gap further to reason through even higher speed and a larger pressure drop.
 
 ## Under the hood, one harness per turn
 
@@ -44,6 +36,8 @@ Every chat turn runs the same harness. Words go to a Meta text model through the
 ## Current Limitations
 
 At its current stage, the physics is idealized. Inviscid estimation leaves out friction and turbulence, and can never show real separation and stall.
+
+Live chat depends on a paid Modal GPU endpoint. Keeping it online through the week of judging would drain the project funds, so the endpoint runs only for recorded demos. The live Vercel app serves the full interface, but chat turns land honest with Retry while the endpoint is down. The demo video shows the complete live loop.
 
 ## Next steps
 
@@ -58,18 +52,6 @@ Planned next steps are a built-in solver that the agent can drive end-to-end for
 | Built but cut, code present, unmounted | SAM overlay | Cached and offline only, visual layer only, physics mask stays authoritative |
 | Deferred | Glimmer local | No live path in this submission |
 | Deferred | Wonder second voice | No live voice path in this submission |
-
-## Media and third party assets
-
-Docs media placeholders, all still TODO for the owner to land before submission: `docs/media/demo-2min.mp4`, `docs/media/shot-tunnel.png`, `docs/media/shot-agent.png`, `docs/media/shot-validation.png`, `docs/media/shot-export.png`, `docs/media/agent-setup-loop.gif`. No files exist under `docs/media` at the time of writing.
-
-Slide images, all present, source and license TODO for the owner to fill before submission:
-
-* `slides/images/cfd-car.webp` (exists, source TODO, license TODO)
-* `slides/images/ansys-ui.jpg` (exists, source TODO, license TODO)
-* `slides/images/cfd-car.jpg` (exists, source TODO, license TODO)
-
-Never invent a source or license. The owner must confirm each asset is owned, licensed, or replaced before publishing.
 
 ## Docs map
 
