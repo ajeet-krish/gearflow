@@ -2416,6 +2416,39 @@ export default function AgentConsole({
         });
     }
 
+    /** Clear chat: wipes the transcript plus extras (turn extras and
+     *  retry/error state) and persists the empty transcript via saveTurns.
+     *  Single click, no confirm, demo friendly. Never touches canvas or
+     *  solver state: no onAgentAction, no spec, no sweep, no spend, no
+     *  offline calls. Pending tutor capture plus both retry maps clear so
+     *  no stale Retry refires after the wipe. Disabled while a stream or
+     *  sweep runs to protect the live turn. Never throws. */
+    function onClearChat(): void {
+        try {
+            chatRetryRef.current.clear();
+        } catch {
+            // Retry maps never break the clear path.
+        }
+        try {
+            tutorRetryRef.current.clear();
+        } catch {
+            // Retry maps never break the clear path.
+        }
+        try {
+            pendingRef.current = null;
+        } catch {
+            // Pending ref never breaks the clear path.
+        }
+        setPendingTutor(null);
+        setExtras({});
+        setTurns([]);
+        try {
+            saveTurns([]);
+        } catch {
+            // Persistence never breaks the clear path.
+        }
+    }
+
     /** Composer key handling for the chat terminal: Enter rides the
      *  native form submit to send, Escape stops a live stream or sweep and
      *  otherwise releases focus, Tab keeps its native cycle order through
@@ -2712,6 +2745,15 @@ export default function AgentConsole({
                             Send
                         </button>
                     )}
+                    <button
+                        type="button"
+                        className="mBtn chatClear"
+                        onClick={onClearChat}
+                        disabled={busy || sweeping || turns.length === 0}
+                        aria-label="Clear chat"
+                    >
+                        Clear
+                    </button>
                 </form>
             </div>
             {sweeping && sweepProgress !== null && (

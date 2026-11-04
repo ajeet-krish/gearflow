@@ -1,11 +1,12 @@
 // P0 chat TUI contract. Static markup plus pure helpers, zero live
-// calls. Pins the six P0 requirements: no header or offline toggle or
-// clear chrome, Physics Agent role label with a green dot and no live text pill,
+// calls. Pins the six P0 requirements: no header or offline toggle,
+// Physics Agent role label with a green dot and no live text pill,
 // no tool or model pills, example plus tutorial dropdowns side by side
 // in one row, no session cost render with the spend gate still forcing
 // the offline path, and one single combined response with Retry and no
 // collapsed reasoning trace, no rendered apply receipts, and no Physics Agent
-// concept badge.
+// concept badge, plus a Clear chat control in the composer row that wipes
+// turns plus extras and persists the empty transcript.
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -48,15 +49,57 @@ function tutorTurn(): ChatTurn {
 }
 
 describe("P0 chat TUI chrome", () => {
-    it("renders no header, offline toggle, or clear control", () => {
+    it("renders no header or offline toggle, with a Clear chat control", () => {
         const html = renderToStaticMarkup(<AgentConsole offline={false} onOfflineChange={() => {}} />);
         expect(html).not.toContain("chatBar");
         expect(html).not.toContain("agentOffline");
-        expect(html).not.toContain("chatClear");
-        expect(html).not.toContain("Clear chat");
         expect(html).not.toContain("Clear run log");
         expect(html).toContain("tuiConsole");
         expect(html).toContain("chatLog");
+        // Clear chat lives in the composer row: keyboard accessible with
+        // an aria label, disabled when the transcript is empty.
+        expect(html).toContain("chatClear");
+        expect(html).toContain('aria-label="Clear chat"');
+        expect(html).toContain(">Clear</button>");
+    });
+
+    it("places the Clear chat button in the composer row beside Send", () => {
+        const html = renderToStaticMarkup(
+            <AgentConsole
+                offline={false}
+                onOfflineChange={() => {}}
+                initialTurns={[assistantTurn({ status: "live" })]}
+            />
+        );
+        const composerIdx = html.indexOf("composer");
+        const sendIdx = html.indexOf("chatSend");
+        const clearIdx = html.indexOf("chatClear");
+        expect(composerIdx).toBeGreaterThan(-1);
+        expect(sendIdx).toBeGreaterThan(composerIdx);
+        expect(clearIdx).toBeGreaterThan(composerIdx);
+        // With a turn present the button enables; the empty transcript
+        // above renders it disabled.
+        expect(html).not.toContain("chatClear\" disabled");
+        const emptyHtml = renderToStaticMarkup(<AgentConsole offline={false} onOfflineChange={() => {}} />);
+        expect(emptyHtml).toContain("chatClear");
+        expect(emptyHtml).toContain("disabled");
+    });
+
+    it("wipes turns plus extras and persists the empty transcript without canvas writes", async () => {
+        const here = dirname(fileURLToPath(import.meta.url));
+        const src = await readFile(resolve(here, "./AgentConsole.tsx"), "utf8");
+        const clearStart = src.indexOf("function onClearChat");
+        expect(clearStart).toBeGreaterThan(-1);
+        const clearBlock = src.slice(clearStart, clearStart + 1200);
+        expect(clearBlock).toContain("setTurns([])");
+        expect(clearBlock).toContain("setExtras({})");
+        expect(clearBlock).toContain("chatRetryRef.current.clear()");
+        expect(clearBlock).toContain("tutorRetryRef.current.clear()");
+        expect(clearBlock).toContain("setPendingTutor(null)");
+        expect(clearBlock).toContain("saveTurns([])");
+        expect(clearBlock).not.toContain("onAgentAction");
+        expect(clearBlock).not.toContain("onSweepAlpha");
+        expect(clearBlock).not.toContain("onWhatIfSweep");
     });
 
     it("labels live assistant turns Physics Agent with a green dot and no live text pill", () => {
